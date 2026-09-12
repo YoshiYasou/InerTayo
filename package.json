@@ -1,0 +1,31 @@
+{
+  "name": "inertayo",
+  "version": "1.0.0",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "seed": "node server/db/seed.js",
+    "build": "npm --prefix client run build",
+    "client": "npm --prefix client run dev",
+    "test": "node test/api.test.js"
+  },
+  "keywords": [
+    "dagupan",
+    "transit",
+    "route-finder",
+    "philippines",
+    "inertayo"
+  ],
+  "author": "InerTayo Team",
+  "license": "ISC",
+  "description": "InerTayo — Public Transportation Route Information System for Dagupan City, Pangasinan",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "sqlite3": "^6.0.1"
+  }
+}

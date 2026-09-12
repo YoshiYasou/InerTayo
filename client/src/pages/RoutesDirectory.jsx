@@ -1,0 +1,326 @@
+import React, { useState, useEffect } from 'react';
+import { useRouter } from '../context/RouterContext';
+import AdvisoryBanner from '../components/AdvisoryBanner';
+import { 
+  Search, 
+  CarFront, 
+  Bus, 
+  Bike, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Clock, 
+  Banknote,
+  RotateCcw
+} from 'lucide-react';
+
+export default function RoutesDirectory() {
+  const { queryParams, navigate } = useRouter();
+
+  const [searchTerm, setSearchTerm] = useState(queryParams.search || queryParams.from || queryParams.to || '');
+  const [selectedMode, setSelectedMode] = useState(queryParams.mode || 'All Modes');
+  const [sortBy, setSortBy] = useState(queryParams.sort || 'Fastest Travel Time');
+
+  const [routes, setRoutes] = useState([]);
+  const [advisories, setAdvisories] = useState([]);
+  const [modes, setModes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch transport modes
+  useEffect(() => {
+    fetch('/api/transport-modes')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setModes(data);
+      })
+      .catch(err => console.error('Error loading modes:', err));
+
+    fetch('/api/advisories')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAdvisories(data);
+      })
+      .catch(err => console.error('Error loading advisories:', err));
+  }, []);
+
+  // Fetch routes based on query parameters
+  useEffect(() => {
+    fetchFilteredRoutes();
+  }, [queryParams]);
+
+  const fetchFilteredRoutes = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (queryParams.search) params.append('search', queryParams.search);
+      if (queryParams.from) params.append('from', queryParams.from);
+      if (queryParams.to) params.append('to', queryParams.to);
+      if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
+      if (queryParams.sort) params.append('sort', queryParams.sort);
+
+      const res = await fetch(`/api/routes?${params.toString()}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setRoutes(data);
+      }
+    } catch (err) {
+      console.error('Error loading routes:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyFilters = (e) => {
+    e.preventDefault();
+    navigate('/routes', {
+      search: searchTerm.trim(),
+      mode: selectedMode,
+      sort: sortBy
+    });
+  };
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedMode('All Modes');
+    setSortBy('Fastest Travel Time');
+    navigate('/routes');
+  };
+
+  // Mode badge icon helper
+  const renderModeIcon = (modeName) => {
+    const lower = (modeName || '').toLowerCase();
+    if (lower.includes('jeep')) {
+      return (
+        <div className="w-6 h-6 rounded-md bg-pink-100 text-pink-600 flex items-center justify-center">
+          <CarFront className="w-3.5 h-3.5" />
+        </div>
+      );
+    }
+    if (lower.includes('bus')) {
+      return (
+        <div className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center">
+          <Bus className="w-3.5 h-3.5" />
+        </div>
+      );
+    }
+    return (
+      <div className="w-6 h-6 rounded-md bg-cyan-100 text-cyan-600 flex items-center justify-center">
+        <Bike className="w-3.5 h-3.5" />
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50/50 pb-20">
+      
+      {/* Page Header */}
+      <div className="bg-white border-b border-slate-100 pt-10 pb-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-3 border border-emerald-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              Pangasinan Transit Directory
+            </div>
+            
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+              Explore Dagupan Routes
+            </h1>
+            <p className="text-sm sm:text-base text-slate-500 mt-2 leading-relaxed">
+              Browse all available jeepney, bus, and tricycle routes across Dagupan City. Get real-time fare estimates, route maps, and stop schedules.
+            </p>
+          </div>
+
+          {/* Single Consistent Advisory Banner per §0.6 & §10 */}
+          {advisories.length > 0 && (
+            <div className="mt-6">
+              <AdvisoryBanner advisory={advisories[0]} />
+            </div>
+          )}
+
+          {/* Filter Bar matching Page 2 & Page 3 */}
+          <form onSubmit={handleApplyFilters} className="mt-8">
+            <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/90 shadow-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
+              
+              {/* Search input */}
+              <div className="flex-1 relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search landmarks, streets, or routes (e.g. CSI Lucao)"
+                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              {/* Mode dropdown */}
+              <div className="w-full lg:w-48">
+                <label className="sr-only">Transport Type</label>
+                <div className="relative">
+                  <select
+                    value={selectedMode}
+                    onChange={(e) => setSelectedMode(e.target.value)}
+                    className="w-full py-2.5 px-3.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white appearance-none transition-all cursor-pointer"
+                  >
+                    <option value="All Modes">All Modes</option>
+                    {modes.map(m => (
+                      <option key={m.id} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▼</div>
+                </div>
+              </div>
+
+              {/* Sort dropdown */}
+              <div className="w-full lg:w-52">
+                <label className="sr-only">Sort By</label>
+                <div className="relative">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full py-2.5 px-3.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white appearance-none transition-all cursor-pointer"
+                  >
+                    <option value="Fastest Travel Time">Fastest Travel Time</option>
+                    <option value="Cheapest Fare">Cheapest Fare</option>
+                  </select>
+                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▼</div>
+                </div>
+              </div>
+
+              {/* Apply Filters Button */}
+              <button
+                type="submit"
+                className="py-2.5 px-6 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                Apply Filters
+              </button>
+
+            </div>
+          </form>
+
+        </div>
+      </div>
+
+      {/* Main Routes Grid */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
+        
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-slate-900">
+            Available Routes ({routes.length})
+          </h2>
+          {(queryParams.search || queryParams.mode || queryParams.sort) && (
+            <button
+              onClick={handleResetFilters}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-emerald-700 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <div key={n} className="bg-white rounded-2xl p-6 border border-slate-200 animate-pulse h-48"></div>
+            ))}
+          </div>
+        ) : routes.length === 0 ? (
+          <div className="bg-white rounded-2xl p-12 text-center border border-slate-200/80 shadow-sm max-w-lg mx-auto mt-6">
+            <Search className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-slate-800">No matching routes found</h3>
+            <p className="text-sm text-slate-500 mt-1 mb-6">
+              Try searching for common Dagupan landmarks like Bonuan, CSI Lucao, Perez Blvd, or Calasiao.
+            </p>
+            <button
+              onClick={handleResetFilters}
+              className="py-2 px-4 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-emerald-600 transition-colors"
+            >
+              View All Routes
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {routes.map((route) => {
+              const isDetour = route.status === 'DETOUR_ACTIVE';
+              return (
+                <div
+                  key={route.id}
+                  className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-sm hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Card Top: Mode + Status Badge */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2">
+                        {renderModeIcon(route.mode_name)}
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                          {route.mode_name}
+                        </span>
+                      </div>
+
+                      {/* Status Badge */}
+                      {isDetour ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                          <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          Detour Active
+                        </span>
+                      ) : route.status === 'UNAVAILABLE' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                          Unavailable
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Clear
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Route Name */}
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight mb-5">
+                      {route.route_name}
+                    </h3>
+
+                    {/* 2-Column Metrics */}
+                    <div className="grid grid-cols-2 gap-4 pb-6 border-b border-slate-100">
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          EST. FARE
+                        </span>
+                        {/* Consistent fare-range formatting per §0.7: ₱X – ₱Y */}
+                        <span className="text-base font-extrabold text-slate-900">
+                          ₱{Math.round(route.minimum_fare)} – ₱{Math.round(route.maximum_fare)}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                          TRAVEL TIME
+                        </span>
+                        {/* Advisory-adjusted estimated travel time per §0.5 */}
+                        <span className={`text-base font-extrabold ${isDetour ? 'text-amber-700' : 'text-slate-900'}`}>
+                          {route.active_travel_time || route.estimated_time} mins
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Button at bottom matching UI */}
+                  <button
+                    onClick={() => navigate(`/routes/${route.id}`)}
+                    className="w-full mt-5 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold tracking-wide uppercase transition-all shadow-sm active:scale-98 text-center"
+                  >
+                    View Route Details
+                  </button>
+
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+      </div>
+
+    </div>
+  );
+}
