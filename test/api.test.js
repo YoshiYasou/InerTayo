@@ -764,6 +764,53 @@ async function runTests() {
         });
         assert(delNonExistentAdv.status === 404, 'GAP-11: DELETE /api/admin/advisories/99999 returns 404');
 
+        // -------------------------------------------------------------
+        // 6. DAGUPAN STREET SEARCH & LOCATION SUGGESTIONS (§Street Search)
+        // -------------------------------------------------------------
+        console.log('\n[6. Dagupan Street Search & Location Suggestions]');
+
+        // Suggestions with road query
+        const sugPerez = await makeRequest('GET', '/api/search/suggestions?q=Perez');
+        assert(
+            sugPerez.status === 200 && Array.isArray(sugPerez.data) && sugPerez.data.some(s => s.name.includes('Perez Boulevard')),
+            'GET /api/search/suggestions?q=Perez returns Perez Boulevard'
+        );
+
+        // Suggestions with barangay query
+        const sugBonuan = await makeRequest('GET', '/api/search/suggestions?q=Bonuan');
+        assert(
+            sugBonuan.status === 200 && Array.isArray(sugBonuan.data) && sugBonuan.data.some(s => s.typeLabel === 'Barangay' || s.type === 'BARANGAY'),
+            'GET /api/search/suggestions?q=Bonuan returns Bonuan barangays'
+        );
+
+        // Alias / keyword search matching (AB Fernandez)
+        const sugAB = await makeRequest('GET', '/api/search/suggestions?q=AB+Fernandez');
+        assert(
+            sugAB.status === 200 && sugAB.data.some(s => s.name.includes('A.B. Fernandez')),
+            'GET /api/search/suggestions matches aliases (AB Fernandez -> A.B. Fernandez Avenue)'
+        );
+
+        // Barangay type filtering
+        const barangays = await makeRequest('GET', '/api/locations?type=BARANGAY');
+        assert(
+            barangays.status === 200 && barangays.data.length === 31,
+            'GET /api/locations?type=BARANGAY returns all 31 Dagupan barangays'
+        );
+
+        // Road / Street type filtering
+        const roads = await makeRequest('GET', '/api/locations?type=ROAD');
+        assert(
+            roads.status === 200 && roads.data.length >= 28,
+            'GET /api/locations?type=ROAD returns Dagupan streets and roads'
+        );
+
+        // Route search matching street/barangay
+        const routesSearch = await makeRequest('GET', '/api/routes?search=Bonuan');
+        assert(
+            routesSearch.status === 200 && Array.isArray(routesSearch.data) && routesSearch.data.length > 0,
+            'GET /api/routes?search=Bonuan finds routes serving Bonuan'
+        );
+
     } catch (err) {
         console.error('Test execution error:', err);
         failed++;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
+import LocationAutocomplete from '../components/LocationAutocomplete';
 import { 
   ArrowUpDown, 
   MapPin, 
@@ -21,7 +22,6 @@ export default function Home() {
   const [preference, setPreference] = useState('fastest'); // 'fastest' | 'cheapest'
   const [activeAdvisory, setActiveAdvisory] = useState(null);
   const [modes, setModes] = useState([]);
-  const [landmarks, setLandmarks] = useState([]);
 
   useEffect(() => {
     // Fetch active advisories
@@ -43,16 +43,6 @@ export default function Home() {
         }
       })
       .catch(err => console.error('Error loading modes:', err));
-
-    // Fetch landmarks for autocomplete
-    fetch('/api/landmarks')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setLandmarks(data);
-        }
-      })
-      .catch(err => console.error('Error loading landmarks:', err));
   }, []);
 
   const handleSwap = () => {
@@ -101,20 +91,17 @@ export default function Home() {
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                         FROM (START)
                       </label>
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-5 h-5 rounded-full border-2 border-slate-400 flex items-center justify-center flex-shrink-0">
-                          <div className="w-2 h-2 rounded-full bg-slate-400"></div>
-                        </div>
-                        <input
-                          type="text"
-                          required
-                          list="dagupan-landmarks"
-                          value={fromLocation}
-                          onChange={(e) => setFromLocation(e.target.value)}
-                          placeholder="e.g. Bonuan Beach, Dagupan"
-                          className="w-full bg-transparent text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
-                        />
-                      </div>
+                      <LocationAutocomplete
+                        value={fromLocation}
+                        onChange={setFromLocation}
+                        placeholder="e.g. Bonuan Beach, Dagupan"
+                        required
+                        icon={
+                          <div className="w-5 h-5 rounded-full border-2 border-slate-400 flex items-center justify-center flex-shrink-0">
+                            <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                          </div>
+                        }
+                      />
                     </div>
 
                     {/* Swap Button */}
@@ -134,26 +121,14 @@ export default function Home() {
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                         TO (DESTINATION)
                       </label>
-                      <div className="flex items-center gap-2.5">
-                        <MapPin className="w-5 h-5 text-rose-500 flex-shrink-0" />
-                        <input
-                          type="text"
-                          required
-                          list="dagupan-landmarks"
-                          value={toLocation}
-                          onChange={(e) => setToLocation(e.target.value)}
-                          placeholder="e.g. CSI Mall, Dagupan"
-                          className="w-full bg-transparent text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
-                        />
-                      </div>
+                      <LocationAutocomplete
+                        value={toLocation}
+                        onChange={setToLocation}
+                        placeholder="e.g. CSI Mall, Dagupan"
+                        required
+                        icon={<MapPin className="w-5 h-5 text-rose-500 flex-shrink-0" />}
+                      />
                     </div>
-
-                    {/* Datalist for autocomplete per Addendum */}
-                    <datalist id="dagupan-landmarks">
-                      {landmarks.map((lm) => (
-                        <option key={lm.id} value={lm.name} />
-                      ))}
-                    </datalist>
 
                   </div>
 

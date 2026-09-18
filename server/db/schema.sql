@@ -144,18 +144,20 @@ CREATE TABLE IF NOT EXISTS landmarks (
 -- ============================================================
 -- Unified Locations table
 -- Authoritative place catalog for streets, landmarks, river stops, etc.
--- type: STREET | LANDMARK | ESTABLISHMENT | TERMINAL | STOP
---       | INTERSECTION | BARANGAY | RIVER_STOP
+-- type: STREET | ROAD | LANDMARK | ESTABLISHMENT | TERMINAL | STOP
+--       | INTERSECTION | BARANGAY | RIVER_STOP | DESTINATION
 -- Coordinates are canonical here — never hard-coded in frontend.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS locations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
+    barangay TEXT,
     address TEXT,
     latitude REAL,
     longitude REAL,
     description TEXT,
+    search_keywords TEXT,
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -213,6 +215,9 @@ CREATE INDEX IF NOT EXISTS idx_saved_routes_user ON saved_routes(user_id);
 CREATE INDEX IF NOT EXISTS idx_landmarks_type ON landmarks(type);
 CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(type);
 CREATE INDEX IF NOT EXISTS idx_locations_name ON locations(name);
+CREATE INDEX IF NOT EXISTS idx_locations_barangay ON locations(barangay);
+CREATE INDEX IF NOT EXISTS idx_locations_keywords ON locations(search_keywords);
 CREATE INDEX IF NOT EXISTS idx_route_segments_route ON route_segments(route_id, segment_order);
 CREATE INDEX IF NOT EXISTS idx_boat_details_route ON boat_route_details(route_id);
+
 

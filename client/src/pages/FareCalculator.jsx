@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
+import LocationAutocomplete from '../components/LocationAutocomplete';
 import { Calculator, MapPin, Footprints, CarFront, Bike, Bus, AlertCircle, Ship } from 'lucide-react';
 
 export default function FareCalculator() {
@@ -96,15 +97,13 @@ export default function FareCalculator() {
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
                   FROM
                 </label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    required
+                <div className="bg-slate-50/70 border border-slate-200 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:bg-white transition-all">
+                  <LocationAutocomplete
                     value={fromLoc}
-                    onChange={(e) => setFromLoc(e.target.value)}
-                    placeholder="Enter starting landmark or terminal"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50/70 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                    onChange={setFromLoc}
+                    placeholder="Enter starting landmark, street, or terminal"
+                    required
+                    icon={<MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />}
                   />
                 </div>
               </div>
@@ -114,15 +113,13 @@ export default function FareCalculator() {
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
                   TO
                 </label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-rose-500 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    required
+                <div className="bg-slate-50/70 border border-slate-200 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:bg-white transition-all">
+                  <LocationAutocomplete
                     value={toLoc}
-                    onChange={(e) => setToLoc(e.target.value)}
-                    placeholder="Enter destination landmark or terminal"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50/70 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                    onChange={setToLoc}
+                    placeholder="Enter destination landmark, street, or terminal"
+                    required
+                    icon={<MapPin className="w-4 h-4 text-rose-500 flex-shrink-0" />}
                   />
                 </div>
               </div>

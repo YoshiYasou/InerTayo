@@ -26,11 +26,111 @@ router.get('/transport-modes', async (req, res) => {
     }
 });
 
+// GET /api/search/suggestions - Unified search suggestions across locations, streets, barangays, landmarks & routes
+router.get('/search/suggestions', async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim() === '') {
+            return res.json([]);
+        }
+
+        const queryTerm = q.trim();
+        const term = `%${queryTerm}%`;
+
+        // 1. Search Locations (Streets, Roads, Barangays, Landmarks, Terminals, etc.)
+        const matchingLocations = await query.all(
+            `SELECT id, name, type, barangay, address, latitude, longitude, search_keywords
+             FROM locations
+             WHERE status = 'ACTIVE' AND (
+                 name LIKE ? OR 
+                 barangay LIKE ? OR 
+                 search_keywords LIKE ? OR 
+                 address LIKE ?
+             )
+             ORDER BY 
+                 CASE 
+                     WHEN LOWER(name) = LOWER(?) THEN 1
+                     WHEN LOWER(name) LIKE ? THEN 2
+                     WHEN search_keywords LIKE ? THEN 3
+                     ELSE 4
+                 END,
+                 name ASC
+             LIMIT 12`,
+            [term, term, term, term, queryTerm, `${queryTerm.toLowerCase()}%`, term]
+        );
+
+        const getTypeLabel = (type) => {
+            const upper = (type || '').toUpperCase();
+            switch (upper) {
+                case 'STREET':
+                case 'ROAD':
+                    return 'Street / Road';
+                case 'BARANGAY':
+                    return 'Barangay';
+                case 'LANDMARK':
+                case 'ESTABLISHMENT':
+                    return 'Landmark';
+                case 'TERMINAL':
+                    return 'Terminal';
+                case 'RIVER_STOP':
+                    return 'River Stop';
+                case 'DESTINATION':
+                    return 'Destination';
+                case 'INTERSECTION':
+                    return 'Intersection';
+                default:
+                    return 'Location';
+            }
+        };
+
+        const locationSuggestions = matchingLocations.map(loc => ({
+            id: loc.id,
+            name: loc.name,
+            type: loc.type,
+            typeLabel: getTypeLabel(loc.type),
+            barangay: loc.barangay,
+            address: loc.address,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            category: 'location'
+        }));
+
+        // 2. Search Routes (by route_name, origin, destination, description)
+        const matchingRoutes = await query.all(
+            `SELECT r.id, r.route_name, tm.name AS mode_name, tm.icon AS mode_icon, r.origin, r.destination, r.status
+             FROM routes r
+             JOIN transport_modes tm ON r.transport_mode_id = tm.id
+             WHERE r.route_name LIKE ? OR r.origin LIKE ? OR r.destination LIKE ? OR r.description LIKE ?
+             ORDER BY r.route_name ASC
+             LIMIT 6`,
+            [term, term, term, term]
+        );
+
+        const routeSuggestions = matchingRoutes.map(r => ({
+            id: r.id,
+            name: r.route_name,
+            type: 'ROUTE',
+            typeLabel: 'Route',
+            mode: r.mode_name,
+            modeIcon: r.mode_icon,
+            origin: r.origin,
+            destination: r.destination,
+            status: r.status,
+            category: 'route'
+        }));
+
+        res.json([...locationSuggestions, ...routeSuggestions]);
+    } catch (err) {
+        console.error('Error fetching search suggestions:', err);
+        res.status(500).json({ error: 'Failed to retrieve search suggestions.' });
+    }
+});
+
 // GET /api/locations - List and search locations (streets, landmarks, river stops, barangays, etc.)
 router.get('/locations', async (req, res) => {
     try {
         const { search, type, status } = req.query;
-        let sql = `SELECT id, name, type, address, latitude, longitude, description, status, created_at, updated_at FROM locations WHERE 1=1`;
+        let sql = `SELECT id, name, type, barangay, address, latitude, longitude, description, search_keywords, status, created_at, updated_at FROM locations WHERE 1=1`;
         const params = [];
 
         // Status filter: default to ACTIVE unless specified as ALL or specific status
@@ -41,17 +141,22 @@ router.get('/locations', async (req, res) => {
             sql += ` AND status = 'ACTIVE'`;
         }
 
-        // Search query: case-insensitive partial match on name, address, or description
+        // Search query: case-insensitive partial match on name, barangay, search_keywords, address, or description
         if (search && search.trim() !== '') {
             const term = `%${search.trim()}%`;
-            sql += ` AND (name LIKE ? OR address LIKE ? OR description LIKE ?)`;
-            params.push(term, term, term);
+            sql += ` AND (name LIKE ? OR barangay LIKE ? OR search_keywords LIKE ? OR address LIKE ? OR description LIKE ?)`;
+            params.push(term, term, term, term, term);
         }
 
-        // Type filter: STREET | LANDMARK | ESTABLISHMENT | TERMINAL | STOP | INTERSECTION | BARANGAY | RIVER_STOP
+        // Type filter: STREET | ROAD | LANDMARK | ESTABLISHMENT | TERMINAL | STOP | INTERSECTION | BARANGAY | RIVER_STOP | DESTINATION
         if (type && type !== 'ALL') {
-            sql += ` AND UPPER(type) = ?`;
-            params.push(type.toUpperCase());
+            const upperType = type.toUpperCase();
+            if (upperType === 'ROAD' || upperType === 'STREET') {
+                sql += ` AND UPPER(type) IN ('STREET', 'ROAD')`;
+            } else {
+                sql += ` AND UPPER(type) = ?`;
+                params.push(upperType);
+            }
         }
 
         sql += ` ORDER BY name ASC`;
@@ -72,7 +177,7 @@ router.get('/locations/:id', async (req, res) => {
         }
 
         const location = await query.get(
-            `SELECT id, name, type, address, latitude, longitude, description, status, created_at, updated_at 
+            `SELECT id, name, type, barangay, address, latitude, longitude, description, search_keywords, status, created_at, updated_at 
              FROM locations WHERE id = ?`,
             [locationId]
         );
@@ -89,8 +194,9 @@ router.get('/locations/:id', async (req, res) => {
              LEFT JOIN route_segments rs ON r.id = rs.route_id
              WHERE rs.start_location_id = ? OR rs.end_location_id = ? 
                 OR r.origin LIKE ? OR r.destination LIKE ?
+                OR r.description LIKE ?
                 OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?)`,
-            [locationId, locationId, `%${location.name}%`, `%${location.name}%`, `%${location.name}%`]
+            [locationId, locationId, `%${location.name}%`, `%${location.name}%`, `%${location.name}%`, `%${location.name}%`]
         );
 
         res.json({
@@ -141,8 +247,8 @@ router.get('/geocode', async (req, res) => {
 
         // 0. Check unified locations table first
         const locMatch = await query.get(
-            `SELECT name, latitude, longitude FROM locations WHERE name LIKE ? AND latitude IS NOT NULL AND longitude IS NOT NULL LIMIT 1`,
-            [`%${cleanQuery}%`]
+            `SELECT name, latitude, longitude FROM locations WHERE (name LIKE ? OR search_keywords LIKE ? OR barangay LIKE ?) AND latitude IS NOT NULL AND longitude IS NOT NULL LIMIT 1`,
+            [`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`]
         );
 
         if (locMatch) {
@@ -318,7 +424,7 @@ router.get('/routes', async (req, res) => {
             params.push(mode);
         }
 
-        // Search query (matches route name, origin, destination, description, or connected stops/locations)
+        // Search query (matches route name, origin, destination, description, stops, or connected locations/streets/barangays/keywords)
         if (search && search.trim() !== '') {
             const term = `%${search.trim()}%`;
             sql += ` AND (
@@ -327,22 +433,46 @@ router.get('/routes', async (req, res) => {
                 r.destination LIKE ? OR 
                 r.description LIKE ? OR
                 r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR
-                r.id IN (SELECT route_id FROM route_segments rs JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id WHERE l.name LIKE ?)
+                r.id IN (
+                    SELECT route_id FROM route_segments rs 
+                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
+                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
+                )
             )`;
-            params.push(term, term, term, term, term, term);
+            params.push(term, term, term, term, term, term, term, term);
         }
 
         // FROM / TO specific filtering if passed
         if (from && from.trim() !== '') {
             const termFrom = `%${from.trim()}%`;
-            sql += ` AND (r.origin LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR r.id IN (SELECT route_id FROM route_segments rs JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id WHERE l.name LIKE ?))`;
-            params.push(termFrom, termFrom, termFrom, termFrom);
+            sql += ` AND (
+                r.origin LIKE ? OR 
+                r.route_name LIKE ? OR 
+                r.description LIKE ? OR
+                r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR 
+                r.id IN (
+                    SELECT route_id FROM route_segments rs 
+                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
+                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
+                )
+            )`;
+            params.push(termFrom, termFrom, termFrom, termFrom, termFrom, termFrom, termFrom);
         }
 
         if (to && to.trim() !== '') {
             const termTo = `%${to.trim()}%`;
-            sql += ` AND (r.destination LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR r.id IN (SELECT route_id FROM route_segments rs JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id WHERE l.name LIKE ?))`;
-            params.push(termTo, termTo, termTo, termTo);
+            sql += ` AND (
+                r.destination LIKE ? OR 
+                r.route_name LIKE ? OR 
+                r.description LIKE ? OR
+                r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR 
+                r.id IN (
+                    SELECT route_id FROM route_segments rs 
+                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
+                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
+                )
+            )`;
+            params.push(termTo, termTo, termTo, termTo, termTo, termTo, termTo);
         }
 
         // Sorting
@@ -1012,8 +1142,8 @@ router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => 
 // ============================================================================
 
 const VALID_LOCATION_TYPES = [
-    'STREET', 'LANDMARK', 'ESTABLISHMENT', 'TERMINAL', 
-    'STOP', 'INTERSECTION', 'BARANGAY', 'RIVER_STOP'
+    'STREET', 'ROAD', 'LANDMARK', 'ESTABLISHMENT', 'TERMINAL', 
+    'STOP', 'INTERSECTION', 'BARANGAY', 'RIVER_STOP', 'DESTINATION'
 ];
 
 // GET /api/admin/locations - List all locations
@@ -1034,9 +1164,9 @@ router.get('/admin/locations', authenticateToken, requireAdmin, async (req, res)
         }
 
         if (search && search.trim() !== '') {
-            sql += ` AND (name LIKE ? OR address LIKE ? OR description LIKE ?)`;
+            sql += ` AND (name LIKE ? OR barangay LIKE ? OR search_keywords LIKE ? OR address LIKE ? OR description LIKE ?)`;
             const term = `%${search.trim()}%`;
-            params.push(term, term, term);
+            params.push(term, term, term, term, term);
         }
 
         sql += ` ORDER BY name ASC`;
@@ -1051,7 +1181,7 @@ router.get('/admin/locations', authenticateToken, requireAdmin, async (req, res)
 // POST /api/admin/locations - Create a new location
 router.post('/admin/locations', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { name, type, address, latitude, longitude, description, status = 'ACTIVE' } = req.body;
+        const { name, type, barangay, address, latitude, longitude, description, search_keywords, status = 'ACTIVE' } = req.body;
 
         if (!name || typeof name !== 'string' || name.trim() === '') {
             return res.status(400).json({ error: 'Location name is required.' });
@@ -1082,9 +1212,19 @@ router.post('/admin/locations', authenticateToken, requireAdmin, async (req, res
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
         const result = await query.run(
-            `INSERT INTO locations (name, type, address, latitude, longitude, description, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name.trim(), type.toUpperCase(), address ? address.trim() : null, lat, lng, description ? description.trim() : null, validStatus]
+            `INSERT INTO locations (name, type, barangay, address, latitude, longitude, description, search_keywords, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                name.trim(), 
+                type.toUpperCase(), 
+                barangay ? barangay.trim() : null, 
+                address ? address.trim() : null, 
+                lat, 
+                lng, 
+                description ? description.trim() : null, 
+                search_keywords ? search_keywords.trim() : null, 
+                validStatus
+            ]
         );
 
         res.status(201).json({
@@ -1105,7 +1245,7 @@ router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, 
             return res.status(400).json({ error: 'Invalid location ID format.' });
         }
 
-        const { name, type, address, latitude, longitude, description, status } = req.body;
+        const { name, type, barangay, address, latitude, longitude, description, search_keywords, status } = req.body;
 
         if (!name || typeof name !== 'string' || name.trim() === '') {
             return res.status(400).json({ error: 'Location name is required.' });
@@ -1145,14 +1285,27 @@ router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, 
             `UPDATE locations SET
                 name = ?,
                 type = ?,
+                barangay = ?,
                 address = ?,
                 latitude = ?,
                 longitude = ?,
                 description = ?,
+                search_keywords = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
-            [name.trim(), type.toUpperCase(), address ? address.trim() : null, lat, lng, description ? description.trim() : null, validStatus, locationId]
+            [
+                name.trim(), 
+                type.toUpperCase(), 
+                barangay ? barangay.trim() : null, 
+                address ? address.trim() : null, 
+                lat, 
+                lng, 
+                description ? description.trim() : null, 
+                search_keywords ? search_keywords.trim() : null, 
+                validStatus, 
+                locationId
+            ]
         );
 
         res.json({ message: 'Location updated successfully.' });

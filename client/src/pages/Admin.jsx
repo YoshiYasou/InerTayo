@@ -72,6 +72,8 @@ export default function Admin() {
   const [locationFormData, setLocationFormData] = useState({
     name: '',
     type: 'LANDMARK',
+    barangay: '',
+    search_keywords: '',
     address: '',
     lat: '',
     lng: '',
@@ -79,7 +81,7 @@ export default function Admin() {
     status: 'ACTIVE'
   });
 
-  const LOCATION_TYPES = ['STREET', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP'];
+  const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
 
   useEffect(() => {
     if (!isAdmin) {
@@ -364,7 +366,17 @@ export default function Admin() {
   // Location Handlers
   const openNewLocationModal = () => {
     setEditingLocation(null);
-    setLocationFormData({ name: '', type: 'LANDMARK', address: '', lat: '', lng: '', description: '', status: 'ACTIVE' });
+    setLocationFormData({
+      name: '',
+      type: 'LANDMARK',
+      barangay: '',
+      search_keywords: '',
+      address: '',
+      lat: '',
+      lng: '',
+      description: '',
+      status: 'ACTIVE'
+    });
     setLocationModalOpen(true);
   };
 
@@ -373,6 +385,8 @@ export default function Admin() {
     setLocationFormData({
       name: loc.name,
       type: loc.type,
+      barangay: loc.barangay || '',
+      search_keywords: loc.search_keywords || '',
       address: loc.address || '',
       lat: loc.lat,
       lng: loc.lng,
@@ -811,6 +825,7 @@ export default function Admin() {
                 <tr>
                   <th className="py-3 px-4">Name</th>
                   <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Barangay</th>
                   <th className="py-3 px-4">Address</th>
                   <th className="py-3 px-4">Coordinates</th>
                   <th className="py-3 px-4">Status</th>
@@ -819,7 +834,7 @@ export default function Admin() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {locations.length === 0 ? (
-                  <tr><td colSpan="6" className="text-center text-slate-400 py-8">No locations configured yet.</td></tr>
+                  <tr><td colSpan="7" className="text-center text-slate-400 py-8">No locations configured yet.</td></tr>
                 ) : (
                   locations.map((loc) => (
                     <tr key={loc.id} className="hover:bg-slate-50/70 transition-colors">
@@ -829,9 +844,11 @@ export default function Admin() {
                           loc.type === 'RIVER_STOP' ? 'bg-blue-50 text-blue-700' :
                           loc.type === 'TERMINAL' ? 'bg-orange-50 text-orange-700' :
                           loc.type === 'BARANGAY' ? 'bg-teal-50 text-teal-700' :
+                          loc.type === 'ROAD' || loc.type === 'STREET' ? 'bg-indigo-50 text-indigo-700' :
                           'bg-slate-100 text-slate-600'
                         }`}>{loc.type}</span>
                       </td>
+                      <td className="py-3 px-4 text-slate-500 max-w-[130px] truncate">{loc.barangay || '—'}</td>
                       <td className="py-3 px-4 text-slate-500 max-w-[160px] truncate">{loc.address || '—'}</td>
                       <td className="py-3 px-4 font-mono text-slate-400">{Number(loc.lat).toFixed(4)}, {Number(loc.lng).toFixed(4)}</td>
                       <td className="py-3 px-4">
@@ -944,6 +961,22 @@ export default function Admin() {
                     <option value="ACTIVE">ACTIVE</option>
                     <option value="INACTIVE">INACTIVE</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Barangay</label>
+                  <input type="text" value={locationFormData.barangay}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, barangay: e.target.value })}
+                    placeholder="e.g. Downtown, Herrero-Perez"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Search Keywords / Aliases</label>
+                  <input type="text" value={locationFormData.search_keywords}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, search_keywords: e.target.value })}
+                    placeholder="e.g. SM Dagupan, Herrero, Perez"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
                 </div>
               </div>
               <div>

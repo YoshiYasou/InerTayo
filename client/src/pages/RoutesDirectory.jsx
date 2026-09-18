@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import AdvisoryBanner from '../components/AdvisoryBanner';
+import LocationAutocomplete from '../components/LocationAutocomplete';
 import { 
   Search, 
   CarFront, 
@@ -141,15 +142,21 @@ export default function RoutesDirectory() {
           <form onSubmit={handleApplyFilters} className="mt-8">
             <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/90 shadow-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
               
-              {/* Search input */}
-              <div className="flex-1 relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
+              {/* Search input with autocomplete */}
+              <div className="flex-1 relative bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:bg-white transition-all">
+                <LocationAutocomplete
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search landmarks, streets, or routes (e.g. CSI Lucao)"
-                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  onChange={setSearchTerm}
+                  onSelect={(item) => {
+                    setSearchTerm(item.name);
+                    navigate('/routes', {
+                      search: item.name,
+                      mode: selectedMode,
+                      sort: sortBy
+                    });
+                  }}
+                  placeholder="Search landmarks, streets, barangays, or routes (e.g. Perez, Bonuan Gueset)"
+                  icon={<Search className="w-4 h-4 text-slate-400 flex-shrink-0" />}
                 />
               </div>
 
@@ -208,7 +215,7 @@ export default function RoutesDirectory() {
           <h2 className="text-xl font-bold text-slate-900">
             Available Routes ({routes.length})
           </h2>
-          {(queryParams.search || queryParams.mode || queryParams.sort) && (
+          {(queryParams.search || queryParams.from || queryParams.to || queryParams.mode || queryParams.sort) && (
             <button
               onClick={handleResetFilters}
               className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-emerald-700 transition-colors"
@@ -228,15 +235,17 @@ export default function RoutesDirectory() {
         ) : routes.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200/80 shadow-sm max-w-lg mx-auto mt-6">
             <Search className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-slate-800">No matching routes found</h3>
-            <p className="text-sm text-slate-500 mt-1 mb-6">
-              Try searching for common Dagupan landmarks like Bonuan, CSI Lucao, Perez Blvd, or Calasiao.
+            <h3 className="text-lg font-bold text-slate-800">No routes currently registered for this location.</h3>
+            <p className="text-sm text-slate-500 mt-1.5 mb-6">
+              {searchTerm || queryParams.from || queryParams.to
+                ? `No public transit routes currently connect with "${searchTerm || queryParams.from || queryParams.to}". Try searching another street or major terminal.`
+                : 'No transit routes currently match the selected criteria.'}
             </p>
             <button
               onClick={handleResetFilters}
-              className="py-2 px-4 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-emerald-600 transition-colors"
+              className="py-2.5 px-5 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-emerald-600 transition-colors shadow-sm"
             >
-              View All Routes
+              View All Available Routes
             </button>
           </div>
         ) : (

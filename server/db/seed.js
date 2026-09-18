@@ -428,44 +428,522 @@ async function seed() {
     }
     console.log('Landmarks seeded (12 reference points).');
 
-    // 11. Seed Unified Locations (SAMPLE DATA — clearly labeled)
-    // Covers all 8 location types. These are approximate positions for demonstration only.
+    // 11. Seed Unified Locations (Authoritative Dagupan dataset with search keywords & barangays)
     const locationsData = [
-        { name: 'A.B. Fernandez Avenue', type: 'STREET', address: 'Dagupan City', lat: 16.0440, lng: 120.3380, desc: 'SAMPLE DATA — Major thoroughfare in Dagupan. Prone to flooding during high tide.' },
-        { name: 'Perez Boulevard', type: 'STREET', address: 'Dagupan City', lat: 16.0415, lng: 120.3385, desc: 'SAMPLE DATA — Primary commercial boulevard along the riverfront.' },
-        { name: 'M.H. Del Pilar Street', type: 'STREET', address: 'Downtown Dagupan', lat: 16.0420, lng: 120.3350, desc: 'SAMPLE DATA — Central downtown street near university campuses.' },
-        { name: 'De Venecia Road', type: 'STREET', address: 'Dagupan City', lat: 16.0460, lng: 120.3450, desc: 'SAMPLE DATA — Bypass road used during flood detours.' },
-        { name: 'Galvan Street', type: 'STREET', address: 'Dagupan City', lat: 16.0438, lng: 120.3330, desc: 'SAMPLE DATA — Commercial street with TODA tricycle loading station.' },
-        { name: 'Bonuan Boquig', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0680, lng: 120.3500, desc: 'SAMPLE DATA — Coastal barangay in the Bonuan peninsula.' },
-        { name: 'Bonuan Gueset', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0750, lng: 120.3450, desc: 'SAMPLE DATA — Northern barangay with university communities.' },
-        { name: 'Lucao District', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0270, lng: 120.3220, desc: 'SAMPLE DATA — Southern residential and commercial district.' },
-        { name: 'Mayombo District', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0480, lng: 120.3420, desc: 'SAMPLE DATA — Eastern suburban barangay with bus connections.' },
-        { name: 'Pantal Barangay', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0395, lng: 120.3300, desc: 'SAMPLE DATA — Riverside barangay along the Pantal River.' },
-        { name: 'SM Center Dagupan', type: 'ESTABLISHMENT', address: 'Perez Blvd, Dagupan City', lat: 16.0468, lng: 120.3418, desc: 'SAMPLE DATA — Major shopping mall along Perez Boulevard.' },
-        { name: 'CSI The City Mall Lucao', type: 'ESTABLISHMENT', address: 'Lucao District, Dagupan City', lat: 16.0270, lng: 120.3220, desc: 'SAMPLE DATA — Shopping mall in Lucao district.' },
-        { name: 'Robinsons Place Pangasinan', type: 'ESTABLISHMENT', address: 'Calasiao, Pangasinan', lat: 16.0180, lng: 120.3540, desc: 'SAMPLE DATA — Regional mall near Calasiao.' },
-        { name: 'Dagupan Doctors Villaflor Memorial Hospital', type: 'LANDMARK', address: 'Dagupan City', lat: 16.0490, lng: 120.3400, desc: 'SAMPLE DATA — Major medical center in Dagupan.' },
-        { name: 'University of Pangasinan (PHINMA)', type: 'LANDMARK', address: 'M.H. Del Pilar St, Dagupan City', lat: 16.0418, lng: 120.3362, desc: 'SAMPLE DATA — University campus in downtown Dagupan.' },
-        { name: 'Dagupan City Plaza & St. John Cathedral', type: 'LANDMARK', address: 'Dagupan City Center', lat: 16.0435, lng: 120.3340, desc: 'SAMPLE DATA — Historic city plaza and cathedral.' },
-        { name: 'Tondaligan Beach & People\'s Park', type: 'LANDMARK', address: 'Bonuan, Dagupan City', lat: 16.0880, lng: 120.3520, desc: 'SAMPLE DATA — Popular coastal park and beach area.' },
-        { name: 'Dagupan City Plaza Terminal', type: 'TERMINAL', address: 'Dagupan City Center', lat: 16.0435, lng: 120.3340, desc: 'SAMPLE DATA — Central multi-mode terminal near City Plaza.' },
-        { name: 'Perez Blvd Integrated Bus Terminal', type: 'TERMINAL', address: 'Perez Blvd, Dagupan City', lat: 16.0415, lng: 120.3385, desc: 'SAMPLE DATA — Inter-city bus terminal on Perez Boulevard.' },
-        { name: 'Dagupan Public Market / Malimgas Terminal', type: 'TERMINAL', address: 'Dagupan City', lat: 16.0440, lng: 120.3370, desc: 'SAMPLE DATA — Market-area transport terminal.' },
-        { name: 'A.B. Fernandez & Perez Blvd Intersection', type: 'INTERSECTION', address: 'Dagupan City', lat: 16.0425, lng: 120.3390, desc: 'SAMPLE DATA — Key downtown intersection prone to flooding.' },
-        { name: 'Galvan & Fernandez Crossroad', type: 'INTERSECTION', address: 'Dagupan City', lat: 16.0400, lng: 120.3300, desc: 'SAMPLE DATA — Commercial crossroad in downtown.' },
-        // River Stops — SAMPLE DATA; no boat service is asserted as currently operational
-        { name: 'Pantal River Dock (Bonuan Side)', type: 'RIVER_STOP', address: 'Pantal River, Bonuan Boquig, Dagupan City', lat: 16.0620, lng: 120.3420, desc: 'SAMPLE DATA — Hypothetical river stop. No boat service confirmed as currently operational.' },
-        { name: 'Pantal River Dock (Downtown Side)', type: 'RIVER_STOP', address: 'Pantal River, Pantal Barangay, Dagupan City', lat: 16.0395, lng: 120.3310, desc: 'SAMPLE DATA — Hypothetical river stop. No boat service confirmed as currently operational.' },
+        // -------------------------------------------------------------
+        // A. DAGUPAN STREETS & ROADS (28 Streets per Specification)
+        // -------------------------------------------------------------
+        { 
+            name: 'A.B. Fernandez Avenue', 
+            type: 'STREET', 
+            barangay: 'Poblacion Oeste', 
+            address: 'Downtown Dagupan City', 
+            lat: 16.0440, lng: 120.3380, 
+            desc: 'Major commercial thoroughfare in Dagupan downtown.', 
+            keywords: 'AB Fernandez, A.B Fernandez, AB Fernandez Ave, Fernandez Avenue, Fernandez Ave' 
+        },
+        { 
+            name: 'A.B. Fernandez East', 
+            type: 'STREET', 
+            barangay: 'Herrero', 
+            address: 'East Dagupan City', 
+            lat: 16.0450, lng: 120.3390, 
+            desc: 'Eastern extension of AB Fernandez Avenue leading to Mayombo.', 
+            keywords: 'AB Fernandez East, Fernandez East, AB East' 
+        },
+        { 
+            name: 'A.B. Fernandez West', 
+            type: 'STREET', 
+            barangay: 'Poblacion Oeste', 
+            address: 'West Dagupan City', 
+            lat: 16.0430, lng: 120.3320, 
+            desc: 'Western section of AB Fernandez Avenue connecting to Lucao.', 
+            keywords: 'AB Fernandez West, Fernandez West, AB West' 
+        },
+        { 
+            name: 'Perez Boulevard', 
+            type: 'STREET', 
+            barangay: 'Herrero', 
+            address: 'Dagupan City', 
+            lat: 16.0415, lng: 120.3385, 
+            desc: 'Primary commercial boulevard along the riverfront and bus terminal.', 
+            keywords: 'Perez, Perez Blvd, Perez Boulevard Dagupan, Perez Avenue' 
+        },
+        { 
+            name: 'Burgos Street', 
+            type: 'STREET', 
+            barangay: 'Barangay I', 
+            address: 'Downtown Dagupan City', 
+            lat: 16.0428, lng: 120.3345, 
+            desc: 'Historic central street in downtown Dagupan.', 
+            keywords: 'Burgos, Burgos St, Calle Burgos, Padre Burgos' 
+        },
+        { 
+            name: 'Burgos Extension', 
+            type: 'STREET', 
+            barangay: 'Barangay IV', 
+            address: 'Dagupan City', 
+            lat: 16.0445, lng: 120.3355, 
+            desc: 'Extension connecting Burgos Street to market district.', 
+            keywords: 'Burgos Ext, Burgos Extension Dagupan' 
+        },
+        { 
+            name: 'M.H. Del Pilar Street', 
+            type: 'STREET', 
+            barangay: 'Barangay II', 
+            address: 'Downtown Dagupan City', 
+            lat: 16.0420, lng: 120.3350, 
+            desc: 'Central downtown street near university campuses and city plaza.', 
+            keywords: 'MH del Pilar, MH Del Pilar St, Del Pilar Street, M.H. del Pilar' 
+        },
+        { 
+            name: 'Arellano-Bani Road', 
+            type: 'ROAD', 
+            barangay: 'Pantal', 
+            address: 'Dagupan City', 
+            lat: 16.0495, lng: 120.3395, 
+            desc: 'Road connecting Arellano district towards northern river communities.', 
+            keywords: 'Arellano Bani, Arellano Road, Bani Road, Arellano-Bani' 
+        },
+        { 
+            name: 'Tapuac-Lucao Road', 
+            type: 'ROAD', 
+            barangay: 'Tapuac', 
+            address: 'Dagupan City', 
+            lat: 16.0350, lng: 120.3280, 
+            desc: 'Major corridor between Tapuac school row and Lucao district.', 
+            keywords: 'Tapuac Lucao, Lucao Road, Tapuac Road, Tapuac-Lucao' 
+        },
+        { 
+            name: 'Mayombo-Caranglaan Road', 
+            type: 'ROAD', 
+            barangay: 'Mayombo', 
+            address: 'Dagupan City', 
+            lat: 16.0510, lng: 120.3470, 
+            desc: 'Eastern connector linking Mayombo commercial area with Caranglaan.', 
+            keywords: 'Mayombo Caranglaan, Mayombo Road, Caranglaan Road' 
+        },
+        { 
+            name: 'Bonuan–De Venecia Road', 
+            type: 'ROAD', 
+            barangay: 'Bonuan Boquig', 
+            address: 'Bonuan, Dagupan City', 
+            lat: 16.0650, lng: 120.3480, 
+            desc: 'Scenic highway traversing northern Bonuan coastal district.', 
+            keywords: 'Bonuan De Venecia, De Venecia Highway, De Venecia Ext, Bonuan Road' 
+        },
+        { 
+            name: 'Calasiao–De Venecia Old Highway', 
+            type: 'ROAD', 
+            barangay: 'Lucao', 
+            address: 'Southern Dagupan', 
+            lat: 16.0310, lng: 120.3420, 
+            desc: 'Historic southern route connecting Dagupan City with Calasiao.', 
+            keywords: 'Calasiao De Venecia, Old De Venecia Highway, Calasiao Road' 
+        },
+        { 
+            name: 'Urdaneta Junction–Dagupan–Lingayen Road', 
+            type: 'ROAD', 
+            barangay: 'Caranglaan', 
+            address: 'National Highway, Dagupan City', 
+            lat: 16.0460, lng: 120.3550, 
+            desc: 'Primary provincial highway spanning Pangasinan transit corridors.', 
+            keywords: 'Urdaneta Dagupan Lingayen Road, National Highway, Manila North Road' 
+        },
+        { 
+            name: 'Pangasinan-Zambales Road', 
+            type: 'ROAD', 
+            barangay: 'Lucao', 
+            address: 'Western Dagupan', 
+            lat: 16.0240, lng: 120.3150, 
+            desc: 'Inter-provincial highway heading west towards western Pangasinan.', 
+            keywords: 'Pangasinan Zambales Hwy, Zambales Road, Pangasinan-Zambales' 
+        },
+        { 
+            name: 'Pangasinan-Tarlac Road', 
+            type: 'ROAD', 
+            barangay: 'Caranglaan', 
+            address: 'Eastern Dagupan', 
+            lat: 16.0380, lng: 120.3600, 
+            desc: 'Provincial arterial road towards southern Luzon.', 
+            keywords: 'Pangasinan Tarlac Hwy, Tarlac Road, Pangasinan-Tarlac' 
+        },
+        { 
+            name: 'San Carlos–Calasiao Road', 
+            type: 'ROAD', 
+            barangay: 'Lasip Grande', 
+            address: 'Southern Dagupan', 
+            lat: 16.0150, lng: 120.3500, 
+            desc: 'Arterial connection to San Carlos City and Calasiao town center.', 
+            keywords: 'San Carlos Calasiao Hwy, San Carlos Road, San Carlos-Calasiao' 
+        },
+        { 
+            name: 'Carmen Junction–Bayambang–Manat Road', 
+            type: 'ROAD', 
+            barangay: 'Bacayao Sur', 
+            address: 'Dagupan City', 
+            lat: 16.0290, lng: 120.3390, 
+            desc: 'Transit road connecting central Pangasinan municipalities.', 
+            keywords: 'Carmen Bayambang Manat, Bayambang Road, Manat Road' 
+        },
+        { 
+            name: 'W.A. Jones Street', 
+            type: 'STREET', 
+            barangay: 'Barangay II', 
+            address: 'Downtown Dagupan', 
+            lat: 16.0410, lng: 120.3360, 
+            desc: 'Downtown street near city government offices.', 
+            keywords: 'WA Jones, WA Jones St, Jones Street, W.A. Jones' 
+        },
+        { 
+            name: 'F. Sison Street', 
+            type: 'STREET', 
+            barangay: 'Barangay I', 
+            address: 'Dagupan City', 
+            lat: 16.0432, lng: 120.3372, 
+            desc: 'Commercial street near public market.', 
+            keywords: 'F Sison, F Sison St, Sison Street, F. Sison' 
+        },
+        { 
+            name: 'Malong Street', 
+            type: 'STREET', 
+            barangay: 'Barangay IV', 
+            address: 'Dagupan City', 
+            lat: 16.0442, lng: 120.3365, 
+            desc: 'Downtown residential and commercial street.', 
+            keywords: 'Malong, Malong St, Andres Malong' 
+        },
+        { 
+            name: 'Tesoro Road', 
+            type: 'ROAD', 
+            barangay: 'Malued', 
+            address: 'Dagupan City', 
+            lat: 16.0370, lng: 120.3320, 
+            desc: 'Connecting road through Malued district.', 
+            keywords: 'Tesoro, Tesoro Rd, Tesoro Street' 
+        },
+        { 
+            name: 'Galvan Street', 
+            type: 'STREET', 
+            barangay: 'Barangay I', 
+            address: 'Downtown Dagupan City', 
+            lat: 16.0438, lng: 120.3330, 
+            desc: 'Commercial street with TODA tricycle loading station.', 
+            keywords: 'Galvan, Galvan St, Calle Galvan' 
+        },
+        { 
+            name: 'Nueva Street', 
+            type: 'STREET', 
+            barangay: 'Barangay II', 
+            address: 'Downtown Dagupan', 
+            lat: 16.0418, lng: 120.3340, 
+            desc: 'Downtown street near commercial banks.', 
+            keywords: 'Nueva, Nueva St, Calle Nueva' 
+        },
+        { 
+            name: 'Jovellanos Extension', 
+            type: 'STREET', 
+            barangay: 'Poblacion Oeste', 
+            address: 'Dagupan City', 
+            lat: 16.0422, lng: 120.3315, 
+            desc: 'Extension road in western Poblacion.', 
+            keywords: 'Jovellanos, Jovellanos Ext, Jovellanos Street' 
+        },
+        { 
+            name: 'Zamora Street', 
+            type: 'STREET', 
+            barangay: 'Barangay I', 
+            address: 'Downtown Dagupan', 
+            lat: 16.0430, lng: 120.3358, 
+            desc: 'Street traversing commercial downtown district.', 
+            keywords: 'Zamora, Zamora St, Jacinto Zamora' 
+        },
+        { 
+            name: 'Don Jose Calimlim Road', 
+            type: 'ROAD', 
+            barangay: 'Tapuac', 
+            address: 'Dagupan City', 
+            lat: 16.0390, lng: 120.3290, 
+            desc: 'Road serving university and residential subdivisions.', 
+            keywords: 'Don Jose Calimlim, Calimlim Road, Calimlim St' 
+        },
+        { 
+            name: 'Malued-Guilig Road', 
+            type: 'ROAD', 
+            barangay: 'Malued', 
+            address: 'Dagupan City', 
+            lat: 16.0360, lng: 120.3340, 
+            desc: 'Corridor connecting Malued with Guilig residential areas.', 
+            keywords: 'Malued Guilig, Guilig Road, Malued Road, Malued-Guilig' 
+        },
+        { 
+            name: 'Caranglaan-Bacayao Sur Road', 
+            type: 'ROAD', 
+            barangay: 'Caranglaan', 
+            address: 'Dagupan City', 
+            lat: 16.0420, lng: 120.3510, 
+            desc: 'Connector road linking eastern Caranglaan with Bacayao Sur.', 
+            keywords: 'Caranglaan Bacayao, Bacayao Sur Road, Caranglaan-Bacayao' 
+        },
+        { 
+            name: 'De Venecia Road', 
+            type: 'STREET', 
+            barangay: 'Lucao', 
+            address: 'Dagupan City', 
+            lat: 16.0460, lng: 120.3450, 
+            desc: 'Bypass road used during flood detours and heavy traffic.', 
+            keywords: 'De Venecia Highway, De Venecia Ext, Jose De Venecia Expressway' 
+        },
+
+        // -------------------------------------------------------------
+        // B. ALL 31 DAGUPAN CITY BARANGAYS (type: BARANGAY)
+        // -------------------------------------------------------------
+        { name: 'Bacayao Norte', type: 'BARANGAY', barangay: 'Bacayao Norte', address: 'Dagupan City', lat: 16.0340, lng: 120.3420, desc: 'Barangay Bacayao Norte, Dagupan City.', keywords: 'Bacayao Norte, Brgy Bacayao Norte' },
+        { name: 'Bacayao Sur', type: 'BARANGAY', barangay: 'Bacayao Sur', address: 'Dagupan City', lat: 16.0300, lng: 120.3400, desc: 'Barangay Bacayao Sur, Dagupan City.', keywords: 'Bacayao Sur, Brgy Bacayao Sur' },
+        { name: 'Barangay I', type: 'BARANGAY', barangay: 'Barangay I', address: 'Dagupan City', lat: 16.0435, lng: 120.3350, desc: 'Barangay I (Poblacion), Dagupan City.', keywords: 'Barangay 1, Brgy 1, Poblacion 1, Barangay I' },
+        { name: 'Barangay II', type: 'BARANGAY', barangay: 'Barangay II', address: 'Dagupan City', lat: 16.0415, lng: 120.3340, desc: 'Barangay II (Poblacion), Dagupan City.', keywords: 'Barangay 2, Brgy 2, Poblacion 2, Barangay II' },
+        { name: 'Barangay IV', type: 'BARANGAY', barangay: 'Barangay IV', address: 'Dagupan City', lat: 16.0450, lng: 120.3360, desc: 'Barangay IV (Poblacion), Dagupan City.', keywords: 'Barangay 4, Brgy 4, Poblacion 4, Barangay IV' },
+        { name: 'Bolosan', type: 'BARANGAY', barangay: 'Bolosan', address: 'Dagupan City', lat: 16.0580, lng: 120.3620, desc: 'Barangay Bolosan, Dagupan City.', keywords: 'Bolosan, Brgy Bolosan' },
+        { name: 'Bonuan Binloc', type: 'BARANGAY', barangay: 'Bonuan Binloc', address: 'Dagupan City', lat: 16.0720, lng: 120.3650, desc: 'Barangay Bonuan Binloc, coastal Bonuan peninsula.', keywords: 'Binloc, Bonuan Binloc, Brgy Bonuan Binloc' },
+        { name: 'Bonuan Boquig', type: 'BARANGAY', barangay: 'Bonuan Boquig', address: 'Dagupan City', lat: 16.0680, lng: 120.3500, desc: 'Barangay Bonuan Boquig in the Bonuan peninsula.', keywords: 'Boquig, Bonuan Boquig, Brgy Bonuan Boquig' },
+        { name: 'Bonuan Gueset', type: 'BARANGAY', barangay: 'Bonuan Gueset', address: 'Dagupan City', lat: 16.0750, lng: 120.3450, desc: 'Barangay Bonuan Gueset with coastal and university communities.', keywords: 'Gueset, Bonuan Gueset, Brgy Bonuan Gueset' },
+        { name: 'Calmay', type: 'BARANGAY', barangay: 'Calmay', address: 'Dagupan City', lat: 16.0500, lng: 120.3200, desc: 'Barangay Calmay island community along the river.', keywords: 'Calmay, Brgy Calmay, Calmay Island' },
+        { name: 'Carael', type: 'BARANGAY', barangay: 'Carael', address: 'Dagupan City', lat: 16.0460, lng: 120.3150, desc: 'Barangay Carael in western Dagupan.', keywords: 'Carael, Brgy Carael' },
+        { name: 'Caranglaan', type: 'BARANGAY', barangay: 'Caranglaan', address: 'Dagupan City', lat: 16.0450, lng: 120.3550, desc: 'Barangay Caranglaan along eastern highway.', keywords: 'Caranglaan, Brgy Caranglaan' },
+        { name: 'Herrero', type: 'BARANGAY', barangay: 'Herrero', address: 'Dagupan City', lat: 16.0440, lng: 120.3410, desc: 'Barangay Herrero-Perez commercial area.', keywords: 'Herrero, Herrero-Perez, Brgy Herrero' },
+        { name: 'Lasip Chico', type: 'BARANGAY', barangay: 'Lasip Chico', address: 'Dagupan City', lat: 16.0250, lng: 120.3440, desc: 'Barangay Lasip Chico, Dagupan City.', keywords: 'Lasip Chico, Brgy Lasip Chico' },
+        { name: 'Lasip Grande', type: 'BARANGAY', barangay: 'Lasip Grande', address: 'Dagupan City', lat: 16.0200, lng: 120.3480, desc: 'Barangay Lasip Grande in southern Dagupan.', keywords: 'Lasip Grande, Brgy Lasip Grande' },
+        { name: 'Lomboy', type: 'BARANGAY', barangay: 'Lomboy', address: 'Dagupan City', lat: 16.0350, lng: 120.3180, desc: 'Barangay Lomboy, Dagupan City.', keywords: 'Lomboy, Brgy Lomboy' },
+        { name: 'Lucao', type: 'BARANGAY', barangay: 'Lucao', address: 'Dagupan City', lat: 16.0270, lng: 120.3220, desc: 'Barangay Lucao, commercial and hospital district.', keywords: 'Lucao, Lucao District, Brgy Lucao' },
+        { name: 'Malued', type: 'BARANGAY', barangay: 'Malued', address: 'Dagupan City', lat: 16.0380, lng: 120.3320, desc: 'Barangay Malued, central residential district.', keywords: 'Malued, Brgy Malued' },
+        { name: 'Mamalingling', type: 'BARANGAY', barangay: 'Mamalingling', address: 'Dagupan City', lat: 16.0480, lng: 120.3600, desc: 'Barangay Mamalingling, Dagupan City.', keywords: 'Mamalingling, Brgy Mamalingling' },
+        { name: 'Mangin', type: 'BARANGAY', barangay: 'Mangin', address: 'Dagupan City', lat: 16.0600, lng: 120.3700, desc: 'Barangay Mangin in northeastern Dagupan.', keywords: 'Mangin, Brgy Mangin' },
+        { name: 'Mayombo', type: 'BARANGAY', barangay: 'Mayombo', address: 'Dagupan City', lat: 16.0480, lng: 120.3420, desc: 'Barangay Mayombo commercial and transit district.', keywords: 'Mayombo, Mayombo District, Brgy Mayombo' },
+        { name: 'Pantal', type: 'BARANGAY', barangay: 'Pantal', address: 'Dagupan City', lat: 16.0395, lng: 120.3300, desc: 'Barangay Pantal along the Pantal River waterway.', keywords: 'Pantal, Pantal Barangay, Brgy Pantal' },
+        { name: 'Poblacion Oeste', type: 'BARANGAY', barangay: 'Poblacion Oeste', address: 'Dagupan City', lat: 16.0425, lng: 120.3310, desc: 'Barangay Poblacion Oeste downtown area.', keywords: 'Poblacion Oeste, Poblacion West, Brgy Poblacion Oeste' },
+        { name: 'Pogo Chico', type: 'BARANGAY', barangay: 'Pogo Chico', address: 'Dagupan City', lat: 16.0380, lng: 120.3380, desc: 'Barangay Pogo Chico, Dagupan City.', keywords: 'Pogo Chico, Brgy Pogo Chico' },
+        { name: 'Pogo Grande', type: 'BARANGAY', barangay: 'Pogo Grande', address: 'Dagupan City', lat: 16.0340, lng: 120.3360, desc: 'Barangay Pogo Grande, Dagupan City.', keywords: 'Pogo Grande, Brgy Pogo Grande' },
+        { name: 'Pugaro Suit', type: 'BARANGAY', barangay: 'Pugaro Suit', address: 'Dagupan City', lat: 16.0780, lng: 120.3300, desc: 'Barangay Pugaro Suit island and fishing community.', keywords: 'Pugaro, Pugaro Suit, Brgy Pugaro' },
+        { name: 'Salapingao', type: 'BARANGAY', barangay: 'Salapingao', address: 'Dagupan City', lat: 16.0700, lng: 120.3200, desc: 'Barangay Salapingao river island community.', keywords: 'Salapingao, Brgy Salapingao' },
+        { name: 'Salisay', type: 'BARANGAY', barangay: 'Salisay', address: 'Dagupan City', lat: 16.0540, lng: 120.3660, desc: 'Barangay Salisay, Dagupan City.', keywords: 'Salisay, Brgy Salisay' },
+        { name: 'Tambac', type: 'BARANGAY', barangay: 'Tambac', address: 'Dagupan City', lat: 16.0550, lng: 120.3550, desc: 'Barangay Tambac, Dagupan City.', keywords: 'Tambac, Brgy Tambac' },
+        { name: 'Tapuac', type: 'BARANGAY', barangay: 'Tapuac', address: 'Dagupan City', lat: 16.0380, lng: 120.3280, desc: 'Barangay Tapuac university and educational district.', keywords: 'Tapuac, Tapuac District, Brgy Tapuac' },
+        { name: 'Tebeng', type: 'BARANGAY', barangay: 'Tebeng', address: 'Dagupan City', lat: 16.0420, lng: 120.3680, desc: 'Barangay Tebeng along eastern border.', keywords: 'Tebeng, Brgy Tebeng' },
+
+        // -------------------------------------------------------------
+        // C. LANDMARKS, ESTABLISHMENTS, TERMINALS & DESTINATIONS
+        // -------------------------------------------------------------
+        { 
+            name: 'SM Center Dagupan', 
+            type: 'ESTABLISHMENT', 
+            barangay: 'Herrero', 
+            address: 'Perez Blvd, Dagupan City', 
+            lat: 16.0468, lng: 120.3418, 
+            desc: 'Major shopping mall and retail hub along Perez Boulevard.', 
+            keywords: 'SM Dagupan, SM Center, SM Downtown, SM Mall' 
+        },
+        { 
+            name: 'CSI City Mall', 
+            type: 'ESTABLISHMENT', 
+            barangay: 'Barangay I', 
+            address: 'A.B. Fernandez Ave, Downtown Dagupan', 
+            lat: 16.0436, lng: 120.3360, 
+            desc: 'Department store and shopping center in downtown Dagupan.', 
+            keywords: 'CSI Market Square, CSI Downtown, CSI City Mall, CSI Fernandez' 
+        },
+        { 
+            name: 'CSI The City Mall Lucao', 
+            type: 'ESTABLISHMENT', 
+            barangay: 'Lucao', 
+            address: 'Lucao District, Dagupan City', 
+            lat: 16.0270, lng: 120.3220, 
+            desc: 'Regional shopping mall and entertainment center in Lucao district.', 
+            keywords: 'CSI Lucao, CSI Mall Lucao, CSI The City Mall' 
+        },
+        { 
+            name: 'Dagupan City Hall', 
+            type: 'LANDMARK', 
+            barangay: 'Barangay II', 
+            address: 'M.H. Del Pilar St, Dagupan City', 
+            lat: 16.0410, lng: 120.3355, 
+            desc: 'Seat of Dagupan City municipal government.', 
+            keywords: 'City Hall, Dagupan City Hall, City Government, Munisipyo' 
+        },
+        { 
+            name: 'Dagupan City Plaza & St. John Cathedral', 
+            type: 'LANDMARK', 
+            barangay: 'Barangay I', 
+            address: 'Dagupan City Center', 
+            lat: 16.0435, lng: 120.3340, 
+            desc: 'Historic city plaza and St. John the Evangelist Cathedral.', 
+            keywords: 'City Plaza, Dagupan Plaza, St John Cathedral, Dagupan Cathedral' 
+        },
+        { 
+            name: 'Dagupan Public Market / Malimgas', 
+            type: 'TERMINAL', 
+            barangay: 'Barangay I', 
+            address: 'Galvan St, Dagupan City', 
+            lat: 16.0440, lng: 120.3370, 
+            desc: 'Central commercial market and tricycle/jeepney hub.', 
+            keywords: 'Malimgas Market, Public Market, Palengke, Malimgas Mall' 
+        },
+        { 
+            name: 'Perez Blvd Integrated Bus Terminal', 
+            type: 'TERMINAL', 
+            barangay: 'Herrero', 
+            address: 'Perez Blvd, Dagupan City', 
+            lat: 16.0415, lng: 120.3385, 
+            desc: 'Inter-city bus terminal for provincial routes.', 
+            keywords: 'Dagupan Bus Terminal, Perez Bus Terminal, Bus Terminal' 
+        },
+        { 
+            name: 'Bonuan Beach & Tondaligan People\'s Park', 
+            type: 'LANDMARK', 
+            barangay: 'Bonuan Gueset', 
+            address: 'Bonuan, Dagupan City', 
+            lat: 16.0880, lng: 120.3520, 
+            desc: 'Popular coastal park, beach boardwalk, and recreational area.', 
+            keywords: 'Bonuan Beach, Tondaligan Beach, Tondaligan Park, Tondaligan People\'s Park' 
+        },
+        { 
+            name: 'Tondaligan Beach & People\'s Park', 
+            type: 'LANDMARK', 
+            barangay: 'Bonuan Gueset', 
+            address: 'Bonuan, Dagupan City', 
+            lat: 16.0880, lng: 120.3520, 
+            desc: 'Coastal park and beach terminus for northern routes.', 
+            keywords: 'Tondaligan, Bonuan Beach, Tondaligan Beach' 
+        },
+        { 
+            name: 'Region 1 Medical Center (R1MC)', 
+            type: 'LANDMARK', 
+            barangay: 'Bonuan Boquig', 
+            address: 'Arellano St, Dagupan City', 
+            lat: 16.0520, lng: 120.3440, 
+            desc: 'Tertiary government medical center for Northern Luzon.', 
+            keywords: 'R1MC, Region 1 Hospital, Provincial Hospital, R1 Medical Center' 
+        },
+        { 
+            name: 'Dagupan Doctors Villaflor Memorial Hospital', 
+            type: 'LANDMARK', 
+            barangay: 'Mayombo', 
+            address: 'Mayombo District, Dagupan City', 
+            lat: 16.0490, lng: 120.3400, 
+            desc: 'Major private hospital center in Dagupan.', 
+            keywords: 'Villaflor Hospital, Dagupan Doctors, Villaflor Medical' 
+        },
+        { 
+            name: 'University of Pangasinan (PHINMA)', 
+            type: 'LANDMARK', 
+            barangay: 'Barangay II', 
+            address: 'Arellano St, Dagupan City', 
+            lat: 16.0418, lng: 120.3362, 
+            desc: 'Major higher education university campus in downtown.', 
+            keywords: 'UPang, PHINMA UPang, University of Pangasinan, UPang Dagupan' 
+        },
+        { 
+            name: 'Colegio de Dagupan', 
+            type: 'LANDMARK', 
+            barangay: 'Tapuac', 
+            address: 'Arellano St, Tapuac, Dagupan City', 
+            lat: 16.0375, lng: 120.3295, 
+            desc: 'Higher education college institution in Tapuac district.', 
+            keywords: 'CdD, Colegio de Dagupan, CdD Tapuac' 
+        },
+        { 
+            name: 'Universidad de Dagupan', 
+            type: 'LANDMARK', 
+            barangay: 'Tapuac', 
+            address: 'Arellano St, Tapuac, Dagupan City', 
+            lat: 16.0365, lng: 120.3285, 
+            desc: 'University campus along Tapuac university belt.', 
+            keywords: 'UdD, Computronix, Universidad de Dagupan' 
+        },
+        { 
+            name: 'Robinsons Place Pangasinan', 
+            type: 'ESTABLISHMENT', 
+            barangay: 'Lucao', 
+            address: 'Calasiao / Dagupan Border', 
+            lat: 16.0180, lng: 120.3540, 
+            desc: 'Regional commercial shopping mall.', 
+            keywords: 'Robinsons Calasiao, Robinsons Mall, Robinsons Place' 
+        },
+        { 
+            name: 'Dagupan City Plaza Terminal', 
+            type: 'TERMINAL', 
+            barangay: 'Barangay I', 
+            address: 'Dagupan City Center', 
+            lat: 16.0435, lng: 120.3340, 
+            desc: 'Central multi-mode transport terminal near City Plaza.', 
+            keywords: 'Plaza Terminal, Downtown Terminal, City Plaza Jeepney Terminal' 
+        },
+        { 
+            name: 'Bonuan Jeepney & Tricycle Terminal', 
+            type: 'TERMINAL', 
+            barangay: 'Bonuan Gueset', 
+            address: 'Bonuan Gueset, Dagupan City', 
+            lat: 16.0740, lng: 120.3460, 
+            desc: 'Northern terminal for Bonuan route transfers.', 
+            keywords: 'Bonuan Terminal, Gueset Terminal' 
+        },
+        { 
+            name: 'Pantal River', 
+            type: 'DESTINATION', 
+            barangay: 'Pantal', 
+            address: 'Pantal Waterway, Dagupan City', 
+            lat: 16.0420, lng: 120.3350, 
+            desc: 'Major river waterway through Dagupan City.', 
+            keywords: 'Pantal River, Pantal Waterway, Dagupan River' 
+        },
+        { 
+            name: 'Pantal River Dock (Bonuan Side)', 
+            type: 'RIVER_STOP', 
+            barangay: 'Bonuan Boquig', 
+            address: 'Pantal River, Bonuan Boquig, Dagupan City', 
+            lat: 16.0620, lng: 120.3420, 
+            desc: 'Sample river stop dock on the Bonuan northern bank.', 
+            keywords: 'Bonuan Dock, Pantal North Dock, River Dock Bonuan' 
+        },
+        { 
+            name: 'Pantal River Dock (Downtown Side)', 
+            type: 'RIVER_STOP', 
+            barangay: 'Pantal', 
+            address: 'Pantal River, Pantal Barangay, Dagupan City', 
+            lat: 16.0395, lng: 120.3310, 
+            desc: 'Sample river stop dock on the downtown southern bank.', 
+            keywords: 'Downtown Dock, Pantal South Dock, River Dock Downtown' 
+        },
+        { 
+            name: 'A.B. Fernandez & Perez Blvd Intersection', 
+            type: 'INTERSECTION', 
+            barangay: 'Herrero', 
+            address: 'Dagupan City', 
+            lat: 16.0425, lng: 120.3390, 
+            desc: 'Key downtown intersection prone to flooding during high tide.', 
+            keywords: 'Fernandez Perez Junction, AB Fernandez Perez Corner' 
+        },
+        { 
+            name: 'Galvan & Fernandez Crossroad', 
+            type: 'INTERSECTION', 
+            barangay: 'Barangay I', 
+            address: 'Dagupan City', 
+            lat: 16.0400, lng: 120.3300, 
+            desc: 'Commercial crossroad in downtown Dagupan.', 
+            keywords: 'Galvan Fernandez, Galvan Crossroad' 
+        }
     ];
+
     const locationIds = {};
     for (const loc of locationsData) {
         const res = await query.run(
-            `INSERT INTO locations (name, type, address, latitude, longitude, description, status) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')`,
-            [loc.name, loc.type, loc.address, loc.lat, loc.lng, loc.desc]
+            `INSERT INTO locations (name, type, barangay, address, latitude, longitude, description, search_keywords, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+            [loc.name, loc.type, loc.barangay || null, loc.address || null, loc.lat || null, loc.lng || null, loc.desc || null, loc.keywords || null]
         );
         locationIds[loc.name] = res.lastID;
     }
-    console.log(`Locations seeded (${locationsData.length} entries).`);
+    console.log(`Locations seeded (${locationsData.length} entries with keywords & barangays).`);
+
 
     // 12. Seed Sample Boat Route (SAMPLE DATA)
     const boatRoute = await query.run(

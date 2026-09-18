@@ -51,18 +51,21 @@ const query = {
 };
 
 async function initSchema() {
+    // Safe column migrations first — ensure existing tables get new columns before schema/indexes run
+    try { await query.run(`ALTER TABLE routes ADD COLUMN geometry TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE transport_modes ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`); } catch (e) {}
+    try { await query.run(`ALTER TABLE locations ADD COLUMN barangay TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE locations ADD COLUMN search_keywords TEXT`); } catch (e) {}
+
     const schemaPath = path.resolve(__dirname, 'schema.sql');
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
     await query.exec(schemaSql);
 
-    // Safe column migrations — each is wrapped in try/catch because
-    // SQLite throws if the column already exists, which is fine.
-
-    // Add geometry column to routes (legacy migration)
+    // Safe column migrations after schema execution (for fresh tables or additional properties)
     try { await query.run(`ALTER TABLE routes ADD COLUMN geometry TEXT`); } catch (e) {}
-
-    // Add status column to transport_modes (new in v2)
     try { await query.run(`ALTER TABLE transport_modes ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`); } catch (e) {}
+    try { await query.run(`ALTER TABLE locations ADD COLUMN barangay TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE locations ADD COLUMN search_keywords TEXT`); } catch (e) {}
 
     // Migrate advisories table if it still has the legacy CHECK constraint on condition
     try {
