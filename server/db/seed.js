@@ -8,6 +8,9 @@ async function seed() {
     await initSchema();
 
     // Clear existing data in reverse dependency order
+    try { await query.run('DELETE FROM route_segments'); } catch (e) {}
+    try { await query.run('DELETE FROM boat_route_details'); } catch (e) {}
+    try { await query.run('DELETE FROM locations'); } catch (e) {}
     await query.run('DELETE FROM landmarks');
     await query.run('DELETE FROM saved_routes');
     await query.run('DELETE FROM advisory_routes');
@@ -37,42 +40,58 @@ async function seed() {
 
     // 2. Seed Transport Modes
     const jeepney = await query.run(
-        `INSERT INTO transport_modes (name, description, icon) VALUES (?, ?, ?)`,
-        ['Jeepney', 'Classic & Modern e-Jeeps', 'jeepney']
+        `INSERT INTO transport_modes (name, description, icon, status) VALUES (?, ?, ?, ?)`,
+        ['Jeepney', 'Classic & Modern e-Jeeps', 'jeepney', 'ACTIVE']
     );
     const tricycle = await query.run(
-        `INSERT INTO transport_modes (name, description, icon) VALUES (?, ?, ?)`,
-        ['Tricycle', 'Last-mile neighborhood transit', 'tricycle']
+        `INSERT INTO transport_modes (name, description, icon, status) VALUES (?, ?, ?, ?)`,
+        ['Tricycle', 'Last-mile neighborhood transit', 'tricycle', 'ACTIVE']
     );
     const bus = await query.run(
-        `INSERT INTO transport_modes (name, description, icon) VALUES (?, ?, ?)`,
-        ['Bus', 'Dagupan Loop & Intercity transit', 'bus']
+        `INSERT INTO transport_modes (name, description, icon, status) VALUES (?, ?, ?, ?)`,
+        ['Bus', 'Dagupan Loop & Intercity transit', 'bus', 'ACTIVE']
     );
-    console.log('Transport modes seeded.');
+    const boat = await query.run(
+        `INSERT INTO transport_modes (name, description, icon, status) VALUES (?, ?, ?, ?)`,
+        ['Boat', 'River & waterway transport via Pantal River', 'boat', 'ACTIVE']
+    );
+    console.log('Transport modes seeded (Jeepney, Tricycle, Bus, Boat).');
 
-    // 3. Seed 6 Initial Routes per §6
+    // 3. Seed 6 Initial Routes per §6 with GeoJSON LineString geometry
     // Route 1: Dagupan – Bonuan Beach (Jeepney)
     const r1 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Dagupan – Bonuan Beach',
             jeepney.lastID,
-            'Dagupan City Center',
+            'Dagupan Plaza',
             'Bonuan Beach, Dagupan',
             20,
             35,
             15.00,
             25.00,
             'CLEAR',
-            'Direct coastal route linking downtown Dagupan with Bonuan Boquig, Bonuan Gueset, and Tondaligan Beach Park.'
+            'Direct coastal route linking downtown Dagupan with Bonuan Boquig, Bonuan Gueset, and Tondaligan Beach Park.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3385, 16.0415],
+                    [120.3420, 16.0480],
+                    [120.3440, 16.0590],
+                    [120.3500, 16.0680],
+                    [120.3450, 16.0750],
+                    [120.3520, 16.0880]
+                ]
+            })
         ]
     );
 
     // Route 2: CSI Mall Loop (Tricycle)
     const r2 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'CSI Mall Loop',
             tricycle.lastID,
@@ -83,14 +102,23 @@ async function seed() {
             20.00,
             40.00,
             'CLEAR',
-            'High-frequency tricycle loop connecting downtown commercial hubs with CSI The City Mall Lucao.'
+            'High-frequency tricycle loop connecting downtown commercial hubs with CSI The City Mall Lucao.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3330, 16.0438],
+                    [120.3300, 16.0400],
+                    [120.3250, 16.0320],
+                    [120.3220, 16.0270]
+                ]
+            })
         ]
     );
 
     // Route 3: Dagupan – Calasiao (Jeepney) - Advisory active per design
     const r3 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Dagupan – Calasiao',
             jeepney.lastID,
@@ -101,14 +129,24 @@ async function seed() {
             12.00,
             20.00,
             'DETOUR_ACTIVE',
-            'Major southern transit corridor connecting Dagupan Plaza with Calasiao. Currently detour routed via De Venecia Road due to flooded sections on AB Fernandez Ave.'
+            'Major southern transit corridor connecting Dagupan Plaza with Calasiao. Currently detour routed via De Venecia Road due to flooded sections on AB Fernandez Ave.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3390, 16.0450],
+                    [120.3550, 16.0320],
+                    [120.3580, 16.0210],
+                    [120.3600, 16.0120]
+                ]
+            })
         ]
     );
 
     // Route 4: Market – Lucao District (Tricycle) - Advisory active per design
     const r4 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Market – Lucao District',
             tricycle.lastID,
@@ -119,14 +157,23 @@ async function seed() {
             25.00,
             45.00,
             'DETOUR_ACTIVE',
-            'Direct tricycle service connecting Malimgas Market with schools and subdivisions in Lucao District, currently taking outer ring bypass.'
+            'Direct tricycle service connecting Malimgas Market with schools and subdivisions in Lucao District, currently taking outer ring bypass.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3370, 16.0440],
+                    [120.3340, 16.0380],
+                    [120.3260, 16.0290],
+                    [120.3200, 16.0250]
+                ]
+            })
         ]
     );
 
     // Route 5: Dagupan – Mangaldan (Bus) - Advisory active per design
     const r5 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Dagupan – Mangaldan',
             bus.lastID,
@@ -137,14 +184,24 @@ async function seed() {
             20.00,
             35.00,
             'DETOUR_ACTIVE',
-            'Inter-town loop bus traversing eastern Dagupan towards Mangaldan with stops at Mayombo and Tebeng; rerouted around flood corridors.'
+            'Inter-town loop bus traversing eastern Dagupan towards Mangaldan with stops at Mayombo and Tebeng; rerouted around flood corridors.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3385, 16.0415],
+                    [120.3450, 16.0480],
+                    [120.3650, 16.0550],
+                    [120.3800, 16.0620],
+                    [120.4020, 16.0710]
+                ]
+            })
         ]
     );
 
     // Route 6: Bonuan Gueset – City Center (Jeepney)
     const r6 = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Bonuan Gueset – City Center',
             jeepney.lastID,
@@ -155,11 +212,21 @@ async function seed() {
             15.00,
             25.00,
             'CLEAR',
-            'Northern commuter line connecting university students and residents along Gueset highway to downtown Dagupan.'
+            'Northern commuter line connecting university students and residents along Gueset highway to downtown Dagupan.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3450, 16.0750],
+                    [120.3440, 16.0590],
+                    [120.3420, 16.0480],
+                    [120.3385, 16.0415],
+                    [120.3340, 16.0435]
+                ]
+            })
         ]
     );
 
-    console.log('Routes seeded (6 routes).');
+    console.log('Routes seeded (6 routes with GeoJSON geometry).');
 
     // 4. Seed Stops for Routes
     const stopsData = [
@@ -361,8 +428,100 @@ async function seed() {
     }
     console.log('Landmarks seeded (12 reference points).');
 
+    // 11. Seed Unified Locations (SAMPLE DATA — clearly labeled)
+    // Covers all 8 location types. These are approximate positions for demonstration only.
+    const locationsData = [
+        { name: 'A.B. Fernandez Avenue', type: 'STREET', address: 'Dagupan City', lat: 16.0440, lng: 120.3380, desc: 'SAMPLE DATA — Major thoroughfare in Dagupan. Prone to flooding during high tide.' },
+        { name: 'Perez Boulevard', type: 'STREET', address: 'Dagupan City', lat: 16.0415, lng: 120.3385, desc: 'SAMPLE DATA — Primary commercial boulevard along the riverfront.' },
+        { name: 'M.H. Del Pilar Street', type: 'STREET', address: 'Downtown Dagupan', lat: 16.0420, lng: 120.3350, desc: 'SAMPLE DATA — Central downtown street near university campuses.' },
+        { name: 'De Venecia Road', type: 'STREET', address: 'Dagupan City', lat: 16.0460, lng: 120.3450, desc: 'SAMPLE DATA — Bypass road used during flood detours.' },
+        { name: 'Galvan Street', type: 'STREET', address: 'Dagupan City', lat: 16.0438, lng: 120.3330, desc: 'SAMPLE DATA — Commercial street with TODA tricycle loading station.' },
+        { name: 'Bonuan Boquig', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0680, lng: 120.3500, desc: 'SAMPLE DATA — Coastal barangay in the Bonuan peninsula.' },
+        { name: 'Bonuan Gueset', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0750, lng: 120.3450, desc: 'SAMPLE DATA — Northern barangay with university communities.' },
+        { name: 'Lucao District', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0270, lng: 120.3220, desc: 'SAMPLE DATA — Southern residential and commercial district.' },
+        { name: 'Mayombo District', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0480, lng: 120.3420, desc: 'SAMPLE DATA — Eastern suburban barangay with bus connections.' },
+        { name: 'Pantal Barangay', type: 'BARANGAY', address: 'Dagupan City', lat: 16.0395, lng: 120.3300, desc: 'SAMPLE DATA — Riverside barangay along the Pantal River.' },
+        { name: 'SM Center Dagupan', type: 'ESTABLISHMENT', address: 'Perez Blvd, Dagupan City', lat: 16.0468, lng: 120.3418, desc: 'SAMPLE DATA — Major shopping mall along Perez Boulevard.' },
+        { name: 'CSI The City Mall Lucao', type: 'ESTABLISHMENT', address: 'Lucao District, Dagupan City', lat: 16.0270, lng: 120.3220, desc: 'SAMPLE DATA — Shopping mall in Lucao district.' },
+        { name: 'Robinsons Place Pangasinan', type: 'ESTABLISHMENT', address: 'Calasiao, Pangasinan', lat: 16.0180, lng: 120.3540, desc: 'SAMPLE DATA — Regional mall near Calasiao.' },
+        { name: 'Dagupan Doctors Villaflor Memorial Hospital', type: 'LANDMARK', address: 'Dagupan City', lat: 16.0490, lng: 120.3400, desc: 'SAMPLE DATA — Major medical center in Dagupan.' },
+        { name: 'University of Pangasinan (PHINMA)', type: 'LANDMARK', address: 'M.H. Del Pilar St, Dagupan City', lat: 16.0418, lng: 120.3362, desc: 'SAMPLE DATA — University campus in downtown Dagupan.' },
+        { name: 'Dagupan City Plaza & St. John Cathedral', type: 'LANDMARK', address: 'Dagupan City Center', lat: 16.0435, lng: 120.3340, desc: 'SAMPLE DATA — Historic city plaza and cathedral.' },
+        { name: 'Tondaligan Beach & People\'s Park', type: 'LANDMARK', address: 'Bonuan, Dagupan City', lat: 16.0880, lng: 120.3520, desc: 'SAMPLE DATA — Popular coastal park and beach area.' },
+        { name: 'Dagupan City Plaza Terminal', type: 'TERMINAL', address: 'Dagupan City Center', lat: 16.0435, lng: 120.3340, desc: 'SAMPLE DATA — Central multi-mode terminal near City Plaza.' },
+        { name: 'Perez Blvd Integrated Bus Terminal', type: 'TERMINAL', address: 'Perez Blvd, Dagupan City', lat: 16.0415, lng: 120.3385, desc: 'SAMPLE DATA — Inter-city bus terminal on Perez Boulevard.' },
+        { name: 'Dagupan Public Market / Malimgas Terminal', type: 'TERMINAL', address: 'Dagupan City', lat: 16.0440, lng: 120.3370, desc: 'SAMPLE DATA — Market-area transport terminal.' },
+        { name: 'A.B. Fernandez & Perez Blvd Intersection', type: 'INTERSECTION', address: 'Dagupan City', lat: 16.0425, lng: 120.3390, desc: 'SAMPLE DATA — Key downtown intersection prone to flooding.' },
+        { name: 'Galvan & Fernandez Crossroad', type: 'INTERSECTION', address: 'Dagupan City', lat: 16.0400, lng: 120.3300, desc: 'SAMPLE DATA — Commercial crossroad in downtown.' },
+        // River Stops — SAMPLE DATA; no boat service is asserted as currently operational
+        { name: 'Pantal River Dock (Bonuan Side)', type: 'RIVER_STOP', address: 'Pantal River, Bonuan Boquig, Dagupan City', lat: 16.0620, lng: 120.3420, desc: 'SAMPLE DATA — Hypothetical river stop. No boat service confirmed as currently operational.' },
+        { name: 'Pantal River Dock (Downtown Side)', type: 'RIVER_STOP', address: 'Pantal River, Pantal Barangay, Dagupan City', lat: 16.0395, lng: 120.3310, desc: 'SAMPLE DATA — Hypothetical river stop. No boat service confirmed as currently operational.' },
+    ];
+    const locationIds = {};
+    for (const loc of locationsData) {
+        const res = await query.run(
+            `INSERT INTO locations (name, type, address, latitude, longitude, description, status) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+            [loc.name, loc.type, loc.address, loc.lat, loc.lng, loc.desc]
+        );
+        locationIds[loc.name] = res.lastID;
+    }
+    console.log(`Locations seeded (${locationsData.length} entries).`);
+
+    // 12. Seed Sample Boat Route (SAMPLE DATA)
+    const boatRoute = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Pantal River Crossing (SAMPLE)',
+            boat.lastID,
+            'Pantal River Dock (Downtown Side)',
+            'Pantal River Dock (Bonuan Side)',
+            15, 20.00, 20.00, 'CLEAR',
+            'SAMPLE DATA — Hypothetical river crossing via Pantal River. No boat service is confirmed as currently operating. Admin must configure real boat routes.',
+            JSON.stringify({ type: 'LineString', coordinates: [[120.3310, 16.0395], [120.3350, 16.0480], [120.3420, 16.0620]] })
+        ]
+    );
+    const originStopId = locationIds['Pantal River Dock (Downtown Side)'];
+    const destStopId = locationIds['Pantal River Dock (Bonuan Side)'];
+    if (originStopId && destStopId) {
+        await query.run(
+            `INSERT INTO boat_route_details (route_id, waterway, origin_river_stop_id, destination_river_stop_id, operating_status, notes) VALUES (?, ?, ?, ?, ?, ?)`,
+            [boatRoute.lastID, 'Pantal River', originStopId, destStopId, 'ACTIVE', 'SAMPLE DATA — Admin-controlled status. Suspend if no real service operates.']
+        );
+        await query.run(`INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes) VALUES (?, 1, 'Walk', NULL, ?, 0, 5, 'Walk to river dock')`, [boatRoute.lastID, originStopId]);
+        await query.run(`INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes) VALUES (?, 2, 'Boat', ?, ?, 20, 10, 'River crossing via Pantal River (SAMPLE)')`, [boatRoute.lastID, originStopId, destStopId]);
+        await query.run(`INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes) VALUES (?, 3, 'Walk', ?, NULL, 0, 3, 'Walk from river dock to destination')`, [boatRoute.lastID, destStopId]);
+    }
+    const boatFare = 20.00;
+    await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'REGULAR', ?, 0, ?)`, [boatRoute.lastID, boatFare, boatFare]);
+    await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'STUDENT', ?, 20, ?)`, [boatRoute.lastID, boatFare, Number((boatFare * 0.8).toFixed(2))]);
+    await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'SENIOR_CITIZEN', ?, 20, ?)`, [boatRoute.lastID, boatFare, Number((boatFare * 0.8).toFixed(2))]);
+    await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'PWD', ?, 20, ?)`, [boatRoute.lastID, boatFare, Number((boatFare * 0.8).toFixed(2))]);
+
+    // Also seed multi-modal segments for Route 1 (Dagupan – Bonuan Beach)
+    const bonuanLocId = locationIds['Tondaligan Beach & People\'s Park'];
+    const plazaLocId = locationIds['Dagupan City Plaza & St. John Cathedral'];
+    await query.run(
+        `INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes)
+         VALUES (?, 1, 'Jeepney', ?, ?, 12.00, 15, 'Jeepney: Bonuan – Dagupan')`,
+        [r1.lastID, bonuanLocId || null, plazaLocId || null]
+    );
+    await query.run(
+        `INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes)
+         VALUES (?, 2, 'Tricycle', ?, ?, 8.00, 5, 'Tricycle: Dagupan Plaza – Bonuan Beach')`,
+        [r1.lastID, plazaLocId || null, bonuanLocId || null]
+    );
+    await query.run(
+        `INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes)
+         VALUES (?, 3, 'Walk', NULL, ?, 0, 3, 'Walk: Terminal to Stop')`,
+        [r1.lastID, bonuanLocId || null]
+    );
+
+    console.log('Sample boat route and route segments seeded (SAMPLE DATA).');
+
     console.log('Initial sample database seeding completed successfully!');
 }
+
 
 if (require.main === module) {
     seed()

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
-import { Calculator, MapPin, Footprints, CarFront, Bike, Bus, AlertCircle } from 'lucide-react';
+import { Calculator, MapPin, Footprints, CarFront, Bike, Bus, AlertCircle, Ship } from 'lucide-react';
 
 export default function FareCalculator() {
   const { queryParams } = useRouter();
@@ -52,6 +52,7 @@ export default function FareCalculator() {
     if (m.includes('walk')) return <Footprints className="w-4 h-4 text-emerald-600" />;
     if (m.includes('jeep')) return <CarFront className="w-4 h-4 text-pink-600" />;
     if (m.includes('bus')) return <Bus className="w-4 h-4 text-emerald-700" />;
+    if (m.includes('boat') || m.includes('ship') || m.includes('river')) return <Ship className="w-4 h-4 text-blue-600" />;
     return <Bike className="w-4 h-4 text-cyan-600" />;
   };
 

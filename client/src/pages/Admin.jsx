@@ -16,19 +16,22 @@ import {
   ToggleLeft, 
   ToggleRight,
   RefreshCw,
-  Eye
+  Eye,
+  Layers,
+  Ship
 } from 'lucide-react';
 
 export default function Admin() {
   const { navigate } = useRouter();
   const { user, token, isAdmin, openAuth } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'advisories', 'fares', 'feedback'
+  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'advisories', 'locations', 'feedback'
   const [stats, setStats] = useState(null);
   const [routes, setRoutes] = useState([]);
   const [advisories, setAdvisories] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
   const [modes, setModes] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Form Modal States
@@ -44,7 +47,13 @@ export default function Admin() {
     minimum_fare: 15.00,
     maximum_fare: 25.00,
     status: 'CLEAR',
-    description: ''
+    description: '',
+    geometry: '',
+    waterway: '',
+    origin_river_stop_id: '',
+    destination_river_stop_id: '',
+    boat_operating_status: 'ACTIVE',
+    boat_notes: ''
   });
 
   const [advisoryModalOpen, setAdvisoryModalOpen] = useState(false);
@@ -57,6 +66,20 @@ export default function Admin() {
     status: 'ACTIVE',
     route_ids: []
   });
+
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(null);
+  const [locationFormData, setLocationFormData] = useState({
+    name: '',
+    type: 'LANDMARK',
+    address: '',
+    lat: '',
+    lng: '',
+    description: '',
+    status: 'ACTIVE'
+  });
+
+  const LOCATION_TYPES = ['STREET', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP'];
 
   useEffect(() => {
     if (!isAdmin) {
@@ -71,12 +94,13 @@ export default function Admin() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [statsRes, routesRes, advRes, feedRes, modesRes] = await Promise.all([
+      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/routes').then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
-        fetch('/api/transport-modes').then(r => r.json())
+        fetch('/api/transport-modes').then(r => r.json()),
+        fetch('/api/admin/locations', { headers }).then(r => r.json())
       ]);
 
       setStats(statsRes);
@@ -84,6 +108,7 @@ export default function Admin() {
       setAdvisories(advRes);
       setFeedbackList(feedRes);
       setModes(modesRes);
+      setLocations(Array.isArray(locsRes) ? locsRes : (locsRes.locations || []));
     } catch (err) {
       console.error('Error loading admin portal data:', err);
     } finally {
@@ -104,13 +129,42 @@ export default function Admin() {
       minimum_fare: 15.00,
       maximum_fare: 25.00,
       status: 'CLEAR',
-      description: ''
+      description: '',
+      geometry: '',
+      waterway: 'Pantal River',
+      origin_river_stop_id: '',
+      destination_river_stop_id: '',
+      boat_operating_status: 'ACTIVE',
+      boat_notes: ''
     });
     setRouteModalOpen(true);
   };
 
-  const openEditRouteModal = (route) => {
+  const openEditRouteModal = async (route) => {
     setEditingRoute(route);
+    let waterway = route.waterway || '';
+    let origin_river_stop_id = route.origin_river_stop_id || '';
+    let destination_river_stop_id = route.destination_river_stop_id || '';
+    let boat_operating_status = route.boat_operating_status || 'ACTIVE';
+    let boat_notes = route.notes || '';
+
+    // If boat details not on route object directly, check via API
+    const isBoat = modes.find(m => m.id === route.transport_mode_id)?.name?.toLowerCase() === 'boat';
+    if (isBoat && !waterway) {
+      try {
+        const bRes = await fetch(`/api/admin/routes/${route.id}/boat-details`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        if (bRes) {
+          waterway = bRes.waterway || '';
+          origin_river_stop_id = bRes.origin_river_stop_id || '';
+          destination_river_stop_id = bRes.destination_river_stop_id || '';
+          boat_operating_status = bRes.operating_status || 'ACTIVE';
+          boat_notes = bRes.notes || '';
+        }
+      } catch (e) {}
+    }
+
     setRouteFormData({
       route_name: route.route_name,
       transport_mode_id: route.transport_mode_id,
@@ -121,7 +175,13 @@ export default function Admin() {
       minimum_fare: route.minimum_fare,
       maximum_fare: route.maximum_fare,
       status: route.status,
-      description: route.description || ''
+      description: route.description || '',
+      geometry: typeof route.geometry === 'object' ? JSON.stringify(route.geometry) : (route.geometry || ''),
+      waterway,
+      origin_river_stop_id,
+      destination_river_stop_id,
+      boat_operating_status,
+      boat_notes
     });
     setRouteModalOpen(true);
   };
@@ -134,19 +194,41 @@ export default function Admin() {
     };
 
     try {
+      let routeId;
       if (editingRoute) {
+        routeId = editingRoute.id;
         await fetch(`/api/admin/routes/${editingRoute.id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify(routeFormData)
         });
       } else {
-        await fetch('/api/admin/routes', {
+        const res = await fetch('/api/admin/routes', {
           method: 'POST',
           headers,
           body: JSON.stringify(routeFormData)
         });
+        const data = await res.json();
+        routeId = data.routeId;
       }
+
+      // If mode is Boat, save boat details
+      const selectedMode = modes.find(m => m.id === Number(routeFormData.transport_mode_id));
+      if (selectedMode?.name?.toLowerCase() === 'boat' && routeId) {
+        await fetch('/api/admin/boat-details', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            route_id: routeId,
+            waterway: routeFormData.waterway || 'Pantal River',
+            origin_river_stop_id: routeFormData.origin_river_stop_id ? Number(routeFormData.origin_river_stop_id) : null,
+            destination_river_stop_id: routeFormData.destination_river_stop_id ? Number(routeFormData.destination_river_stop_id) : null,
+            operating_status: routeFormData.boat_operating_status || 'ACTIVE',
+            notes: routeFormData.boat_notes || ''
+          })
+        });
+      }
+
       setRouteModalOpen(false);
       loadAdminData();
     } catch (err) {
@@ -279,6 +361,80 @@ export default function Admin() {
     }
   };
 
+  // Location Handlers
+  const openNewLocationModal = () => {
+    setEditingLocation(null);
+    setLocationFormData({ name: '', type: 'LANDMARK', address: '', lat: '', lng: '', description: '', status: 'ACTIVE' });
+    setLocationModalOpen(true);
+  };
+
+  const openEditLocationModal = (loc) => {
+    setEditingLocation(loc);
+    setLocationFormData({
+      name: loc.name,
+      type: loc.type,
+      address: loc.address || '',
+      lat: loc.lat,
+      lng: loc.lng,
+      description: loc.description || '',
+      status: loc.status
+    });
+    setLocationModalOpen(true);
+  };
+
+  const handleSaveLocation = async (e) => {
+    e.preventDefault();
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    const body = {
+      ...locationFormData,
+      lat: parseFloat(locationFormData.lat),
+      lng: parseFloat(locationFormData.lng)
+    };
+    try {
+      if (editingLocation) {
+        await fetch(`/api/admin/locations/${editingLocation.id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+      } else {
+        await fetch('/api/admin/locations', { method: 'POST', headers, body: JSON.stringify(body) });
+      }
+      setLocationModalOpen(false);
+      loadAdminData();
+    } catch (err) {
+      alert('Failed to save location: ' + err.message);
+    }
+  };
+
+  const handleDeleteLocation = async (id) => {
+    if (!window.confirm('Delete this location? This may affect route segments referencing it.')) return;
+    try {
+      await fetch(`/api/admin/locations/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      loadAdminData();
+    } catch (err) {
+      alert('Failed to delete location.');
+    }
+  };
+
+  const handleToggleModeStatus = async (mode) => {
+    const newStatus = mode.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    try {
+      await fetch(`/api/admin/transport-modes/${mode.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: mode.name,
+          description: mode.description,
+          icon: mode.icon,
+          status: newStatus
+        })
+      });
+      loadAdminData();
+    } catch (err) {
+      alert('Failed to update transport mode status.');
+    }
+  };
+
   if (!user || !isAdmin) {
     return (
       <div className="min-h-screen bg-slate-50 py-20 flex items-center justify-center">
@@ -371,10 +527,12 @@ export default function Admin() {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 mb-6 space-x-2">
+        <div className="flex border-b border-slate-200 mb-6 space-x-2 overflow-x-auto">
           {[
             { key: 'routes', label: 'Routes & Travel Times', icon: Route },
             { key: 'advisories', label: 'Flood Advisories & Detours', icon: AlertTriangle },
+            { key: 'locations', label: 'Places & Stops', icon: Layers },
+            { key: 'modes', label: 'Transport Modes', icon: Ship },
             { key: 'feedback', label: 'Commuter Reports', icon: MessageSquare }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -383,7 +541,7 @@ export default function Admin() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 py-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all ${
+                className={`flex items-center gap-2 py-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                   isActive
                     ? 'border-emerald-600 text-emerald-700'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -628,7 +786,208 @@ export default function Admin() {
           </div>
         )}
 
+      {/* ========================================================================= */}
+      {/* TAB 4: LOCATIONS / PLACES & STOPS MANAGEMENT */}
+      {/* ========================================================================= */}
+      {activeTab === 'locations' && (
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Places, Streets & River Stops</h3>
+              <p className="text-xs text-slate-500">Searchable location registry — streets, barangays, terminals, river docks, and establishments. Adding a location here makes it available in map search and fare routing.</p>
+            </div>
+            <button
+              onClick={openNewLocationModal}
+              className="py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Add Location
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Name</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Address</th>
+                  <th className="py-3 px-4">Coordinates</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {locations.length === 0 ? (
+                  <tr><td colSpan="6" className="text-center text-slate-400 py-8">No locations configured yet.</td></tr>
+                ) : (
+                  locations.map((loc) => (
+                    <tr key={loc.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-4 font-semibold text-slate-900">{loc.name}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          loc.type === 'RIVER_STOP' ? 'bg-blue-50 text-blue-700' :
+                          loc.type === 'TERMINAL' ? 'bg-orange-50 text-orange-700' :
+                          loc.type === 'BARANGAY' ? 'bg-teal-50 text-teal-700' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>{loc.type}</span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 max-w-[160px] truncate">{loc.address || '—'}</td>
+                      <td className="py-3 px-4 font-mono text-slate-400">{Number(loc.lat).toFixed(4)}, {Number(loc.lng).toFixed(4)}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          loc.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                        }`}>{loc.status}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => openEditLocationModal(loc)} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg" title="Edit">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDeleteLocation(loc.id)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg" title="Delete">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 5: TRANSPORT MODES MANAGEMENT */}
+      {/* ========================================================================= */}
+      {activeTab === 'modes' && (
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
+          <div className="mb-6">
+            <h3 className="text-lg font-bold text-slate-900">Configured Transport Modes</h3>
+            <p className="text-xs text-slate-500">
+              Control transit modes (Jeepney, Bus, Tricycle, Boat). Inactive modes will not be displayed to commuters or allow new routes.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {modes.map((mode) => {
+              const isActive = (mode.status || 'ACTIVE') === 'ACTIVE';
+              return (
+                <div key={mode.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm">{mode.name}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">{mode.description || 'Transit mode.'}</p>
+                    <span className="text-[10px] text-slate-400 font-mono mt-1 block">Icon: {mode.icon}</span>
+                  </div>
+
+                  <button
+                    onClick={() => handleToggleModeStatus(mode)}
+                    className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all ${
+                      isActive
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {isActive ? 'Deactivate' : 'Activate'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       </div>
+
+      {/* ========================================================================= */}
+      {/* LOCATION ADD/EDIT MODAL */}
+      {/* ========================================================================= */}
+      {locationModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setLocationModalOpen(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-bold text-slate-900 mb-4">
+              {editingLocation ? 'Edit Location' : 'Add New Location'}
+            </h3>
+            <form onSubmit={handleSaveLocation} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Location Name *</label>
+                <input type="text" required value={locationFormData.name}
+                  onChange={(e) => setLocationFormData({ ...locationFormData, name: e.target.value })}
+                  placeholder="e.g. SM Center Dagupan"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Type *</label>
+                  <select value={locationFormData.type}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, type: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                    {LOCATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Status</label>
+                  <select value={locationFormData.status}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, status: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="INACTIVE">INACTIVE</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Address / Description of Location</label>
+                <input type="text" value={locationFormData.address}
+                  onChange={(e) => setLocationFormData({ ...locationFormData, address: e.target.value })}
+                  placeholder="e.g. AB Fernandez Ave, Dagupan City"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Latitude *</label>
+                  <input type="number" step="any" required value={locationFormData.lat}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, lat: e.target.value })}
+                    placeholder="16.0435"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Longitude *</label>
+                  <input type="number" step="any" required value={locationFormData.lng}
+                    onChange={(e) => setLocationFormData({ ...locationFormData, lng: e.target.value })}
+                    placeholder="120.3340"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Notes / Description</label>
+                <textarea rows="2" value={locationFormData.description}
+                  onChange={(e) => setLocationFormData({ ...locationFormData, description: e.target.value })}
+                  placeholder="Optional notes about this location."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              </div>
+              <div className="pt-2 flex justify-end gap-3">
+                <button type="button" onClick={() => setLocationModalOpen(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">Cancel</button>
+                <button type="submit"
+                  className="py-2.5 px-6 bg-sky-700 hover:bg-sky-800 text-white font-bold rounded-xl shadow">
+                  {editingLocation ? 'Update Location' : 'Add Location'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* ROUTE ADD/EDIT MODAL */}
@@ -757,6 +1116,77 @@ export default function Admin() {
                 </div>
               </div>
 
+              {modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' && (
+                <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-200/80 space-y-3">
+                  <div className="flex items-center gap-2 font-bold text-blue-900 text-xs">
+                    <Ship className="w-4 h-4 text-blue-600" />
+                    River Boat Route Configuration
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Waterway Name</label>
+                      <input
+                        type="text"
+                        value={routeFormData.waterway}
+                        onChange={(e) => setRouteFormData({ ...routeFormData, waterway: e.target.value })}
+                        placeholder="e.g. Pantal River"
+                        className="w-full p-2 bg-white border border-blue-200 rounded-xl text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Operating Status</label>
+                      <select
+                        value={routeFormData.boat_operating_status}
+                        onChange={(e) => setRouteFormData({ ...routeFormData, boat_operating_status: e.target.value })}
+                        className="w-full p-2 bg-white border border-blue-200 rounded-xl text-xs"
+                      >
+                        <option value="ACTIVE">ACTIVE (Normal Service)</option>
+                        <option value="SUSPENDED">SUSPENDED (Weather / Water Conditions)</option>
+                        <option value="UNAVAILABLE">UNAVAILABLE (Out of Service)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Origin River Stop / Dock</label>
+                      <select
+                        value={routeFormData.origin_river_stop_id}
+                        onChange={(e) => setRouteFormData({ ...routeFormData, origin_river_stop_id: e.target.value })}
+                        className="w-full p-2 bg-white border border-blue-200 rounded-xl text-xs"
+                      >
+                        <option value="">-- Select Dock / Stop --</option>
+                        {locations.filter(l => l.type === 'RIVER_STOP' || l.type === 'TERMINAL').map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Destination River Stop / Dock</label>
+                      <select
+                        value={routeFormData.destination_river_stop_id}
+                        onChange={(e) => setRouteFormData({ ...routeFormData, destination_river_stop_id: e.target.value })}
+                        className="w-full p-2 bg-white border border-blue-200 rounded-xl text-xs"
+                      >
+                        <option value="">-- Select Dock / Stop --</option>
+                        {locations.filter(l => l.type === 'RIVER_STOP' || l.type === 'TERMINAL').map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Boat Operational Notes</label>
+                    <input
+                      type="text"
+                      value={routeFormData.boat_notes}
+                      onChange={(e) => setRouteFormData({ ...routeFormData, boat_notes: e.target.value })}
+                      placeholder="e.g. Life vests mandatory. Service operates dawn to dusk."
+                      className="w-full p-2 bg-white border border-blue-200 rounded-xl text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Description</label>
                 <textarea
@@ -766,6 +1196,22 @@ export default function Admin() {
                   placeholder="Route details and corridor description"
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                 ></textarea>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Route Geometry (GeoJSON LineString, optional)
+                </label>
+                <textarea
+                  rows="2"
+                  value={routeFormData.geometry}
+                  onChange={(e) => setRouteFormData({ ...routeFormData, geometry: e.target.value })}
+                  placeholder='{"type":"LineString","coordinates":[[120.334,16.043],[...]]}'
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                ></textarea>
+                <span className="text-[10px] text-slate-400">
+                  Optional GeoJSON coordinates [lon, lat]. If left blank, geometry is automatically derived from designated stops.
+                </span>
               </div>
 
               <div className="pt-2 flex justify-end gap-3">
@@ -843,6 +1289,10 @@ export default function Admin() {
                     <option value="ROAD_CLOSURE">ROAD_CLOSURE</option>
                     <option value="DETOUR">DETOUR</option>
                     <option value="CLEAR">CLEAR</option>
+                    <option value="ROUTE_CLEAR">ROUTE_CLEAR</option>
+                    <option value="RIVER_TRANSPORT_SUSPENDED">RIVER_TRANSPORT_SUSPENDED</option>
+                    <option value="RIVER_ADVISORY">RIVER_ADVISORY</option>
+                    <option value="ROUTE_UNAVAILABLE">ROUTE_UNAVAILABLE</option>
                   </select>
                 </div>
               </div>

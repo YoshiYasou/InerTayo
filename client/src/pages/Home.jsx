@@ -254,8 +254,8 @@ export default function Home() {
                     Get step-by-step commute directions that reflect detour advisories during heavy rain and high tide. Routes reflect current advisories.
                   </p>
 
-                  {/* Non-quantified Stat per §0.10 */}
-                  <div className="pt-2">
+                  {/* Non-quantified Stat per §0.10 & Direct Map Launch CTA */}
+                  <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="inline-block">
                       <div className="text-3xl sm:text-4xl font-extrabold text-white">
                         Built for Dagupan
@@ -264,6 +264,14 @@ export default function Home() {
                         Fully Localized Transit Routes
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/map')}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 flex-shrink-0"
+                    >
+                      <Compass className="w-4 h-4" />
+                      Launch Web Map
+                    </button>
                   </div>
                 </div>
 

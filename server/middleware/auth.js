@@ -1,6 +1,17 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'inertayo-dagupan-transit-secret-key-2026';
+// Refuse to start without a proper JWT secret in the environment.
+// Never fall back to a hardcoded string — that would make tokens forgeable
+// by anyone who reads the source code.
+if (!process.env.JWT_SECRET) {
+    console.error(
+        '[FATAL] JWT_SECRET environment variable is not set. ' +
+        'Set it in your .env file before starting the server.'
+    );
+    process.exit(1);
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];

@@ -17,20 +17,31 @@ export default function WebMap() {
   const { navigate } = useRouter();
 
   const [routes, setRoutes] = useState([]);
-  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL', 'Jeepney', 'Bus', 'Tricycle', 'FLOOD'
-  const [showLandmarks, setShowLandmarks] = useState(true);
+  const [locations, setLocations] = useState([]);
+  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL', 'Jeepney', 'Bus', 'Tricycle', 'Boat', 'FLOOD'
+  const [showLandmarks, setShowLandmarks] = useState(false);
+  const [showLocations, setShowLocations] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Load routes with full stops details
     fetch('/api/routes')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(async (routesData) => {
+        if (!Array.isArray(routesData)) {
+          setRoutes([]);
+          setLoading(false);
+          return;
+        }
         const detailedRoutes = await Promise.all(
           routesData.map(async (r) => {
             try {
               const detailRes = await fetch(`/api/routes/${r.id}`);
+              if (!detailRes.ok) return r;
               return await detailRes.json();
             } catch (e) {
               return r;
@@ -42,8 +53,17 @@ export default function WebMap() {
       })
       .catch(err => {
         console.error('Failed to load map data:', err);
+        setRoutes([]);
         setLoading(false);
       });
+
+    // Load unified locations
+    fetch('/api/locations')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setLocations(data);
+      })
+      .catch(err => console.error('Failed to load locations:', err));
   }, []);
 
   const handleSelect = (type, item) => {
@@ -51,13 +71,15 @@ export default function WebMap() {
       setSelectedItem({ type: 'route', data: item });
     } else if (type === 'stop') {
       setSelectedItem({ type: 'stop', data: item, routeName: item.routeName });
+    } else if (type === 'location') {
+      setSelectedItem({ type: 'location', data: item });
     } else if (type === 'landmark') {
       setSelectedItem({ type: 'landmark', data: item });
     } else if (type === 'advisory') {
       setSelectedItem({
         type: 'advisory',
-        title: 'AB Fernandez Ave Flooding',
-        description: 'High tide overflow has created standing water along lower lanes. Affected routes reflect current advisories.'
+        title: item?.title || 'AB Fernandez Ave Flooding',
+        description: item?.description || 'High tide overflow has created standing water along lower lanes. Affected routes reflect current advisories.'
       });
     }
   };
@@ -76,17 +98,18 @@ export default function WebMap() {
               </h1>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Informational transit corridors, stops, and flood hazard overlays for Dagupan City.
+              Informational transit corridors, river boat crossings, stops, and flood hazard overlays for Dagupan City.
             </p>
           </div>
 
-          {/* Filter Pills and Landmark Layer Toggle */}
+          {/* Filter Pills and Layer Toggles */}
           <div className="flex flex-wrap items-center gap-2">
             {[
               { key: 'ALL', label: 'All Modes' },
               { key: 'Jeepney', label: 'Jeepneys' },
               { key: 'Bus', label: 'Buses' },
               { key: 'Tricycle', label: 'Tricycles' },
+              { key: 'Boat', label: '🚤 River Boats' },
               { key: 'FLOOD', label: '⚠️ Flood Zones' },
             ].map((tab) => (
               <button
@@ -101,6 +124,18 @@ export default function WebMap() {
                 {tab.label}
               </button>
             ))}
+
+            <button
+              onClick={() => setShowLocations(!showLocations)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 border ${
+                showLocations
+                  ? 'bg-sky-50 border-sky-200 text-sky-700'
+                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              Places & Streets {showLocations ? 'ON' : 'OFF'}
+            </button>
 
             <button
               onClick={() => setShowLandmarks(!showLandmarks)}
@@ -131,6 +166,8 @@ export default function WebMap() {
             routes={routes}
             activeFilter={activeFilter}
             showLandmarks={showLandmarks}
+            showLocations={showLocations}
+            locations={locations}
             showAdvisories={true}
             interactive={true}
             className="absolute inset-0 w-full h-full"
@@ -196,6 +233,24 @@ export default function WebMap() {
               </div>
             )}
 
+            {selectedItem.type === 'location' && (
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-slate-900 text-sm">
+                  <MapPin className="w-4 h-4 text-sky-600" />
+                  {selectedItem.data.name}
+                </div>
+                <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">
+                  {selectedItem.data.type}
+                </span>
+                {selectedItem.data.address && (
+                  <p className="text-xs text-slate-500 mt-1.5">{selectedItem.data.address}</p>
+                )}
+                {selectedItem.data.description && (
+                  <p className="text-xs text-slate-400 mt-1 italic">{selectedItem.data.description}</p>
+                )}
+              </div>
+            )}
+
             {selectedItem.type === 'landmark' && (
               <div>
                 <div className="flex items-center gap-1.5 font-bold text-slate-900 text-sm">
@@ -249,12 +304,23 @@ export default function WebMap() {
             <span className="text-slate-600">Tricycle Corridors</span>
           </div>
           <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full border-2 border-blue-600" style={{ background: 'repeating-linear-gradient(90deg, #2563eb 0, #2563eb 4px, transparent 4px, transparent 8px)' }}></span>
+            <span className="text-slate-600">River Boat Crossing</span>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-amber-500"></span>
             <span className="text-slate-600">Flood Hazard Zone</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded bg-indigo-500"></span>
             <span className="text-slate-600">Reference Landmarks</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-sky-600"></span>
+            <span className="text-slate-600">River Stops / Places</span>
+          </div>
+          <div className="border-t border-slate-100 pt-1.5 text-[9px] text-slate-400 italic">
+            Boat routes are sample/configurable data. Verify with admin.
           </div>
         </div>
 

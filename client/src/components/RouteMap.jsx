@@ -15,6 +15,33 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
+// Helper to extract polyline coordinates [lat, lon] from GeoJSON geometry or sequential stops
+function getRoutePolylineCoords(route) {
+  if (!route) return [];
+
+  if (route.geometry) {
+    try {
+      const geom = typeof route.geometry === 'string' ? JSON.parse(route.geometry) : route.geometry;
+      if (geom && geom.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
+        // GeoJSON RFC 7946 coordinates are [longitude, latitude].
+        // Leaflet Polyline expects [latitude, longitude].
+        return geom.coordinates.map(coord => [coord[1], coord[0]]);
+      }
+    } catch (e) {
+      console.warn('Failed to parse route GeoJSON geometry:', e);
+    }
+  }
+
+  // Fallback: derive polyline from sequential stops
+  if (Array.isArray(route.stops) && route.stops.length >= 2) {
+    return route.stops
+      .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number')
+      .map(s => [s.latitude, s.longitude]);
+  }
+
+  return [];
+}
+
 // Helper component to resize and adjust map bounds dynamically
 function MapResizerAndBounds({ routes, activeFilter }) {
   const map = useMap();
@@ -35,12 +62,9 @@ function MapResizerAndBounds({ routes, activeFilter }) {
   useEffect(() => {
     if (!routes || routes.length === 0) return;
 
-    if (routes.length === 1 && routes[0].stops && routes[0].stops.length > 0) {
-      // Single route: zoom to fit all stops of this route
-      const points = routes[0].stops
-        .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number')
-        .map(s => [s.latitude, s.longitude]);
-
+    if (routes.length === 1) {
+      // Single route: zoom to fit geometry or stops of this route
+      const points = getRoutePolylineCoords(routes[0]);
       if (points.length > 0) {
         map.fitBounds(points, { padding: [40, 40], maxZoom: 15 });
       }
@@ -49,13 +73,8 @@ function MapResizerAndBounds({ routes, activeFilter }) {
         const filtered = routes.filter(r => (r.mode_name || '').toLowerCase().includes(activeFilter.toLowerCase()));
         const points = [];
         filtered.forEach(r => {
-          if (r.stops) {
-            r.stops.forEach(s => {
-              if (typeof s.latitude === 'number' && typeof s.longitude === 'number') {
-                points.push([s.latitude, s.longitude]);
-              }
-            });
-          }
+          const coords = getRoutePolylineCoords(r);
+          coords.forEach(pt => points.push(pt));
         });
         if (points.length > 0) {
           map.fitBounds(points, { padding: [35, 35] });
@@ -146,10 +165,78 @@ function createLandmarkIcon(type) {
   });
 }
 
+function createLocationIcon(loc) {
+  const type = (loc.type || '').toUpperCase();
+  let bg = '#6366f1';
+  let symbol = '★';
+  let size = 18;
+  let isDiamond = false;
+
+  if (type === 'RIVER_STOP') {
+    bg = '#0284c7';
+    symbol = '⚓';
+    size = 22;
+    isDiamond = true;
+  } else if (type === 'STREET') {
+    bg = '#475569';
+    symbol = '≡';
+    size = 16;
+  } else if (type === 'TERMINAL') {
+    bg = '#ea580c';
+    symbol = 'T';
+    size = 18;
+  } else if (type === 'ESTABLISHMENT') {
+    bg = '#8b5cf6';
+    symbol = 'E';
+    size = 16;
+  } else if (type === 'BARANGAY') {
+    bg = '#0d9488';
+    symbol = 'B';
+    size = 16;
+  } else if (type === 'INTERSECTION') {
+    bg = '#64748b';
+    symbol = '+';
+    size = 14;
+  } else if (type === 'STOP') {
+    bg = '#10b981';
+    symbol = '●';
+    size = 14;
+  }
+
+  return L.divIcon({
+    className: 'custom-loc-div-icon',
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        border-radius: ${isDiamond ? '4px' : '50%'};
+        background-color: ${bg};
+        border: 2px solid #ffffff;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #ffffff;
+        font-size: ${size >= 18 ? '10px' : '9px'};
+        font-weight: 800;
+        line-height: 1;
+        ${isDiamond ? 'transform: rotate(45deg);' : ''}
+      ">
+        <span style="${isDiamond ? 'transform: rotate(-45deg);' : ''}">${symbol}</span>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
 export default function RouteMap({
   routes = [],
   activeFilter = 'ALL',
   showLandmarks = false,
+  showLocations = false,
+  locations = [],
   showAdvisories = true,
   interactive = true,
   className = 'w-full h-full rounded-2xl',
@@ -180,7 +267,7 @@ export default function RouteMap({
     [16.0460, 120.3420],
   ];
 
-  // Filter routes based on mode
+  // Filter routes based on mode (supports Jeepney, Bus, Tricycle, Boat)
   const visibleRoutes = routes.filter(route => {
     const mode = (route.mode_name || '').toLowerCase();
     if (activeFilter === 'ALL' || activeFilter === 'FLOOD') return true;
@@ -202,9 +289,9 @@ export default function RouteMap({
         style={{ width: '100%', height: '100%' }}
         attributionControl={true}
       >
-        {/* OpenStreetMap Raster Tile Layer with mandatory attribution per §2 */}
+        {/* OpenStreetMap Raster Tile Layer (Official OSM tile URL per Tile Usage Policy) */}
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
           maxZoom={19}
         />
@@ -252,16 +339,18 @@ export default function RouteMap({
         {/* Transit Routes and Stop Markers */}
         {visibleRoutes.map((route) => {
           const mode = (route.mode_name || '').toLowerCase();
-          const routeColor = mode.includes('jeep')
+          const isBoat = mode.includes('boat');
+          const routeColor = isBoat
+            ? '#2563eb' // Blue matching Boat legend
+            : mode.includes('jeep')
             ? '#ec4899' // Pink matching Jeepney legend
             : mode.includes('bus')
             ? '#10b981' // Green matching Bus legend
             : '#06b6d4'; // Cyan matching Tricycle legend
 
           const isDetour = route.status === 'DETOUR_ACTIVE';
-          const polylineCoords = (route.stops || [])
-            .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number')
-            .map(s => [s.latitude, s.longitude]);
+          const isUnavailable = route.status === 'UNAVAILABLE';
+          const polylineCoords = getRoutePolylineCoords(route);
 
           return (
             <React.Fragment key={route.id}>
@@ -270,10 +359,11 @@ export default function RouteMap({
                 <Polyline
                   positions={polylineCoords}
                   pathOptions={{
-                    color: isDetour ? '#f59e0b' : routeColor,
-                    weight: 5,
-                    opacity: 0.85,
-                    dashArray: isDetour ? '8, 8' : undefined
+                    color: isUnavailable ? '#94a3b8' : isDetour ? '#f59e0b' : routeColor,
+                    weight: isBoat ? 6 : 5,
+                    opacity: isUnavailable ? 0.6 : 0.85,
+                    dashArray: isBoat ? '8, 8' : isDetour ? '8, 8' : undefined,
+                    lineCap: 'round'
                   }}
                   eventHandlers={{
                     click: () => {
@@ -293,6 +383,11 @@ export default function RouteMap({
                         Fare: ₱{Math.round(route.minimum_fare)} – ₱{Math.round(route.maximum_fare)}<br />
                         Travel Time: {route.active_travel_time || route.estimated_time} mins
                       </p>
+                      {isUnavailable && (
+                        <span style={{ display: 'inline-block', marginTop: '6px', fontSize: '10px', fontWeight: 'bold', color: '#dc2626', background: '#fee2e2', padding: '2px 6px', borderRadius: '4px' }}>
+                          🚫 Service Suspended
+                        </span>
+                      )}
                       {isDetour && (
                         <span style={{ display: 'inline-block', marginTop: '6px', fontSize: '10px', fontWeight: 'bold', color: '#b45309', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px' }}>
                           ⚠️ Detour Active
@@ -339,6 +434,46 @@ export default function RouteMap({
                 );
               })}
             </React.Fragment>
+          );
+        })}
+
+        {/* Unified Locations Overlay (Streets, River Stops, Terminals, Barangays, etc.) */}
+        {showLocations && locations.map((loc) => {
+          if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') return null;
+          const locIcon = createLocationIcon(loc);
+
+          return (
+            <Marker
+              key={`location-${loc.id}`}
+              position={[loc.latitude, loc.longitude]}
+              icon={locIcon}
+              eventHandlers={{
+                click: () => {
+                  if (onSelect) onSelect('location', loc);
+                }
+              }}
+            >
+              <Popup>
+                <div style={{ fontFamily: 'sans-serif', minWidth: '160px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#0284c7', textTransform: 'uppercase' }}>
+                    {loc.type}
+                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#0f172a', margin: '2px 0' }}>
+                    {loc.name}
+                  </div>
+                  {loc.address && (
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>
+                      {loc.address}
+                    </div>
+                  )}
+                  {loc.description && (
+                    <div style={{ fontSize: '10px', color: '#475569', marginTop: '4px' }}>
+                      {loc.description}
+                    </div>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
           );
         })}
 

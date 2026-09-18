@@ -54,6 +54,41 @@ async function initSchema() {
     const schemaPath = path.resolve(__dirname, 'schema.sql');
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
     await query.exec(schemaSql);
+
+    // Safe column migrations — each is wrapped in try/catch because
+    // SQLite throws if the column already exists, which is fine.
+
+    // Add geometry column to routes (legacy migration)
+    try { await query.run(`ALTER TABLE routes ADD COLUMN geometry TEXT`); } catch (e) {}
+
+    // Add status column to transport_modes (new in v2)
+    try { await query.run(`ALTER TABLE transport_modes ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`); } catch (e) {}
+
+    // Migrate advisories table if it still has the legacy CHECK constraint on condition
+    try {
+        const advTable = await query.get(`SELECT sql FROM sqlite_master WHERE type='table' AND name='advisories'`);
+        if (advTable && advTable.sql && advTable.sql.includes('condition IN')) {
+            await query.exec(`
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE advisories_migration (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    affected_road TEXT NOT NULL,
+                    condition TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO advisories_migration SELECT id, title, affected_road, condition, description, status, created_at, updated_at FROM advisories;
+                DROP TABLE advisories;
+                ALTER TABLE advisories_migration RENAME TO advisories;
+                PRAGMA foreign_keys = ON;
+            `);
+        }
+    } catch (e) {
+        console.error('Advisories migration note:', e.message);
+    }
 }
 
 module.exports = {
