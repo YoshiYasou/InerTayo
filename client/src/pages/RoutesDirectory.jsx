@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from '../context/RouterContext';
 import AdvisoryBanner from '../components/AdvisoryBanner';
 import LocationAutocomplete from '../components/LocationAutocomplete';
@@ -11,7 +11,8 @@ import {
   AlertTriangle, 
   Clock, 
   Banknote,
-  RotateCcw
+  RotateCcw,
+  Footprints
 } from 'lucide-react';
 
 export default function RoutesDirectory() {
@@ -26,24 +27,25 @@ export default function RoutesDirectory() {
   const [modes, setModes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch transport modes
+  // Resolved location from autocomplete selection (has lat/lng for proximity search)
+  const [resolvedLocation, setResolvedLocation] = useState(null);
+  // Keep the pending location so we can use it when Apply Filters is clicked
+  const pendingLocation = useRef(null);
+
+  // Fetch transport modes + advisories on mount
   useEffect(() => {
     fetch('/api/transport-modes')
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setModes(data);
-      })
+      .then(data => { if (Array.isArray(data)) setModes(data); })
       .catch(err => console.error('Error loading modes:', err));
 
     fetch('/api/advisories')
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAdvisories(data);
-      })
+      .then(data => { if (Array.isArray(data)) setAdvisories(data); })
       .catch(err => console.error('Error loading advisories:', err));
   }, []);
 
-  // Fetch routes based on query parameters
+  // Fetch routes whenever URL query params change
   useEffect(() => {
     fetchFilteredRoutes();
   }, [queryParams]);
@@ -51,17 +53,67 @@ export default function RoutesDirectory() {
   const fetchFilteredRoutes = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (queryParams.search) params.append('search', queryParams.search);
-      if (queryParams.from) params.append('from', queryParams.from);
-      if (queryParams.to) params.append('to', queryParams.to);
-      if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
-      if (queryParams.sort) params.append('sort', queryParams.sort);
+      // If we have a resolved location with coordinates, use proximity search
+      const loc = pendingLocation.current || resolvedLocation;
+      const hasCoords = loc && typeof loc.latitude === 'number' && typeof loc.longitude === 'number';
+      const searchText = queryParams.search || queryParams.from || queryParams.to || '';
 
-      const res = await fetch(`/api/routes?${params.toString()}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setRoutes(data);
+      if (hasCoords && searchText) {
+        // Proximity search: call /api/routes/nearby with the resolved coordinates
+        const params = new URLSearchParams({
+          lat: loc.latitude,
+          lng: loc.longitude,
+          radius: 600,
+        });
+        if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
+        if (queryParams.sort) params.append('sort', queryParams.sort);
+
+        const res = await fetch(`/api/routes/nearby?${params.toString()}`);
+        const proximityData = await res.json();
+
+        if (!Array.isArray(proximityData)) {
+          // outsideDagupan flag or error
+          if (proximityData.outsideDagupan) {
+            setRoutes([]);
+            setLoading(false);
+            return;
+          }
+          throw new Error('Unexpected proximity response');
+        }
+
+        // Also run the text search to catch additional matches (e.g. route names containing the term)
+        const textParams = new URLSearchParams();
+        textParams.append('search', searchText);
+        if (queryParams.mode && queryParams.mode !== 'All Modes') textParams.append('mode', queryParams.mode);
+        if (queryParams.sort) textParams.append('sort', queryParams.sort);
+
+        const textRes = await fetch(`/api/routes?${textParams.toString()}`);
+        const textData = await textRes.json();
+        const textRoutes = Array.isArray(textData) ? textData : [];
+
+        // Merge and deduplicate by route id; proximity results come first (sorted by walk distance)
+        const seenIds = new Set();
+        const merged = [];
+        for (const r of proximityData) {
+          if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r); }
+        }
+        for (const r of textRoutes) {
+          if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r); }
+        }
+        setRoutes(merged);
+
+      } else {
+        // Standard text search (no resolved coords — legacy behaviour preserved)
+        const params = new URLSearchParams();
+        if (queryParams.search) params.append('search', queryParams.search);
+        if (queryParams.from)   params.append('from', queryParams.from);
+        if (queryParams.to)     params.append('to', queryParams.to);
+        if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
+        if (queryParams.sort)   params.append('sort', queryParams.sort);
+
+        const res = await fetch(`/api/routes?${params.toString()}`);
+        const data = await res.json();
+        if (Array.isArray(data)) setRoutes(data);
       }
     } catch (err) {
       console.error('Error loading routes:', err);
@@ -72,6 +124,10 @@ export default function RoutesDirectory() {
 
   const handleApplyFilters = (e) => {
     e.preventDefault();
+    // Persist the pending resolved location so fetchFilteredRoutes can use it
+    if (pendingLocation.current) {
+      setResolvedLocation(pendingLocation.current);
+    }
     navigate('/routes', {
       search: searchTerm.trim(),
       mode: selectedMode,
@@ -83,6 +139,8 @@ export default function RoutesDirectory() {
     setSearchTerm('');
     setSelectedMode('All Modes');
     setSortBy('Fastest Travel Time');
+    setResolvedLocation(null);
+    pendingLocation.current = null;
     navigate('/routes');
   };
 
@@ -108,6 +166,14 @@ export default function RoutesDirectory() {
         <Bike className="w-3.5 h-3.5" />
       </div>
     );
+  };
+
+  // Format walking distance for display
+  const formatWalkDistance = (meters) => {
+    if (!meters && meters !== 0) return null;
+    if (meters < 50) return '< 50m walk to stop';
+    if (meters < 1000) return `~${Math.round(meters / 10) * 10}m walk to stop`;
+    return `~${(meters / 1000).toFixed(1)}km walk to stop`;
   };
 
   return (
@@ -138,7 +204,7 @@ export default function RoutesDirectory() {
             </div>
           )}
 
-          {/* Filter Bar matching Page 2 & Page 3 */}
+          {/* Filter Bar */}
           <form onSubmit={handleApplyFilters} className="mt-8">
             <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/90 shadow-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
               
@@ -146,16 +212,25 @@ export default function RoutesDirectory() {
               <div className="flex-1 relative bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:bg-white transition-all">
                 <LocationAutocomplete
                   value={searchTerm}
-                  onChange={setSearchTerm}
+                  onChange={(val) => {
+                    // User is typing manually — clear any resolved location
+                    setSearchTerm(val);
+                    pendingLocation.current = null;
+                    setResolvedLocation(null);
+                  }}
                   onSelect={(item) => {
+                    // User selected a suggestion — store full item (with lat/lng) for proximity search
                     setSearchTerm(item.name);
+                    pendingLocation.current = item;
+                    // Auto-trigger search immediately on selection
+                    setResolvedLocation(item);
                     navigate('/routes', {
                       search: item.name,
                       mode: selectedMode,
                       sort: sortBy
                     });
                   }}
-                  placeholder="Search landmarks, streets, barangays, or routes (e.g. Perez, Bonuan Gueset)"
+                  placeholder="Search landmarks, streets, barangays, schools, or routes (e.g. UPang, Bonuan Gueset)"
                   icon={<Search className="w-4 h-4 text-slate-400 flex-shrink-0" />}
                 />
               </div>
@@ -205,6 +280,19 @@ export default function RoutesDirectory() {
             </div>
           </form>
 
+          {/* Resolved location indicator */}
+          {resolvedLocation && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+              Showing routes near <strong>{resolvedLocation.name}</strong>
+              {resolvedLocation.typeLabel && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-100 text-emerald-600">
+                  {resolvedLocation.typeLabel}
+                </span>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -252,6 +340,9 @@ export default function RoutesDirectory() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {routes.map((route) => {
               const isDetour = route.status === 'DETOUR_ACTIVE';
+              const walkLabel = route.fromProximitySearch
+                ? formatWalkDistance(route.walkDistanceMeters)
+                : null;
               return (
                 <div
                   key={route.id}
@@ -286,9 +377,20 @@ export default function RoutesDirectory() {
                     </div>
 
                     {/* Route Name */}
-                    <h3 className="text-xl font-bold text-slate-900 tracking-tight mb-5">
+                    <h3 className="text-xl font-bold text-slate-900 tracking-tight mb-2">
                       {route.route_name}
                     </h3>
+
+                    {/* Walk distance badge — shown only for proximity results */}
+                    {walkLabel && (
+                      <div className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1 mb-3">
+                        <Footprints className="w-3 h-3" />
+                        {walkLabel}
+                        {route.nearestStop && (
+                          <span className="text-emerald-600 ml-0.5">· {route.nearestStop.name}</span>
+                        )}
+                      </div>
+                    )}
 
                     {/* 2-Column Metrics */}
                     <div className="grid grid-cols-2 gap-4 pb-6 border-b border-slate-100">
@@ -296,7 +398,6 @@ export default function RoutesDirectory() {
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           EST. FARE
                         </span>
-                        {/* Consistent fare-range formatting per §0.7: ₱X – ₱Y */}
                         <span className="text-base font-extrabold text-slate-900">
                           ₱{Math.round(route.minimum_fare)} – ₱{Math.round(route.maximum_fare)}
                         </span>
@@ -306,7 +407,6 @@ export default function RoutesDirectory() {
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
                           TRAVEL TIME
                         </span>
-                        {/* Advisory-adjusted estimated travel time per §0.5 */}
                         <span className={`text-base font-extrabold ${isDetour ? 'text-amber-700' : 'text-slate-900'}`}>
                           {route.active_travel_time || route.estimated_time} mins
                         </span>
@@ -314,7 +414,7 @@ export default function RoutesDirectory() {
                     </div>
                   </div>
 
-                  {/* Button at bottom matching UI */}
+                  {/* Button at bottom */}
                   <button
                     onClick={() => navigate(`/routes/${route.id}`)}
                     className="w-full mt-5 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold tracking-wide uppercase transition-all shadow-sm active:scale-98 text-center"

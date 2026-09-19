@@ -7,6 +7,7 @@ const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
 const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
 const { planJourney } = require('../services/journeyEngine');
+const { haversineDistance } = require('../utils/geoUtils');
 
 const router = express.Router();
 
@@ -641,7 +642,7 @@ router.get('/routes', async (req, res) => {
             params.push(mode);
         }
 
-        // Search query (matches route name, origin, destination, description, stops, or connected locations/streets/barangays/keywords)
+        // Search query (matches route name, origin, destination, description, stops, connected locations, or school names/aliases)
         if (search && search.trim() !== '') {
             const term = `%${search.trim()}%`;
             sql += ` AND (
@@ -654,9 +655,22 @@ router.get('/routes', async (req, res) => {
                     SELECT route_id FROM route_segments rs 
                     JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
                     WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
+                ) OR
+                r.id IN (
+                    SELECT s.route_id FROM stops s, schools sch
+                    WHERE sch.active = 1
+                      AND (sch.name LIKE ? OR sch.aliases LIKE ?)
+                      AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+                      AND sch.latitude IS NOT NULL AND sch.longitude IS NOT NULL
+                      AND (
+                          (s.latitude - COALESCE(sch.entrance_latitude, sch.latitude)) *
+                          (s.latitude - COALESCE(sch.entrance_latitude, sch.latitude)) +
+                          (s.longitude - COALESCE(sch.entrance_longitude, sch.longitude)) *
+                          (s.longitude - COALESCE(sch.entrance_longitude, sch.longitude))
+                      ) < 0.000054
                 )
             )`;
-            params.push(term, term, term, term, term, term, term, term);
+            params.push(term, term, term, term, term, term, term, term, term, term);
         }
 
         // FROM / TO specific filtering if passed
@@ -718,6 +732,153 @@ router.get('/routes', async (req, res) => {
     } catch (err) {
         console.error('Error fetching routes:', err);
         res.status(500).json({ error: 'Failed to retrieve routes.' });
+    }
+});
+
+// GET /api/routes/nearby - Find existing routes serving a geographic point
+// Query params: lat (required), lng (required), radius (meters, default walkingRadius),
+//               mode (optional filter), sort (optional)
+// Returns routes sorted by walk distance to nearest boarding stop.
+// MUST be declared before /routes/:id so Express matches it first.
+router.get('/routes/nearby', async (req, res) => {
+    try {
+        const lat = parseFloat(req.query.lat);
+        const lng = parseFloat(req.query.lng);
+
+        if (isNaN(lat) || isNaN(lng)) {
+            return res.status(400).json({ error: 'lat and lng are required numeric parameters.' });
+        }
+
+        // Boundary check — only serve Dagupan City locations
+        const inDagupan = isInsideDagupanCity(lat, lng);
+        if (!inDagupan) {
+            return res.json({ routes: [], outsideDagupan: true });
+        }
+
+        const radius = parseFloat(req.query.radius) || ROUTING_CONFIG.walkingRadius;
+        const { mode, sort, use_corrected } = req.query;
+        const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
+
+        // Load all active routes with their stops and geometry
+        let routesSql = `
+            SELECT 
+                r.id, r.route_name, r.transport_mode_id,
+                tm.name AS mode_name, tm.icon AS mode_icon,
+                r.origin, r.destination,
+                r.estimated_time, r.detour_time,
+                CASE 
+                    WHEN r.status = 'DETOUR_ACTIVE' AND r.detour_time IS NOT NULL THEN r.detour_time
+                    ELSE r.estimated_time
+                END AS active_travel_time,
+                r.minimum_fare, r.maximum_fare,
+                CASE
+                    WHEN brd.operating_status = 'SUSPENDED' OR brd.operating_status = 'UNAVAILABLE' THEN 'UNAVAILABLE'
+                    ELSE r.status
+                END AS status,
+                r.description,
+                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry
+            FROM routes r
+            JOIN transport_modes tm ON r.transport_mode_id = tm.id
+            LEFT JOIN boat_route_details brd ON r.id = brd.route_id
+            WHERE 1=1
+        `;
+        const routeParams = [];
+
+        if (mode && mode !== 'All Modes' && mode !== 'ALL') {
+            routesSql += ` AND LOWER(tm.name) = LOWER(?)`;
+            routeParams.push(mode);
+        }
+
+        const allRoutes = await query.all(routesSql, routeParams);
+
+        // Load all stops (with lat/lng) grouped by route
+        const allStops = await query.all(
+            `SELECT route_id, id, stop_name, stop_order, latitude, longitude FROM stops
+             WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+             ORDER BY route_id, stop_order ASC`
+        );
+
+        // Build stop map: routeId → stops[]
+        const stopsByRoute = {};
+        for (const stop of allStops) {
+            if (!stopsByRoute[stop.route_id]) stopsByRoute[stop.route_id] = [];
+            stopsByRoute[stop.route_id].push(stop);
+        }
+
+        // Helper: nearest distance from query point to a route geometry LineString
+        function distToGeometry(geomJson) {
+            if (!geomJson) return Infinity;
+            let geom;
+            try { geom = typeof geomJson === 'string' ? JSON.parse(geomJson) : geomJson; } catch { return Infinity; }
+            const coords = geom.coordinates;
+            if (!Array.isArray(coords) || coords.length < 2) return Infinity;
+            let minDist = Infinity;
+            for (const coord of coords) {
+                // coord is [lng, lat] (GeoJSON)
+                const d = haversineDistance(lat, lng, coord[1], coord[0]);
+                if (d < minDist) minDist = d;
+            }
+            return minDist;
+        }
+
+        // Score each route: find nearest stop and nearest geometry point
+        const results = [];
+        for (const route of allRoutes) {
+            const stops = stopsByRoute[route.id] || [];
+            let nearestStop = null;
+            let minStopDist = Infinity;
+
+            for (const stop of stops) {
+                const d = haversineDistance(lat, lng, stop.latitude, stop.longitude);
+                if (d < minStopDist) {
+                    minStopDist = d;
+                    nearestStop = stop;
+                }
+            }
+
+            // Also check route geometry for routes that pass near but may lack a nearby stop
+            const geomDist = distToGeometry(route.geometry);
+            const walkDistanceMeters = Math.min(minStopDist, geomDist);
+
+            if (walkDistanceMeters <= radius) {
+                // Fetch advisories for this route
+                const advisories = await query.all(
+                    `SELECT a.id, a.title, a.affected_road, a.condition, a.description, a.status
+                     FROM advisories a
+                     JOIN advisory_routes ar ON a.id = ar.advisory_id
+                     WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
+                    [route.id]
+                );
+
+                results.push({
+                    ...route,
+                    advisories,
+                    walkDistanceMeters: Math.round(walkDistanceMeters),
+                    nearestStop: nearestStop ? {
+                        id: nearestStop.id,
+                        name: nearestStop.stop_name,
+                        lat: nearestStop.latitude,
+                        lng: nearestStop.longitude,
+                        distanceMeters: Math.round(minStopDist)
+                    } : null,
+                    // Flag so the frontend knows this came from a proximity search
+                    fromProximitySearch: true
+                });
+            }
+        }
+
+        // Sort: by walk distance first, then by selected sort key
+        if (sort === 'Cheapest Fare' || sort === 'cheapest') {
+            results.sort((a, b) => a.minimum_fare - b.minimum_fare || a.walkDistanceMeters - b.walkDistanceMeters);
+        } else {
+            // Default: nearest walk distance, then fastest travel time
+            results.sort((a, b) => a.walkDistanceMeters - b.walkDistanceMeters || a.active_travel_time - b.active_travel_time);
+        }
+
+        res.json(results);
+    } catch (err) {
+        console.error('Error in /routes/nearby:', err);
+        res.status(500).json({ error: 'Failed to find nearby routes.' });
     }
 });
 

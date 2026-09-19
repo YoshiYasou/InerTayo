@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function WebMap() {
-  const { navigate } = useRouter();
+  const { navigate, queryParams } = useRouter();
 
   const [routes, setRoutes] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -83,6 +83,16 @@ export default function WebMap() {
       })
       .catch(err => console.error('Failed to load schools:', err));
   }, []);
+
+  // Auto-select route if opened from RouteDetails or URL with ?route=<id>
+  useEffect(() => {
+    if (queryParams?.route && routes.length > 0) {
+      const target = routes.find(r => String(r.id) === String(queryParams.route));
+      if (target) {
+        setSelectedItem({ type: 'route', data: target });
+      }
+    }
+  }, [queryParams?.route, routes]);
 
   const handleSelect = (type, item) => {
     if (type === 'route') {

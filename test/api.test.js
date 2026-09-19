@@ -974,6 +974,42 @@ async function runTests() {
             ),
             'Flood-affected itinerary displays commuter warning: "Route adjusted because a flood-affected road segment was detected"'
         );
+        // ====================================================================
+        // [11. Routes Directory Proximity & Location Search]
+        // ====================================================================
+        console.log('\n[11. Routes Directory Proximity & Location Search]');
+
+        // 1. Proximity search around PHINMA UPang coordinates
+        const nearbyUPang = await makeRequest('GET', '/api/routes/nearby?lat=16.0418&lng=120.3362');
+        assert(
+            nearbyUPang.status === 200 && Array.isArray(nearbyUPang.data) && nearbyUPang.data.length > 0,
+            'GET /api/routes/nearby returns routes serving PHINMA UPang coordinates'
+        );
+        assert(
+            nearbyUPang.data[0].walkDistanceMeters !== undefined && nearbyUPang.data[0].fromProximitySearch === true,
+            'Nearby routes return walkDistanceMeters and fromProximitySearch flag'
+        );
+
+        // 2. Proximity search outside Dagupan boundary
+        const outsideDagupan = await makeRequest('GET', '/api/routes/nearby?lat=14.5995&lng=120.9842');
+        assert(
+            outsideDagupan.status === 200 && outsideDagupan.data.outsideDagupan === true,
+            'GET /api/routes/nearby rejects coordinates outside Dagupan boundary'
+        );
+
+        // 3. Proximity search with invalid params returns 400
+        const invalidNearby = await makeRequest('GET', '/api/routes/nearby?lat=invalid&lng=120.3362');
+        assert(
+            invalidNearby.status === 400,
+            'GET /api/routes/nearby with non-numeric coordinates returns 400 Bad Request'
+        );
+
+        // 4. Text search for school finds serving routes
+        const searchSchoolRoutes = await makeRequest('GET', '/api/routes?search=PHINMA+University+of+Pangasinan');
+        assert(
+            searchSchoolRoutes.status === 200 && Array.isArray(searchSchoolRoutes.data) && searchSchoolRoutes.data.length > 0,
+            'GET /api/routes?search=PHINMA+University+of+Pangasinan returns serving routes via school proximity'
+        );
 
     } catch (err) {
         console.error('Test execution error:', err);

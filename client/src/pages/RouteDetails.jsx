@@ -260,7 +260,7 @@ export default function RouteDetails() {
                   Route Map Preview
                 </h3>
                 <button
-                  onClick={() => navigate('/map')}
+                  onClick={() => navigate('/map', { route: route.id })}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
                 >
                   Open in Web Map
