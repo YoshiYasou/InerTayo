@@ -5,6 +5,8 @@ const { query } = require('../db/database');
 const { authenticateToken, optionalAuth, requireAdmin, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
+const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
+const { planJourney } = require('../services/journeyEngine');
 
 const router = express.Router();
 
@@ -39,7 +41,49 @@ router.get('/search/suggestions', async (req, res) => {
         const queryTerm = q.trim();
         const term = `%${queryTerm}%`;
 
-        // 1. Search Locations (Streets, Roads, Barangays, Landmarks, Terminals, etc.)
+        // 1. Search Schools (Universities, Colleges, High Schools inside Dagupan)
+        const matchingSchools = await query.all(
+            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops
+             FROM schools
+             WHERE active = 1 AND (
+                 name LIKE ? OR 
+                 aliases LIKE ? OR 
+                 address LIKE ? OR 
+                 barangay LIKE ?
+             )
+             ORDER BY 
+                 CASE 
+                     WHEN LOWER(name) = LOWER(?) THEN 1
+                     WHEN LOWER(aliases) LIKE ? THEN 2
+                     WHEN LOWER(name) LIKE ? THEN 3
+                     ELSE 4
+                 END,
+                 name ASC
+             LIMIT 6`,
+            [term, term, term, term, queryTerm, `%${queryTerm.toLowerCase()}%`, `${queryTerm.toLowerCase()}%`]
+        );
+
+        const schoolSuggestions = matchingSchools.map(sch => {
+            let stops = [];
+            try { stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []); } catch (e) {}
+            return {
+                id: sch.id,
+                name: sch.name,
+                aliases: sch.aliases,
+                type: sch.type,
+                typeLabel: sch.type === 'UNIVERSITY' ? 'University' : (sch.type === 'COLLEGE' ? 'College' : 'School'),
+                barangay: sch.barangay,
+                address: sch.address,
+                latitude: sch.entrance_latitude || sch.latitude,
+                longitude: sch.entrance_longitude || sch.longitude,
+                campusLatitude: sch.latitude,
+                campusLongitude: sch.longitude,
+                nearby_stops: stops,
+                category: 'school'
+            };
+        });
+
+        // 2. Search Locations (Streets, Roads, Barangays, Landmarks, Terminals, etc.)
         const matchingLocations = await query.all(
             `SELECT id, name, type, barangay, address, latitude, longitude, search_keywords
              FROM locations
@@ -97,7 +141,7 @@ router.get('/search/suggestions', async (req, res) => {
             category: 'location'
         }));
 
-        // 2. Search Routes (by route_name, origin, destination, description)
+        // 3. Search Routes (by route_name, origin, destination, description)
         const matchingRoutes = await query.all(
             `SELECT r.id, r.route_name, tm.name AS mode_name, tm.icon AS mode_icon, r.origin, r.destination, r.status
              FROM routes r
@@ -121,7 +165,7 @@ router.get('/search/suggestions', async (req, res) => {
             category: 'route'
         }));
 
-        res.json([...locationSuggestions, ...routeSuggestions]);
+        res.json([...schoolSuggestions, ...locationSuggestions, ...routeSuggestions]);
     } catch (err) {
         console.error('Error fetching search suggestions:', err);
         res.status(500).json({ error: 'Failed to retrieve search suggestions.' });
@@ -237,6 +281,133 @@ router.get('/landmarks', async (req, res) => {
     }
 });
 
+// GET /api/schools - List verified schools inside Dagupan City
+router.get('/schools', async (req, res) => {
+    try {
+        const { search, type } = req.query;
+        let sql = `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source, active, created_at, updated_at FROM schools WHERE active = 1`;
+        const params = [];
+
+        if (search && search.trim() !== '') {
+            const term = `%${search.trim()}%`;
+            sql += ` AND (name LIKE ? OR aliases LIKE ? OR address LIKE ? OR barangay LIKE ?)`;
+            params.push(term, term, term, term);
+        }
+
+        if (type && type !== 'ALL') {
+            sql += ` AND type = ?`;
+            params.push(type.toUpperCase());
+        }
+
+        sql += ` ORDER BY name ASC`;
+        const schools = await query.all(sql, params);
+        
+        const formatted = schools.map(sch => {
+            let stops = [];
+            try {
+                stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []);
+            } catch (e) {
+                stops = [];
+            }
+            return {
+                ...sch,
+                nearby_stops: stops
+            };
+        });
+
+        res.json(formatted);
+    } catch (err) {
+        console.error('Error fetching schools:', err);
+        res.status(500).json({ error: 'Failed to retrieve schools.' });
+    }
+});
+
+// GET /api/schools/search - Search schools by name or alias
+router.get('/schools/search', async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim() === '') {
+            return res.json([]);
+        }
+
+        const queryTerm = q.trim();
+        const term = `%${queryTerm}%`;
+
+        const schools = await query.all(
+            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source
+             FROM schools
+             WHERE active = 1 AND (
+                 name LIKE ? OR 
+                 aliases LIKE ? OR 
+                 address LIKE ? OR 
+                 barangay LIKE ?
+             )
+             ORDER BY 
+                 CASE 
+                     WHEN LOWER(name) = LOWER(?) THEN 1
+                     WHEN LOWER(aliases) LIKE ? THEN 2
+                     WHEN LOWER(name) LIKE ? THEN 3
+                     ELSE 4
+                 END,
+                 name ASC`,
+            [term, term, term, term, queryTerm, `%${queryTerm.toLowerCase()}%`, `${queryTerm.toLowerCase()}%`]
+        );
+
+        const formatted = schools.map(sch => {
+            let stops = [];
+            try {
+                stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []);
+            } catch (e) {
+                stops = [];
+            }
+            return {
+                ...sch,
+                nearby_stops: stops
+            };
+        });
+
+        res.json(formatted);
+    } catch (err) {
+        console.error('Error searching schools:', err);
+        res.status(500).json({ error: 'Failed to search schools.' });
+    }
+});
+
+// GET /api/schools/:id - Single school details
+router.get('/schools/:id', async (req, res) => {
+    try {
+        const schoolId = parseInt(req.params.id, 10);
+        if (isNaN(schoolId)) {
+            return res.status(400).json({ error: 'Invalid school ID format.' });
+        }
+
+        const sch = await query.get(
+            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source, active
+             FROM schools WHERE id = ?`,
+            [schoolId]
+        );
+
+        if (!sch) {
+            return res.status(404).json({ error: 'School not found.' });
+        }
+
+        let stops = [];
+        try {
+            stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []);
+        } catch (e) {
+            stops = [];
+        }
+
+        res.json({
+            ...sch,
+            nearby_stops: stops
+        });
+    } catch (err) {
+        console.error('Error fetching school details:', err);
+        res.status(500).json({ error: 'Failed to retrieve school.' });
+    }
+});
+
 // GET /api/directions/walk - Server-side pedestrian routing proxy
 router.get('/directions/walk', async (req, res) => {
     try {
@@ -258,6 +429,22 @@ router.get('/directions/walk', async (req, res) => {
     } catch (err) {
         console.error('Walking route error:', err);
         res.status(500).json({ error: 'Failed to calculate walking route.' });
+    }
+});
+
+// POST /api/journey/plan - Multi-modal journey planner for Dagupan City
+router.post('/journey/plan', async (req, res) => {
+    try {
+        const { origin, destination, preferredModes, leaveNow } = req.body;
+        if (!origin || !destination) {
+            return res.status(400).json({ error: 'Both origin and destination are required.' });
+        }
+
+        const plan = await planJourney({ origin, destination, preferredModes, leaveNow });
+        res.json(plan);
+    } catch (err) {
+        console.error('Journey planning error:', err);
+        res.status(400).json({ error: err.message || 'Failed to plan journey.' });
     }
 });
 

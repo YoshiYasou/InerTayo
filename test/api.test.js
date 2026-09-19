@@ -853,6 +853,128 @@ async function runTests() {
             'GET /api/routes?search=Lucao finds 2+ Lucao routes'
         );
 
+        // ====================================================================
+        // [7. Dagupan City Schools & University Routing]
+        // ====================================================================
+        console.log('\n[7. Dagupan City Schools & University Routing]');
+
+        const schoolsList = await makeRequest('GET', '/api/schools');
+        assert(
+            schoolsList.status === 200 && Array.isArray(schoolsList.data) && schoolsList.data.length >= 5,
+            'GET /api/schools returns verified Dagupan institutions (5 seeded schools)'
+        );
+
+        const schoolSearchUPang = await makeRequest('GET', '/api/schools/search?q=UPang');
+        assert(
+            schoolSearchUPang.status === 200 && schoolSearchUPang.data.length >= 1 &&
+            schoolSearchUPang.data[0].name.includes('Pangasinan'),
+            'GET /api/schools/search?q=UPang finds PHINMA University of Pangasinan by alias'
+        );
+
+        const schoolDetail = await makeRequest('GET', `/api/schools/${schoolsList.data[0].id}`);
+        assert(
+            schoolDetail.status === 200 && schoolDetail.data.id === schoolsList.data[0].id &&
+            Array.isArray(schoolDetail.data.nearby_stops) && schoolDetail.data.nearby_stops.length > 0,
+            'GET /api/schools/:id returns school details with calculated nearby transit stops'
+        );
+
+        const suggestionsUPang = await makeRequest('GET', '/api/search/suggestions?q=UPang');
+        assert(
+            suggestionsUPang.status === 200 && suggestionsUPang.data.some(s => s.category === 'school'),
+            'GET /api/search/suggestions?q=UPang includes school suggestion with SCHOOL category badge'
+        );
+
+        // ====================================================================
+        // [8. Boundary Polygon Enforcement]
+        // ====================================================================
+        console.log('\n[8. Boundary Polygon Enforcement]');
+        const { isInsideDagupanCity } = require('../server/utils/dagupanBoundary');
+
+        assert(
+            isInsideDagupanCity(16.0410, 120.3340) === true,
+            'PHINMA UPang (16.0410, 120.3340) is strictly INSIDE Dagupan City boundary'
+        );
+        assert(
+            isInsideDagupanCity(16.0440, 120.3385) === true,
+            'University of Luzon (16.0440, 120.3385) is strictly INSIDE Dagupan City boundary'
+        );
+        assert(
+            isInsideDagupanCity(16.0300, 120.2300) === false,
+            'PSU Lingayen Campus (16.0300, 120.2300) is OUTSIDE Dagupan City boundary (rejected)'
+        );
+        assert(
+            isInsideDagupanCity(16.0020, 120.3550) === false,
+            'PCST Calasiao (16.0020, 120.3550) is OUTSIDE Dagupan City boundary (rejected)'
+        );
+        assert(
+            isInsideDagupanCity(17.6130, 121.7260) === false,
+            'USL Tuguegarao (17.6130, 121.7260) is OUTSIDE Dagupan City boundary (rejected)'
+        );
+
+        // ====================================================================
+        // [9. Multi-Modal Journey Planner Engine]
+        // ====================================================================
+        console.log('\n[9. Multi-Modal Journey Planner Engine]');
+
+        const journey400 = await makeRequest('POST', '/api/journey/plan', {});
+        assert(
+            journey400.status === 400,
+            'POST /api/journey/plan returns 400 Bad Request when origin or destination is missing'
+        );
+
+        const journeyDirect = await makeRequest('POST', '/api/journey/plan', {
+            origin: 'PHINMA University of Pangasinan',
+            destination: 'Bonuan Beach'
+        });
+        assert(
+            journeyDirect.status === 200 && Array.isArray(journeyDirect.data.itineraries) && journeyDirect.data.itineraries.length >= 1,
+            'POST /api/journey/plan returns direct transit itineraries for UPang -> Bonuan Beach'
+        );
+        const topJourney = journeyDirect.data.itineraries[0];
+        assert(
+            topJourney.totalDurationFormatted.includes('approx.') && topJourney.totalFareFormatted.includes('₱'),
+            'Journey itinerary formats travel duration with "approx." and fare with ₱ symbol'
+        );
+        assert(
+            Array.isArray(topJourney.legs) && topJourney.legs.length >= 2,
+            'Journey itinerary contains detailed legs (walking and sliced transit polyline)'
+        );
+
+        const journeyBoat = await makeRequest('POST', '/api/journey/plan', {
+            origin: { lat: 16.0390, lng: 120.3315, name: 'Downtown Market' },
+            destination: { lat: 16.0630, lng: 120.3430, name: 'Bonuan Gueset Dock' },
+            preferredModes: ['Boat']
+        });
+        assert(
+            journeyBoat.status === 200 && journeyBoat.data.itineraries.some(it => it.primaryMode === 'Boat'),
+            'POST /api/journey/plan returns river boat crossing option across Pantal River'
+        );
+
+        const journeyWalk = await makeRequest('POST', '/api/journey/plan', {
+            origin: { lat: 16.0430, lng: 120.3330, name: 'City Plaza' },
+            destination: { lat: 16.0445, lng: 120.3350, name: 'Herrero' }
+        });
+        assert(
+            journeyWalk.status === 200 && journeyWalk.data.itineraries.some(it => it.primaryMode === 'Walking'),
+            'POST /api/journey/plan provides direct walking itinerary for short distance (< 500m)'
+        );
+
+        // ====================================================================
+        // [10. Flood-Aware Advisory Integration & Route Detours]
+        // ====================================================================
+        console.log('\n[10. Flood-Aware Advisory Integration & Route Detours]');
+
+        const journeyFlood = await makeRequest('POST', '/api/journey/plan', {
+            origin: 'Downtown Market',
+            destination: 'Lucao District'
+        });
+        assert(
+            journeyFlood.status === 200 && journeyFlood.data.itineraries.some(it => 
+                it.floodStatus === 'DETOUR_ACTIVE' && it.floodWarning && it.floodWarning.includes('Route adjusted because a flood-affected road segment was detected')
+            ),
+            'Flood-affected itinerary displays commuter warning: "Route adjusted because a flood-affected road segment was detected"'
+        );
+
     } catch (err) {
         console.error('Test execution error:', err);
         failed++;

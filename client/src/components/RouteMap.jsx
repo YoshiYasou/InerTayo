@@ -43,7 +43,7 @@ function getRoutePolylineCoords(route) {
 }
 
 // Helper component to resize and adjust map bounds dynamically
-function MapResizerAndBounds({ routes, activeFilter }) {
+function MapResizerAndBounds({ routes, activeFilter, selectedJourney }) {
   const map = useMap();
 
   // Invalidate size immediately and on slight delay to handle tabs/flex mounts
@@ -58,8 +58,24 @@ function MapResizerAndBounds({ routes, activeFilter }) {
     };
   }, [map]);
 
-  // Fit bounds when routes or filter changes
+  // Fit bounds when selectedJourney is active
   useEffect(() => {
+    if (selectedJourney && Array.isArray(selectedJourney.legs) && selectedJourney.legs.length > 0) {
+      const pts = [];
+      selectedJourney.legs.forEach(leg => {
+        const coords = leg.coordinates || leg.geometry?.coordinates || [];
+        coords.forEach(c => {
+          if (Array.isArray(c) && c.length >= 2) {
+            pts.push([c[1], c[0]]);
+          }
+        });
+      });
+      if (pts.length > 0) {
+        map.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
+        return;
+      }
+    }
+
     if (!routes || routes.length === 0) return;
 
     if (routes.length === 1) {
@@ -84,7 +100,7 @@ function MapResizerAndBounds({ routes, activeFilter }) {
         map.setView([16.0440, 120.3380], 14);
       }
     }
-  }, [routes, activeFilter, map]);
+  }, [routes, activeFilter, selectedJourney, map]);
 
   return null;
 }
@@ -231,11 +247,40 @@ function createLocationIcon(loc) {
   });
 }
 
+function createSchoolIcon(school) {
+  return L.divIcon({
+    className: 'custom-school-div-icon',
+    html: `
+      <div style="
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background-color: #4f46e5;
+        border: 2px solid #ffffff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #ffffff;
+        font-size: 11px;
+      ">
+        🎓
+      </div>
+    `,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -11]
+  });
+}
+
 export default function RouteMap({
   routes = [],
   activeFilter = 'ALL',
   showLandmarks = false,
   showLocations = false,
+  showSchools = true,
+  schools = [],
+  selectedJourney = null,
   locations = [],
   showAdvisories = true,
   interactive = true,
@@ -297,7 +342,7 @@ export default function RouteMap({
         />
 
         {/* Dynamic bounds and resize invalidation */}
-        <MapResizerAndBounds routes={routes} activeFilter={activeFilter} />
+        <MapResizerAndBounds routes={routes} activeFilter={activeFilter} selectedJourney={selectedJourney} />
 
         {/* Flood Hazard Advisory Overlay */}
         {showAdvisories && (activeFilter === 'ALL' || activeFilter === 'FLOOD') && (
@@ -506,6 +551,170 @@ export default function RouteMap({
             </Marker>
           );
         })}
+
+        {/* Verified Dagupan City Schools & Universities Layer */}
+        {showSchools && schools.map((sch) => {
+          const lat = sch.entrance_latitude || sch.latitude;
+          const lng = sch.entrance_longitude || sch.longitude;
+          if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+          const schIcon = createSchoolIcon(sch);
+
+          let nearbyStops = [];
+          if (Array.isArray(sch.nearby_stops)) {
+            nearbyStops = sch.nearby_stops;
+          } else if (typeof sch.nearby_stops === 'string') {
+            try { nearbyStops = JSON.parse(sch.nearby_stops); } catch (e) {}
+          }
+
+          return (
+            <Marker
+              key={`school-${sch.id}`}
+              position={[lat, lng]}
+              icon={schIcon}
+              eventHandlers={{
+                click: () => {
+                  if (onSelect) onSelect('school', sch);
+                }
+              }}
+            >
+              <Popup>
+                <div style={{ fontFamily: 'sans-serif', minWidth: '190px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#4f46e5', textTransform: 'uppercase' }}>
+                      🎓 {sch.type}
+                    </span>
+                    <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#059669', background: '#ecfdf5', padding: '1px 5px', borderRadius: '4px' }}>
+                      Verified Dagupan
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#0f172a', margin: '2px 0' }}>
+                    {sch.name}
+                  </div>
+                  {sch.barangay && (
+                    <div style={{ fontSize: '11px', color: '#475569', marginBottom: '4px' }}>
+                      Brgy. {sch.barangay}
+                    </div>
+                  )}
+                  {nearbyStops.length > 0 && (
+                    <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', marginBottom: '2px' }}>
+                        Nearby Transit:
+                      </div>
+                      {nearbyStops.slice(0, 2).map((st, sIdx) => (
+                        <div key={sIdx} style={{ fontSize: '10px', color: '#334155' }}>
+                          • {st.stop_name} ({st.mode}) ~{st.distance_meters}m
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e2e8f0' }}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect && onSelect('set-origin', sch)}
+                      style={{ fontSize: '10px', fontWeight: 'bold', padding: '4px 6px', background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                    >
+                      From Here
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelect && onSelect('set-destination', sch)}
+                      style={{ fontSize: '10px', fontWeight: 'bold', padding: '4px 6px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                    >
+                      Route Here
+                    </button>
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
+        {/* Selected Planned Journey Overlay */}
+        {selectedJourney && Array.isArray(selectedJourney.legs) && (
+          <React.Fragment>
+            {selectedJourney.legs.map((leg, lIdx) => {
+              const coords = leg.coordinates || leg.geometry?.coordinates || [];
+              const polyCoords = coords.map(c => [c[1], c[0]]);
+              if (polyCoords.length < 2) return null;
+
+              const isWalk = leg.type === 'WALK';
+              const mode = (leg.mode || '').toLowerCase();
+              let legColor = '#2563eb';
+              if (mode.includes('jeep')) legColor = '#ec4899';
+              else if (mode.includes('bus')) legColor = '#10b981';
+              else if (mode.includes('tricycle')) legColor = '#06b6d4';
+              else if (mode.includes('boat')) legColor = '#2563eb';
+              else if (isWalk) legColor = '#3b82f6';
+
+              return (
+                <Polyline
+                  key={`journey-leg-${leg.id || lIdx}`}
+                  positions={polyCoords}
+                  pathOptions={{
+                    color: legColor,
+                    weight: isWalk ? 5 : 7,
+                    opacity: 0.95,
+                    dashArray: isWalk ? '6, 8' : undefined,
+                    lineCap: 'round'
+                  }}
+                >
+                  <Popup>
+                    <div style={{ fontFamily: 'sans-serif', minWidth: '150px' }}>
+                      <div style={{ fontSize: '10px', fontWeight: 'bold', color: legColor, textTransform: 'uppercase' }}>
+                        {leg.mode} ({leg.durationFormatted})
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#0f172a', margin: '2px 0' }}>
+                        {leg.instruction}
+                      </div>
+                      <div style={{ fontSize: '10px', color: '#64748b' }}>
+                        Distance: {leg.distanceMeters}m
+                      </div>
+                    </div>
+                  </Popup>
+                </Polyline>
+              );
+            })}
+
+            {/* Journey Origin Pin */}
+            {selectedJourney.legs.length > 0 && selectedJourney.legs[0].coordinates?.length > 0 && (
+              <Marker
+                position={[
+                  selectedJourney.legs[0].coordinates[0][1],
+                  selectedJourney.legs[0].coordinates[0][0]
+                ]}
+                icon={createStopIcon({ stop_order: 'A' }, true, false, '#059669')}
+              >
+                <Popup>
+                  <div style={{ fontFamily: 'sans-serif' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#059669' }}>TRIP ORIGIN (A)</span>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Journey Destination Pin */}
+            {selectedJourney.legs.length > 0 && (
+              (() => {
+                const lastLeg = selectedJourney.legs[selectedJourney.legs.length - 1];
+                const lastCoords = lastLeg.coordinates || lastLeg.geometry?.coordinates;
+                if (!lastCoords || lastCoords.length === 0) return null;
+                const endPt = lastCoords[lastCoords.length - 1];
+                return (
+                  <Marker
+                    position={[endPt[1], endPt[0]]}
+                    icon={createStopIcon({ stop_order: 'B' }, false, true, '#e11d48')}
+                  >
+                    <Popup>
+                      <div style={{ fontFamily: 'sans-serif' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#e11d48' }}>DESTINATION (B)</span>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })()
+            )}
+          </React.Fragment>
+        )}
       </MapContainer>
     </div>
   );
