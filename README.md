@@ -95,7 +95,7 @@ Visit **`http://localhost:5000`** in your browser.
 
 ### 5. Run Automated Test Suite
 ```powershell
-# Executes comprehensive automated test suite (31 automated tests)
+# Executes comprehensive automated test suite (82 automated checks)
 npm test
 ```
 
@@ -105,4 +105,3 @@ npm test
 
 &copy; 2026 InerTayo. Built with care for the Filipino Commuter.  
 All sample routes and rates are project estimates for Dagupan City, Pangasinan.
-# InerTayo

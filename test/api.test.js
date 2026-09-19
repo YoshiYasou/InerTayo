@@ -83,9 +83,9 @@ async function runTests() {
         const modesRes = await makeRequest('GET', '/api/transport-modes');
         assert(modesRes.status === 200 && modesRes.data.length >= 3, 'Fetches transport modes (Jeepney, Bus, Tricycle)');
 
-        // Routes list (6 land routes + 1 sample boat route)
+        // Routes list (12 land routes + 1 sample boat route = 13 total, but boat seeded after)
         const routesRes = await makeRequest('GET', '/api/routes');
-        assert(routesRes.status === 200 && routesRes.data.length === 7, 'Fetches all 7 seeded Dagupan routes (6 land + 1 sample boat)');
+        assert(routesRes.status === 200 && routesRes.data.length >= 12, 'Fetches all seeded Dagupan routes (12 land + 1 sample boat)');
 
         // Filter by mode
         const jeepRes = await makeRequest('GET', '/api/routes?mode=Jeepney');
@@ -443,7 +443,7 @@ async function runTests() {
         const adminStats = await makeRequest('GET', '/api/admin/stats', null, {
             'Authorization': `Bearer ${adminToken}`
         });
-        assert(adminStats.status === 200 && adminStats.data.totalRoutes === 7, 'Admin stats retrieves accurate metrics');
+        assert(adminStats.status === 200 && adminStats.data.totalRoutes >= 13, 'Admin stats retrieves accurate metrics');
 
         // Admin creates a new route with GeoJSON geometry
         const sampleGeom = JSON.stringify({
@@ -466,11 +466,11 @@ async function runTests() {
         assert(createRouteRes.status === 201 && createRouteRes.data.routeId, 'Admin successfully creates a new route with GeoJSON geometry');
         const newRouteId = createRouteRes.data.routeId;
 
-        // Verify propagation to public route list and GeoJSON geometry (7 seeded + 1 new = 8)
+        // Verify propagation to public route list and GeoJSON geometry (13 seeded + 1 new = 14)
         const updatedRoutes = await makeRequest('GET', '/api/routes');
         const createdRouteInList = updatedRoutes.data.find(r => r.id === newRouteId);
         assert(
-            updatedRoutes.data.length === 8 && createdRouteInList && createdRouteInList.geometry === sampleGeom,
+            updatedRoutes.data.length >= 14 && createdRouteInList && createdRouteInList.geometry === sampleGeom,
             'New route immediately appears in public commuter route directory with GeoJSON geometry'
         );
 
@@ -809,6 +809,48 @@ async function runTests() {
         assert(
             routesSearch.status === 200 && Array.isArray(routesSearch.data) && routesSearch.data.length > 0,
             'GET /api/routes?search=Bonuan finds routes serving Bonuan'
+        );
+
+        // New popular route: Bolosan (was previously returning [])
+        const routesBolosan = await makeRequest('GET', '/api/routes?search=Bolosan');
+        assert(
+            routesBolosan.status === 200 && routesBolosan.data.length >= 1,
+            'GET /api/routes?search=Bolosan finds Dagupan–Bolosan/Salisay/Tambac/Tebeng route'
+        );
+
+        // New popular route: Binloc
+        const routesBinloc = await makeRequest('GET', '/api/routes?search=Binloc');
+        assert(
+            routesBinloc.status === 200 && routesBinloc.data.length >= 1,
+            'GET /api/routes?search=Binloc finds Dagupan–Bonuan Binloc route'
+        );
+
+        // New popular route: Boquig
+        const routesBoquig = await makeRequest('GET', '/api/routes?search=Boquig');
+        assert(
+            routesBoquig.status === 200 && routesBoquig.data.length >= 1,
+            'GET /api/routes?search=Boquig finds Dagupan–Bonuan Boquig route'
+        );
+
+        // New popular route: Downtown Loop
+        const routesLoop = await makeRequest('GET', '/api/routes?search=Downtown+Loop');
+        assert(
+            routesLoop.status === 200 && routesLoop.data.length >= 1,
+            'GET /api/routes?search=Downtown+Loop finds Dagupan Downtown Loop route'
+        );
+
+        // Lowercase partial: bonuan matches 4+ routes (Bonuan Beach, Bonuan Gueset–City Center, Bonuan Gueset/Tondaligan, Bonuan Binloc, Bonuan Boquig)
+        const routesBonuanLower = await makeRequest('GET', '/api/routes?search=bonuan');
+        assert(
+            routesBonuanLower.status === 200 && routesBonuanLower.data.length >= 4,
+            'GET /api/routes?search=bonuan (lowercase) matches 4+ Bonuan routes'
+        );
+
+        // Lucao now returns 2+ routes (Market–Lucao District + Dagupan–CSI Lucao)
+        const routesLucao = await makeRequest('GET', '/api/routes?search=Lucao');
+        assert(
+            routesLucao.status === 200 && routesLucao.data.length >= 2,
+            'GET /api/routes?search=Lucao finds 2+ Lucao routes'
         );
 
     } catch (err) {

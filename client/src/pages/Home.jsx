@@ -17,8 +17,8 @@ import {
 
 export default function Home() {
   const { navigate } = useRouter();
-  const [fromLocation, setFromLocation] = useState('Bonuan Beach, Dagupan');
-  const [toLocation, setToLocation] = useState('CSI Mall, Dagupan');
+  const [fromLocation, setFromLocation] = useState('Dagupan Plaza');
+  const [toLocation, setToLocation] = useState('Bonuan Beach, Dagupan');
   const [preference, setPreference] = useState('fastest'); // 'fastest' | 'cheapest'
   const [activeAdvisory, setActiveAdvisory] = useState(null);
   const [modes, setModes] = useState([]);

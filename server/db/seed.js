@@ -226,7 +226,180 @@ async function seed() {
         ]
     );
 
-    console.log('Routes seeded (6 routes with GeoJSON geometry).');
+    // Route 7: Dagupan – Bonuan Gueset / Tondaligan (Jeepney)
+    const r7 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan – Bonuan Gueset / Tondaligan',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'Tondaligan Beach',
+            22,
+            35,
+            15.00,
+            25.00,
+            'CLEAR',
+            'Popular coastal jeepney route from downtown Dagupan Plaza through Bonuan Gueset barangay to Tondaligan Beach and People\'s Park along the South China Sea.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3385, 16.0415],
+                    [120.3420, 16.0480],
+                    [120.3440, 16.0590],
+                    [120.3450, 16.0750],
+                    [120.3520, 16.0880]
+                ]
+            })
+        ]
+    );
+
+    // Route 8: Dagupan – Bonuan Binloc (Jeepney)
+    const r8 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan – Bonuan Binloc',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'Bonuan Binloc',
+            18,
+            28,
+            15.00,
+            20.00,
+            'CLEAR',
+            'Direct jeepney service from Dagupan Plaza to Bonuan Binloc barangay via Mayombo District and Dawel Bridge. Serves schools, residences, and the fishing community in Binloc.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3385, 16.0415],
+                    [120.3420, 16.0480],
+                    [120.3440, 16.0590],
+                    [120.3470, 16.0700],
+                    [120.3490, 16.0760]
+                ]
+            })
+        ]
+    );
+
+    // Route 9: Dagupan – Bonuan Boquig (Jeepney)
+    const r9 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan – Bonuan Boquig',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'Bonuan Boquig',
+            15,
+            25,
+            12.00,
+            20.00,
+            'CLEAR',
+            'Jeepney route from Dagupan City Plaza to Bonuan Boquig barangay via Dawel Bridge. Passes through Herrero-Perez commercial strip and serves the northern Bonuan coastal communities.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3385, 16.0415],
+                    [120.3420, 16.0480],
+                    [120.3440, 16.0590],
+                    [120.3500, 16.0680]
+                ]
+            })
+        ]
+    );
+
+    // Route 10: Dagupan – CSI Lucao (Jeepney)
+    const r10 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan – CSI Lucao',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'CSI The City Mall Lucao',
+            12,
+            20,
+            15.00,
+            25.00,
+            'CLEAR',
+            'Direct jeepney service from Dagupan Plaza to CSI The City Mall in Lucao District. Route passes through AB Fernandez Avenue and Lucao Road serving shoppers, students, and workers in Lucao.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3370, 16.0440],
+                    [120.3330, 16.0400],
+                    [120.3280, 16.0340],
+                    [120.3220, 16.0270]
+                ]
+            })
+        ]
+    );
+
+    // Route 11: Dagupan Downtown Loop (Jeepney)
+    const r11 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan Downtown Loop',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'Dagupan Plaza',
+            15,
+            22,
+            12.00,
+            15.00,
+            'CLEAR',
+            'Circular jeepney loop around Dagupan City downtown core. Covers AB Fernandez Ave, Perez Boulevard, Galvan Street, M.H. Del Pilar Street, Arellano Street, and Rizal Street. High frequency service for shoppers and commuters in the city center.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3380, 16.0440],
+                    [120.3415, 16.0415],
+                    [120.3400, 16.0400],
+                    [120.3370, 16.0385],
+                    [120.3330, 16.0410],
+                    [120.3340, 16.0435]
+                ]
+            })
+        ]
+    );
+
+    // Route 12: Dagupan – Bolosan / Salisay / Tambac / Tebeng (Jeepney)
+    const r12 = await query.run(
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            'Dagupan – Bolosan / Salisay / Tambac / Tebeng',
+            jeepney.lastID,
+            'Dagupan Plaza',
+            'Tebeng District',
+            25,
+            38,
+            15.00,
+            25.00,
+            'CLEAR',
+            'Northern jeepney route from Dagupan Plaza serving the outer barangays: Bolosan, Salisay, Tambac, and Tebeng. Follows Bolosan Road through residential and agricultural communities north of the city center.',
+            JSON.stringify({
+                type: 'LineString',
+                coordinates: [
+                    [120.3340, 16.0435],
+                    [120.3310, 16.0460],
+                    [120.3280, 16.0510],
+                    [120.3250, 16.0560],
+                    [120.3220, 16.0620],
+                    [120.3190, 16.0680]
+                ]
+            })
+        ]
+    );
+
+    console.log('Routes seeded (12 routes with GeoJSON geometry).');
 
     // 4. Seed Stops for Routes
     const stopsData = [
@@ -270,7 +443,49 @@ async function seed() {
         { routeId: r6.lastID, order: 2, name: 'Bonuan Binloc Entryway', desc: 'Drop-off for coastal schools', transfer: 0, lat: 16.0710, lng: 120.3440 },
         { routeId: r6.lastID, order: 3, name: 'Dawel River Bridge', desc: 'Bridge crossing southbound', transfer: 0, lat: 16.0590, lng: 120.3440 },
         { routeId: r6.lastID, order: 4, name: 'Dagupan Doctors Villaflor Hospital', desc: 'Major medical center stop', transfer: 0, lat: 16.0490, lng: 120.3400 },
-        { routeId: r6.lastID, order: 5, name: 'Downtown MH Del Pilar St', desc: 'Central business and university terminus', transfer: 1, lat: 16.0420, lng: 120.3350 }
+        { routeId: r6.lastID, order: 5, name: 'Downtown MH Del Pilar St', desc: 'Central business and university terminus', transfer: 1, lat: 16.0420, lng: 120.3350 },
+
+        // Route 7 Stops (Dagupan – Bonuan Gueset / Tondaligan)
+        { routeId: r7.lastID, order: 1, name: 'Dagupan Plaza – Tondaligan Terminal', desc: 'City plaza jeepney boarding point for Bonuan Gueset/Tondaligan route', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r7.lastID, order: 2, name: 'Perez Blvd / Herrero Junction', desc: 'Commercial boarding zone along Perez Boulevard', transfer: 0, lat: 16.0415, lng: 120.3385 },
+        { routeId: r7.lastID, order: 3, name: 'Mayombo District Northbound', desc: 'Northbound junction towards Bonuan barangays', transfer: 0, lat: 16.0480, lng: 120.3420 },
+        { routeId: r7.lastID, order: 4, name: 'Dawel Bridge Northbound', desc: 'River crossing into Bonuan peninsula', transfer: 0, lat: 16.0590, lng: 120.3440 },
+        { routeId: r7.lastID, order: 5, name: 'Bonuan Gueset Barangay Center', desc: 'Main barangay center and market area of Bonuan Gueset', transfer: 1, lat: 16.0750, lng: 120.3450 },
+        { routeId: r7.lastID, order: 6, name: 'Tondaligan People\'s Park Entrance', desc: 'Coastal terminus at Tondaligan Beach and People\'s Park', transfer: 0, lat: 16.0880, lng: 120.3520 },
+
+        // Route 8 Stops (Dagupan – Bonuan Binloc)
+        { routeId: r8.lastID, order: 1, name: 'Dagupan Plaza – Binloc Terminal', desc: 'City plaza boarding point for Bonuan Binloc jeepney', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r8.lastID, order: 2, name: 'Perez Blvd / Herrero Stop', desc: 'Commercial strip pickup along Perez Boulevard', transfer: 0, lat: 16.0415, lng: 120.3385 },
+        { routeId: r8.lastID, order: 3, name: 'Mayombo Northbound Junction', desc: 'Turning point towards Bonuan barangays', transfer: 0, lat: 16.0480, lng: 120.3420 },
+        { routeId: r8.lastID, order: 4, name: 'Dawel Bridge Entry', desc: 'River bridge crossing northbound', transfer: 0, lat: 16.0590, lng: 120.3440 },
+        { routeId: r8.lastID, order: 5, name: 'Bonuan Binloc Barangay Center', desc: 'Terminus at Bonuan Binloc barangay center and fishing community', transfer: 0, lat: 16.0760, lng: 120.3490 },
+
+        // Route 9 Stops (Dagupan – Bonuan Boquig)
+        { routeId: r9.lastID, order: 1, name: 'Dagupan Plaza – Boquig Terminal', desc: 'City plaza boarding point for Bonuan Boquig jeepney', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r9.lastID, order: 2, name: 'Herrero-Perez Commercial Strip', desc: 'High-volume boarding stop along commercial strip', transfer: 0, lat: 16.0415, lng: 120.3385 },
+        { routeId: r9.lastID, order: 3, name: 'Dawel Bridge Crossing', desc: 'River bridge crossing into Bonuan area', transfer: 0, lat: 16.0590, lng: 120.3440 },
+        { routeId: r9.lastID, order: 4, name: 'Bonuan Boquig Barangay Center', desc: 'Terminus at Bonuan Boquig barangay and coastal community', transfer: 0, lat: 16.0680, lng: 120.3500 },
+
+        // Route 10 Stops (Dagupan – CSI Lucao)
+        { routeId: r10.lastID, order: 1, name: 'Dagupan Plaza – CSI Lucao Jeepney', desc: 'City plaza boarding for Lucao-bound jeepney', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r10.lastID, order: 2, name: 'AB Fernandez / Galvan Crossroad', desc: 'Key intersection en route to Lucao District', transfer: 0, lat: 16.0440, lng: 120.3370 },
+        { routeId: r10.lastID, order: 3, name: 'Lucao Road Entry', desc: 'Start of Lucao residential corridor', transfer: 0, lat: 16.0340, lng: 120.3280 },
+        { routeId: r10.lastID, order: 4, name: 'CSI The City Mall Lucao Main Entrance', desc: 'Terminus at CSI The City Mall Lucao entrance', transfer: 1, lat: 16.0270, lng: 120.3220 },
+
+        // Route 11 Stops (Dagupan Downtown Loop)
+        { routeId: r11.lastID, order: 1, name: 'Dagupan Plaza Loop Start', desc: 'Starting/ending point of downtown circular loop', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r11.lastID, order: 2, name: 'AB Fernandez Ave / Perez Blvd Corner', desc: 'Major intersection on the downtown loop', transfer: 0, lat: 16.0440, lng: 120.3380 },
+        { routeId: r11.lastID, order: 3, name: 'Perez Blvd Bus Terminal Stop', desc: 'Bus terminal area along Perez Boulevard', transfer: 1, lat: 16.0415, lng: 120.3415 },
+        { routeId: r11.lastID, order: 4, name: 'Galvan St Market Area', desc: 'Public market and TODA tricycle zone', transfer: 0, lat: 16.0400, lng: 120.3400 },
+        { routeId: r11.lastID, order: 5, name: 'MH Del Pilar / Arellano St', desc: 'University and civic center strip', transfer: 0, lat: 16.0385, lng: 120.3370 },
+        { routeId: r11.lastID, order: 6, name: 'Dagupan Plaza Loop End', desc: 'Return terminus completing the downtown loop', transfer: 1, lat: 16.0435, lng: 120.3340 },
+
+        // Route 12 Stops (Dagupan – Bolosan / Salisay / Tambac / Tebeng)
+        { routeId: r12.lastID, order: 1, name: 'Dagupan Plaza – North Barangay Terminal', desc: 'City plaza boarding for northern barangay routes', transfer: 1, lat: 16.0435, lng: 120.3340 },
+        { routeId: r12.lastID, order: 2, name: 'Bolosan Barangay Entry', desc: 'First major stop at Bolosan barangay along Bolosan Road', transfer: 0, lat: 16.0510, lng: 120.3280 },
+        { routeId: r12.lastID, order: 3, name: 'Salisay Barangay Center', desc: 'Community stop at Salisay barangay market', transfer: 0, lat: 16.0560, lng: 120.3250 },
+        { routeId: r12.lastID, order: 4, name: 'Tambac Barangay Junction', desc: 'Tambac stop along northern road corridor', transfer: 0, lat: 16.0620, lng: 120.3220 },
+        { routeId: r12.lastID, order: 5, name: 'Tebeng District Terminus', desc: 'Final stop at Tebeng barangay district center', transfer: 0, lat: 16.0680, lng: 120.3190 }
     ];
 
     for (const stop of stopsData) {
@@ -313,7 +528,37 @@ async function seed() {
         // Route 6: Bonuan Gueset – City Center
         { routeId: r6.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Gueset Jeepney Stop', info: 'Station located near Gueset Barangay Hall.' },
         { routeId: r6.lastID, step: 2, mode: 'Jeepney', instruction: 'Board Downtown-bound Jeepney', info: 'Scenic transit passing Villaflor Hospital and downtown avenues.' },
-        { routeId: r6.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Downtown City Center', info: 'Alight on MH Del Pilar St near university campuses.' }
+        { routeId: r6.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Downtown City Center', info: 'Alight on MH Del Pilar St near university campuses.' },
+
+        // Route 7: Dagupan – Bonuan Gueset / Tondaligan
+        { routeId: r7.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Dagupan Plaza Jeepney Terminal', info: 'Head to the Bonuan Gueset/Tondaligan jeepney bay at Dagupan Plaza.' },
+        { routeId: r7.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Bonuan Gueset'", info: 'Ride via Perez Blvd across Dawel Bridge through Bonuan Gueset barangay toward Tondaligan Beach.' },
+        { routeId: r7.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Tondaligan Beach / People\'s Park', info: 'Alight at Tondaligan Park entrance along the South China Sea coastal road.' },
+
+        // Route 8: Dagupan – Bonuan Binloc
+        { routeId: r8.lastID, step: 1, mode: 'Walk', instruction: 'Walk to City Plaza Jeepney Terminal', info: 'Head to the Bonuan Binloc-bound jeepney stop at Dagupan Plaza.' },
+        { routeId: r8.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Bonuan Binloc'", info: 'Ride north via Perez Blvd, cross Dawel Bridge, and continue to Bonuan Binloc barangay.' },
+        { routeId: r8.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Bonuan Binloc', info: 'Alight at the Bonuan Binloc barangay center near the fishing community and schools.' },
+
+        // Route 9: Dagupan – Bonuan Boquig
+        { routeId: r9.lastID, step: 1, mode: 'Walk', instruction: 'Walk to City Plaza Jeepney Terminal', info: 'Proceed to the Bonuan Boquig-bound jeepney bay at Dagupan Plaza.' },
+        { routeId: r9.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Bonuan Boquig'", info: 'Ride via Herrero-Perez commercial strip and across Dawel Bridge to Bonuan Boquig.' },
+        { routeId: r9.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Bonuan Boquig', info: 'Alight at Bonuan Boquig barangay center in the northern coastal community.' },
+
+        // Route 10: Dagupan – CSI Lucao
+        { routeId: r10.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Dagupan Plaza Jeepney Terminal', info: 'Head to the CSI Lucao jeepney bay near Dagupan Plaza.' },
+        { routeId: r10.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–CSI Lucao'", info: 'Ride via AB Fernandez Avenue and Lucao Road directly to CSI The City Mall.' },
+        { routeId: r10.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at CSI The City Mall Lucao', info: 'Alight at the main mall entrance on Lucao Road.' },
+
+        // Route 11: Dagupan Downtown Loop
+        { routeId: r11.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Dagupan Plaza Loop Terminal', info: 'Board at Dagupan Plaza — the circular loop departs frequently throughout the day.' },
+        { routeId: r11.lastID, step: 2, mode: 'Jeepney', instruction: 'Board Downtown Loop Jeepney', info: 'Circular route covers AB Fernandez Ave, Perez Blvd, Galvan St, MH Del Pilar St, Arellano St, and Rizal St.' },
+        { routeId: r11.lastID, step: 3, mode: 'Walk', instruction: 'Alight at Your Stop', info: 'Alight at any stop along the downtown loop. The jeepney returns to Dagupan Plaza to complete the circuit.' },
+
+        // Route 12: Dagupan – Bolosan / Salisay / Tambac / Tebeng
+        { routeId: r12.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Dagupan Plaza North Terminal', info: 'Head to the northern barangay jeepney bay at Dagupan Plaza.' },
+        { routeId: r12.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Tebeng'", info: 'Ride via Bolosan Road northward through Bolosan, Salisay, and Tambac barangays to Tebeng District.' },
+        { routeId: r12.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Tebeng / Barangay Destination', info: 'Alight at your barangay stop along the northern corridor (Bolosan, Salisay, Tambac, or Tebeng).' }
     ];
 
     for (const s of stepsData) {
@@ -332,7 +577,13 @@ async function seed() {
         { id: r3.lastID, base: 12.00 },
         { id: r4.lastID, base: 25.00 },
         { id: r5.lastID, base: 20.00 },
-        { id: r6.lastID, base: 15.00 }
+        { id: r6.lastID, base: 15.00 },
+        { id: r7.lastID, base: 15.00 },
+        { id: r8.lastID, base: 15.00 },
+        { id: r9.lastID, base: 12.00 },
+        { id: r10.lastID, base: 15.00 },
+        { id: r11.lastID, base: 12.00 },
+        { id: r12.lastID, base: 15.00 }
     ];
 
     for (const r of routesList) {
