@@ -21,6 +21,11 @@
   "license": "ISC",
   "description": "InerTayo — Public Transportation Route Information System for Dagupan City, Pangasinan",
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "@turf/distance": "^7.4.0",
+    "@turf/helpers": "^7.4.0",
+    "@turf/line-slice": "^7.4.0",
+    "@turf/nearest-point-on-line": "^7.4.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
