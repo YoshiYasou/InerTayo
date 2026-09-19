@@ -1197,9 +1197,35 @@ async function seed() {
 
 
     // 12. Seed Sample Boat Route (SAMPLE DATA)
+    const boatCorrectedGeom = JSON.stringify({
+        type: 'LineString',
+        coordinates: [
+            [120.3310, 16.0395],
+            [120.3305107, 16.044403],
+            [120.3276462, 16.0458231],
+            [120.3277800, 16.0479668],
+            [120.3275410, 16.0498905],
+            [120.3271526, 16.0516133],
+            [120.3276062, 16.0549851],
+            [120.3281788, 16.0584709],
+            [120.3307929, 16.0572986],
+            [120.3336021, 16.0564388],
+            [120.3350327, 16.0563455],
+            [120.3364633, 16.0565335],
+            [120.3373105, 16.0568223],
+            [120.3380276, 16.0574862],
+            [120.3386115, 16.0583368],
+            [120.3391941, 16.0587780],
+            [120.3401065, 16.0593576],
+            [120.3413901, 16.0594319],
+            [120.3420551, 16.0594170],
+            [120.3420, 16.0620]
+        ]
+    });
+
     const boatRoute = await query.run(
-        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, minimum_fare, maximum_fare, status, description, geometry)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, minimum_fare, maximum_fare, status, description, geometry, geometry_corrected, use_corrected_geometry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             'Pantal River Crossing (SAMPLE)',
             boat.lastID,
@@ -1207,7 +1233,9 @@ async function seed() {
             'Pantal River Dock (Bonuan Side)',
             15, 20.00, 20.00, 'CLEAR',
             'SAMPLE DATA — Hypothetical river crossing via Pantal River. No boat service is confirmed as currently operating. Admin must configure real boat routes.',
-            JSON.stringify({ type: 'LineString', coordinates: [[120.3310, 16.0395], [120.3350, 16.0480], [120.3420, 16.0620]] })
+            JSON.stringify({ type: 'LineString', coordinates: [[120.3310, 16.0395], [120.3350, 16.0480], [120.3420, 16.0620]] }),
+            boatCorrectedGeom,
+            1
         ]
     );
     const originStopId = locationIds['Pantal River Dock (Downtown Side)'];

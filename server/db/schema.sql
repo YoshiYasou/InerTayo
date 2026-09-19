@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS routes (
     maximum_fare REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'CLEAR' CHECK (status IN ('CLEAR', 'DETOUR_ACTIVE', 'UNAVAILABLE', 'ADVISORY')),
     description TEXT,
-    geometry TEXT,                  -- GeoJSON LineString geometry string
+    geometry TEXT,                  -- GeoJSON LineString geometry string (original)
+    geometry_corrected TEXT,        -- Corrected GeoJSON LineString geometry string
+    use_corrected_geometry INTEGER DEFAULT 1, -- 1 = use corrected, 0 = use original
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (transport_mode_id) REFERENCES transport_modes(id) ON DELETE RESTRICT

@@ -53,6 +53,8 @@ const query = {
 async function initSchema() {
     // Safe column migrations first — ensure existing tables get new columns before schema/indexes run
     try { await query.run(`ALTER TABLE routes ADD COLUMN geometry TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE routes ADD COLUMN geometry_corrected TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE routes ADD COLUMN use_corrected_geometry INTEGER DEFAULT 1`); } catch (e) {}
     try { await query.run(`ALTER TABLE transport_modes ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`); } catch (e) {}
     try { await query.run(`ALTER TABLE locations ADD COLUMN barangay TEXT`); } catch (e) {}
     try { await query.run(`ALTER TABLE locations ADD COLUMN search_keywords TEXT`); } catch (e) {}
@@ -63,6 +65,8 @@ async function initSchema() {
 
     // Safe column migrations after schema execution (for fresh tables or additional properties)
     try { await query.run(`ALTER TABLE routes ADD COLUMN geometry TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE routes ADD COLUMN geometry_corrected TEXT`); } catch (e) {}
+    try { await query.run(`ALTER TABLE routes ADD COLUMN use_corrected_geometry INTEGER DEFAULT 1`); } catch (e) {}
     try { await query.run(`ALTER TABLE transport_modes ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`); } catch (e) {}
     try { await query.run(`ALTER TABLE locations ADD COLUMN barangay TEXT`); } catch (e) {}
     try { await query.run(`ALTER TABLE locations ADD COLUMN search_keywords TEXT`); } catch (e) {}

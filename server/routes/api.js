@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db/database');
 const { authenticateToken, optionalAuth, requireAdmin, JWT_SECRET } = require('../middleware/auth');
+const ROUTING_CONFIG = require('../config/routingConfig');
 
 const router = express.Router();
 
@@ -381,7 +382,8 @@ async function syncRouteAdvisoryStatus(routeId) {
 // GET /api/routes - Search, filter, and sort routes
 router.get('/routes', async (req, res) => {
     try {
-        const { search, mode, sort, from, to } = req.query;
+        const { search, mode, sort, from, to, use_corrected } = req.query;
+        const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
 
         let sql = `
             SELECT 
@@ -405,7 +407,10 @@ router.get('/routes', async (req, res) => {
                     ELSE r.status
                 END AS status,
                 r.description,
-                r.geometry,
+                r.geometry AS geometry_original,
+                r.geometry_corrected,
+                r.use_corrected_geometry,
+                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry,
                 r.created_at,
                 r.updated_at,
                 brd.waterway,
@@ -512,6 +517,9 @@ router.get('/routes/:id', async (req, res) => {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
+        const { use_corrected } = req.query;
+        const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
+
         const route = await query.get(
             `SELECT 
                 r.id,
@@ -534,7 +542,10 @@ router.get('/routes/:id', async (req, res) => {
                     ELSE r.status
                 END AS status,
                 r.description,
-                r.geometry,
+                r.geometry AS geometry_original,
+                r.geometry_corrected,
+                r.use_corrected_geometry,
+                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry,
                 r.created_at,
                 r.updated_at,
                 brd.waterway,
