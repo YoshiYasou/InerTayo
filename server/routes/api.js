@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { query } = require('../db/database');
 const { authenticateToken, optionalAuth, requireAdmin, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
+const { getWalkingRoute } = require('../services/walkingRouter');
 
 const router = express.Router();
 
@@ -233,6 +234,30 @@ router.get('/landmarks', async (req, res) => {
     } catch (err) {
         console.error('Error fetching landmarks:', err);
         res.status(500).json({ error: 'Failed to retrieve landmarks.' });
+    }
+});
+
+// GET /api/directions/walk - Server-side pedestrian routing proxy
+router.get('/directions/walk', async (req, res) => {
+    try {
+        const { start, end } = req.query;
+        if (!start || !end) {
+            return res.status(400).json({ error: 'Both start and end parameters are required in format "lon,lat".' });
+        }
+
+        const startCoords = start.split(',').map(Number);
+        const endCoords = end.split(',').map(Number);
+
+        if (startCoords.length < 2 || isNaN(startCoords[0]) || isNaN(startCoords[1]) ||
+            endCoords.length < 2 || isNaN(endCoords[0]) || isNaN(endCoords[1])) {
+            return res.status(400).json({ error: 'Coordinates must be valid numbers in format "lon,lat".' });
+        }
+
+        const route = await getWalkingRoute(startCoords, endCoords);
+        res.json(route);
+    } catch (err) {
+        console.error('Walking route error:', err);
+        res.status(500).json({ error: 'Failed to calculate walking route.' });
     }
 });
 
