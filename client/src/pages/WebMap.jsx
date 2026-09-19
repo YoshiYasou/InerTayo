@@ -223,7 +223,7 @@ export default function WebMap() {
         </div>
 
         {/* Right Side: Interactive Leaflet Map */}
-        <div className={`flex-1 relative h-full overflow-hidden ${mobileView === 'map' ? 'block' : 'hidden lg:block'}`}>
+        <div className={`flex-1 relative overflow-hidden ${mobileView === 'map' ? 'block' : 'hidden lg:block'}`}>
           {loading ? (
             <div className="w-full h-full flex items-center justify-center bg-slate-100">
               <div className="text-center">
