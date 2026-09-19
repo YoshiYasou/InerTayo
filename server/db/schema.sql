@@ -206,6 +206,30 @@ CREATE TABLE IF NOT EXISTS route_segments (
     FOREIGN KEY (end_location_id) REFERENCES locations(id) ON DELETE SET NULL
 );
 
+-- ============================================================
+-- Schools table
+-- Verified schools and universities physically located inside Dagupan City
+-- ============================================================
+CREATE TABLE IF NOT EXISTS schools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    aliases TEXT,
+    type TEXT NOT NULL DEFAULT 'UNIVERSITY',
+    address TEXT,
+    barangay TEXT,
+    city TEXT NOT NULL DEFAULT 'Dagupan City',
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    entrance_latitude REAL,
+    entrance_longitude REAL,
+    nearby_stops TEXT,
+    verified INTEGER DEFAULT 1,
+    source TEXT,
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_routes_mode ON routes(transport_mode_id);
 CREATE INDEX IF NOT EXISTS idx_routes_status ON routes(status);
@@ -221,5 +245,8 @@ CREATE INDEX IF NOT EXISTS idx_locations_barangay ON locations(barangay);
 CREATE INDEX IF NOT EXISTS idx_locations_keywords ON locations(search_keywords);
 CREATE INDEX IF NOT EXISTS idx_route_segments_route ON route_segments(route_id, segment_order);
 CREATE INDEX IF NOT EXISTS idx_boat_details_route ON boat_route_details(route_id);
+CREATE INDEX IF NOT EXISTS idx_schools_name ON schools(name);
+CREATE INDEX IF NOT EXISTS idx_schools_aliases ON schools(aliases);
+CREATE INDEX IF NOT EXISTS idx_schools_type ON schools(type);
 
 

@@ -10,6 +10,7 @@ async function seed() {
     // Clear existing data in reverse dependency order
     try { await query.run('DELETE FROM route_segments'); } catch (e) {}
     try { await query.run('DELETE FROM boat_route_details'); } catch (e) {}
+    try { await query.run('DELETE FROM schools'); } catch (e) {}
     try { await query.run('DELETE FROM locations'); } catch (e) {}
     await query.run('DELETE FROM landmarks');
     await query.run('DELETE FROM saved_routes');
@@ -1275,6 +1276,67 @@ async function seed() {
     );
 
     console.log('Sample boat route and route segments seeded (SAMPLE DATA).');
+
+    // 13. Seed Verified Dagupan City Schools (Strictly restricted to Dagupan boundary)
+    const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
+    const { pointDistanceMeters } = require('../utils/geoUtils');
+    const schoolsData = require('../data/dagupan_schools.json');
+
+    const allStops = await query.all(`
+        SELECT s.id, s.stop_name, s.latitude, s.longitude, r.route_name, tm.name as mode_name
+        FROM stops s
+        JOIN routes r ON s.route_id = r.id
+        JOIN transport_modes tm ON r.transport_mode_id = tm.id
+        WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+    `);
+
+    let schoolsSeeded = 0;
+    for (const sch of schoolsData) {
+        if (!isInsideDagupanCity(sch.latitude, sch.longitude)) {
+            console.warn(`[Boundary Check] School "${sch.name}" is outside Dagupan City! Skipping.`);
+            continue;
+        }
+
+        const nearby = [];
+        for (const st of allStops) {
+            const d = pointDistanceMeters([sch.longitude, sch.latitude], [st.longitude, st.latitude], true);
+            if (d <= 600) {
+                nearby.push({
+                    stop_id: st.id,
+                    stop_name: st.stop_name,
+                    route_name: st.route_name,
+                    mode: st.mode_name,
+                    distance_meters: Math.round(d)
+                });
+            }
+        }
+        nearby.sort((a, b) => a.distance_meters - b.distance_meters);
+
+        await query.run(
+            `INSERT INTO schools (
+                name, aliases, type, address, barangay, city, latitude, longitude,
+                entrance_latitude, entrance_longitude, nearby_stops, verified, source, active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                sch.name,
+                sch.aliases,
+                sch.type,
+                sch.address,
+                sch.barangay,
+                sch.city,
+                sch.latitude,
+                sch.longitude,
+                sch.entrance_latitude,
+                sch.entrance_longitude,
+                JSON.stringify(nearby.slice(0, 5)),
+                sch.verified,
+                sch.source,
+                sch.active
+            ]
+        );
+        schoolsSeeded++;
+    }
+    console.log(`Schools seeded (${schoolsSeeded} verified Dagupan City schools with calculated nearby stops).`);
 
     console.log('Initial sample database seeding completed successfully!');
 }

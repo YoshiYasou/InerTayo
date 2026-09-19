@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, Route, Compass, Building, Landmark, ChevronRight, X } from 'lucide-react';
+import { MapPin, Navigation, Route, Compass, Building, Landmark, ChevronRight, X, GraduationCap } from 'lucide-react';
 
 export default function LocationAutocomplete({
   value,
@@ -44,7 +44,7 @@ export default function LocationAutocomplete({
           if (Array.isArray(data)) {
             let filtered = data;
             if (filterType === 'LOCATION') {
-              filtered = data.filter(item => item.category === 'location');
+              filtered = data.filter(item => item.category === 'location' || item.category === 'school');
             } else if (filterType === 'ROUTE') {
               filtered = data.filter(item => item.category === 'route');
             }
@@ -115,6 +115,10 @@ export default function LocationAutocomplete({
 
   const getBadgeStyle = (typeLabel) => {
     switch (typeLabel) {
+      case 'University':
+      case 'College':
+      case 'School':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
       case 'Street / Road':
         return 'bg-blue-50 text-blue-700 border-blue-200';
       case 'Barangay':
@@ -134,6 +138,10 @@ export default function LocationAutocomplete({
 
   const getCategoryIcon = (typeLabel) => {
     switch (typeLabel) {
+      case 'University':
+      case 'College':
+      case 'School':
+        return <GraduationCap className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />;
       case 'Street / Road':
         return <Navigation className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />;
       case 'Barangay':
@@ -220,10 +228,12 @@ export default function LocationAutocomplete({
                         <div className="font-semibold text-xs sm:text-sm text-slate-800 truncate">
                           {item.name}
                         </div>
-                        {(item.barangay || item.address || item.origin) && (
+                        {(item.barangay || item.address || item.origin || item.aliases) && (
                           <div className="text-[11px] text-slate-400 truncate">
                             {item.category === 'route'
                               ? `${item.origin} → ${item.destination}`
+                              : item.category === 'school'
+                              ? `${item.barangay ? 'Brgy. ' + item.barangay : ''}${item.aliases ? ' • ' + item.aliases : ''}`
                               : item.barangay
                               ? `Brgy. ${item.barangay}`
                               : item.address}
