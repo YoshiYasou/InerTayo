@@ -249,4 +249,18 @@ CREATE INDEX IF NOT EXISTS idx_schools_name ON schools(name);
 CREATE INDEX IF NOT EXISTS idx_schools_aliases ON schools(aliases);
 CREATE INDEX IF NOT EXISTS idx_schools_type ON schools(type);
 
+-- Password Reset Requests
+CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    reset_code TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(reset_code, used);
+CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+
 

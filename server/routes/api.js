@@ -1282,14 +1282,44 @@ router.post('/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Username, email, and password are required.' });
         }
 
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+        const trimmedUsername = username.trim();
+        const trimmedEmail = email.trim().toLowerCase();
+
+        // 1. Username constraints: 3-30 characters, alphanumeric, underscores, hyphens, periods
+        if (trimmedUsername.length < 3 || trimmedUsername.length > 30) {
+            return res.status(400).json({ error: 'Username must be between 3 and 30 characters.' });
+        }
+        if (!/^[a-zA-Z0-9_.-]+$/.test(trimmedUsername)) {
+            return res.status(400).json({ error: 'Username can only contain letters, numbers, underscores, and hyphens.' });
+        }
+
+        // 2. Email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(trimmedEmail)) {
+            return res.status(400).json({ error: 'Please enter a valid email address.' });
+        }
+
+        // 3. Password constraints: min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+        }
+        if (!/[A-Z]/.test(password)) {
+            return res.status(400).json({ error: 'Password must contain at least one uppercase letter (A-Z).' });
+        }
+        if (!/[a-z]/.test(password)) {
+            return res.status(400).json({ error: 'Password must contain at least one lowercase letter (a-z).' });
+        }
+        if (!/[0-9]/.test(password)) {
+            return res.status(400).json({ error: 'Password must contain at least one number (0-9).' });
+        }
+        if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+            return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
         }
 
         // Check if username or email exists
         const existing = await query.get(
             `SELECT id FROM users WHERE username = ? OR email = ?`,
-            [username.trim(), email.trim().toLowerCase()]
+            [trimmedUsername, trimmedEmail]
         );
         if (existing) {
             return res.status(409).json({ error: 'Username or email is already registered.' });
@@ -1299,13 +1329,13 @@ router.post('/auth/register', async (req, res) => {
 
         const result = await query.run(
             `INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, 'COMMUTER')`,
-            [username.trim(), email.trim().toLowerCase(), passwordHash]
+            [trimmedUsername, trimmedEmail, passwordHash]
         );
 
         const userPayload = {
             id: result.lastID,
-            username: username.trim(),
-            email: email.trim().toLowerCase(),
+            username: trimmedUsername,
+            email: trimmedEmail,
             role: 'COMMUTER'
         };
 
@@ -1362,6 +1392,128 @@ router.post('/auth/login', async (req, res) => {
     } catch (err) {
         console.error('Login error:', err);
         res.status(500).json({ error: 'Authentication failed.' });
+    }
+});
+
+// POST /api/auth/forgot-password - Request password reset code
+router.post('/auth/forgot-password', async (req, res) => {
+    try {
+        const { identifier } = req.body;
+        if (!identifier || !identifier.trim()) {
+            return res.status(400).json({ error: 'Please enter your registered email address or username.' });
+        }
+
+        const cleanId = identifier.trim();
+        const user = await query.get(
+            `SELECT id, username, email FROM users WHERE username = ? OR email = ?`,
+            [cleanId, cleanId.toLowerCase()]
+        );
+
+        if (!user) {
+            // Protect against user enumeration by returning a generic success message
+            return res.json({
+                message: 'If an account matches that email or username, a 6-digit reset code has been generated.',
+                sent: true
+            });
+        }
+
+        // Generate cryptographically random 6-digit code
+        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Invalidate old unused codes for this user
+        await query.run(
+            `UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0`,
+            [user.id]
+        );
+
+        // Insert new code with 15 minutes expiration
+        await query.run(
+            `INSERT INTO password_resets (user_id, email, reset_code, expires_at) 
+             VALUES (?, ?, ?, datetime('now', '+15 minutes'))`,
+            [user.id, user.email, resetCode]
+        );
+
+        console.log(`[AUTH] Password reset code generated for ${user.email}: ${resetCode}`);
+
+        res.json({
+            message: 'A 6-digit password reset code has been generated.',
+            email: user.email,
+            sent: true,
+            devCode: resetCode
+        });
+    } catch (err) {
+        console.error('Forgot password error:', err);
+        res.status(500).json({ error: 'Failed to process password reset request.' });
+    }
+});
+
+// POST /api/auth/reset-password - Verify reset code and update password
+router.post('/auth/reset-password', async (req, res) => {
+    try {
+        const { email, resetCode, newPassword } = req.body;
+
+        if (!email || !resetCode || !newPassword) {
+            return res.status(400).json({ error: 'Email, reset code, and new password are required.' });
+        }
+
+        const cleanEmail = email.trim().toLowerCase();
+        const cleanCode = resetCode.trim();
+
+        // 1. Validate password policy
+        if (newPassword.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+        }
+        if (!/[A-Z]/.test(newPassword)) {
+            return res.status(400).json({ error: 'Password must contain at least one uppercase letter (A-Z).' });
+        }
+        if (!/[a-z]/.test(newPassword)) {
+            return res.status(400).json({ error: 'Password must contain at least one lowercase letter (a-z).' });
+        }
+        if (!/[0-9]/.test(newPassword)) {
+            return res.status(400).json({ error: 'Password must contain at least one number (0-9).' });
+        }
+        if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword)) {
+            return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
+        }
+
+        // 2. Find valid unexpired reset record
+        const resetRecord = await query.get(
+            `SELECT pr.id, pr.user_id, u.username, u.email
+             FROM password_resets pr
+             JOIN users u ON pr.user_id = u.id
+             WHERE (pr.email = ? OR u.username = ?) 
+               AND pr.reset_code = ? 
+               AND pr.used = 0 
+               AND pr.expires_at > CURRENT_TIMESTAMP
+             ORDER BY pr.id DESC LIMIT 1`,
+            [cleanEmail, cleanEmail, cleanCode]
+        );
+
+        if (!resetRecord) {
+            return res.status(400).json({ error: 'Invalid or expired reset code. Please request a new code.' });
+        }
+
+        // 3. Hash new password
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+
+        // 4. Update user password
+        await query.run(
+            `UPDATE users SET password_hash = ? WHERE id = ?`,
+            [passwordHash, resetRecord.user_id]
+        );
+
+        // 5. Invalidate the code
+        await query.run(
+            `UPDATE password_resets SET used = 1 WHERE id = ?`,
+            [resetRecord.id]
+        );
+
+        res.json({
+            message: 'Password has been reset successfully! You can now sign in with your new password.'
+        });
+    } catch (err) {
+        console.error('Reset password error:', err);
+        res.status(500).json({ error: 'Failed to reset password.' });
     }
 });
 

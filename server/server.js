@@ -57,7 +57,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Rate limiter: authentication endpoints only (5 requests / 60 seconds → 429)
+// ── Rate limiter: authentication writes only (5 requests / 60 seconds → 429)
 // Matches report template documented threshold exactly.
 // Skipped entirely in test mode (NODE_ENV=test) so the automated suite can
 // exercise auth endpoints without exhausting the window.
@@ -66,7 +66,7 @@ const authRateLimiter = rateLimit({
     max: 5,                        // max 5 requests per window per IP
     standardHeaders: true,         // Return rate limit info in RateLimit-* headers
     legacyHeaders: false,          // Disable deprecated X-RateLimit-* headers
-    skip: () => process.env.NODE_ENV === 'test',
+    skip: (req) => process.env.NODE_ENV === 'test' || req.method !== 'POST',
     message: {
         error: 'Too many authentication attempts. Please wait 60 seconds before trying again.'
     }

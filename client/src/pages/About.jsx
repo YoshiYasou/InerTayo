@@ -122,52 +122,75 @@ export default function About() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            
-            {/* Team Member 1 */}
             <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg mb-4">
-                AS
-              </div>
               <h3 className="text-lg font-bold text-slate-900">
-                Alex Santos
+                Dizon, Dean Vincent
               </h3>
               <span className="text-xs font-semibold text-emerald-700 mb-3">
-                Transit Network Specialist
+                Project Manager
               </span>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Passionate about optimizing Dagupan's multi-modal transit corridors and ensuring route data reflects daily commuter patterns.
+                Leads the team in building a reliable and accessible transit guide for commuters.
               </p>
             </div>
 
-            {/* Team Member 2 */}
             <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
-              <div className="w-14 h-14 rounded-2xl bg-cyan-100 text-cyan-800 flex items-center justify-center font-bold text-lg mb-4">
-                JR
-              </div>
               <h3 className="text-lg font-bold text-slate-900">
-                Jordan Rivera
+                Asuncion, Krystabel
               </h3>
               <span className="text-xs font-semibold text-cyan-700 mb-3">
-                Full-Stack Systems Engineer
+                Member
               </span>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Architects reliable database schemas, fast search indices, and accessible user interfaces for commuters of all ages.
+                Supports the team's research and development work for InerTayo.
               </p>
             </div>
 
-            {/* Team Member 3 */}
             <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
-              <div className="w-14 h-14 rounded-2xl bg-pink-100 text-pink-800 flex items-center justify-center font-bold text-lg mb-4">
-                SD
-              </div>
               <h3 className="text-lg font-bold text-slate-900">
-                Sam Dela Cruz
+                Casilang, Zet Edades
               </h3>
               <span className="text-xs font-semibold text-pink-700 mb-3">
-                GIS & Local Research Mapper
+                Member
               </span>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Spends mornings documenting tricycle stations, transfer hubs, and low-lying flood points across Pangasinan.
+                Supports the team's research and development work for InerTayo.
+              </p>
+            </div>
+
+            <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
+              <h3 className="text-lg font-bold text-slate-900">
+                De Guzman, Jian Clarence
+              </h3>
+              <span className="text-xs font-semibold text-amber-700 mb-3">
+                Member
+              </span>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Supports the team's research and development work for InerTayo.
+              </p>
+            </div>
+
+            <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
+              <h3 className="text-lg font-bold text-slate-900">
+                Dizon, Joshua
+              </h3>
+              <span className="text-xs font-semibold text-violet-700 mb-3">
+                Member
+              </span>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Supports the team's research and development work for InerTayo.
+              </p>
+            </div>
+
+            <div className="bg-slate-50/80 rounded-3xl p-6 border border-slate-100 flex flex-col items-start hover:shadow-md transition-all">
+              <h3 className="text-lg font-bold text-slate-900">
+                Ibasan, Kim Cyrus
+              </h3>
+              <span className="text-xs font-semibold text-rose-700 mb-3">
+                Member
+              </span>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Supports the team's research and development work for InerTayo.
               </p>
             </div>
 

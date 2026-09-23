@@ -129,7 +129,7 @@ export default function WebMap() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
       
       {/* Header Bar */}
       <div className="bg-white border-b border-slate-200 py-3 px-4 sm:px-6 lg:px-8 shadow-xs z-20">
@@ -211,7 +211,7 @@ export default function WebMap() {
       </div>
 
       {/* Main Split-View Content Area */}
-      <div className="relative flex-1 flex flex-col lg:flex-row overflow-hidden" style={{ height: 'calc(100vh - 75px)', minHeight: '540px' }}>
+      <div className="relative flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         
         {/* Left Side: Journey Planner Panel (Matching UX reference Screenshot 2) */}
         <div className={`w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 h-full overflow-hidden z-20 ${mobileView === 'planner' ? 'block' : 'hidden lg:block'}`}>

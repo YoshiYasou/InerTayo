@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 require('dotenv').config();
 const http = require('http');
 const app = require('../server/server');
@@ -263,6 +264,82 @@ async function runTests() {
         });
         assert(regRes.status === 201 && regRes.data.token, 'New commuter registration succeeds and returns JWT');
         const commuterToken = regRes.data.token;
+
+        // Password Constraint Validations
+        const shortPw = await makeRequest('POST', '/api/auth/register', {
+            username: 'shortpwuser',
+            email: 'short@dagupan.ph',
+            password: 'Ab1!'
+        });
+        assert(shortPw.status === 400 && shortPw.data.error.includes('8 characters'), 'Password < 8 characters is rejected with 400');
+
+        const noUpperPw = await makeRequest('POST', '/api/auth/register', {
+            username: 'noupperuser',
+            email: 'noupper@dagupan.ph',
+            password: 'password123!'
+        });
+        assert(noUpperPw.status === 400 && noUpperPw.data.error.includes('uppercase'), 'Password missing uppercase is rejected with 400');
+
+        const noNumPw = await makeRequest('POST', '/api/auth/register', {
+            username: 'nonumuser',
+            email: 'nonum@dagupan.ph',
+            password: 'Password!'
+        });
+        assert(noNumPw.status === 400 && noNumPw.data.error.includes('number'), 'Password missing number is rejected with 400');
+
+        const noSpecialPw = await makeRequest('POST', '/api/auth/register', {
+            username: 'nospecialuser',
+            email: 'nospecial@dagupan.ph',
+            password: 'Password123'
+        });
+        assert(noSpecialPw.status === 400 && noSpecialPw.data.error.includes('special character'), 'Password missing special character is rejected with 400');
+
+        const badEmail = await makeRequest('POST', '/api/auth/register', {
+            username: 'bademailuser',
+            email: 'invalid-email-format',
+            password: 'Password123!'
+        });
+        assert(badEmail.status === 400 && badEmail.data.error.includes('valid email'), 'Invalid email format is rejected with 400');
+
+        // Forgot Password Flow Validations
+        const forgotReq = await makeRequest('POST', '/api/auth/forgot-password', {
+            identifier: 'commuter@inertayo.ph'
+        });
+        assert(forgotReq.status === 200 && forgotReq.data.devCode, 'POST /api/auth/forgot-password generates valid 6-digit reset code');
+        const generatedCode = forgotReq.data.devCode;
+
+        // Reset with invalid code
+        const invalidReset = await makeRequest('POST', '/api/auth/reset-password', {
+            email: 'commuter@inertayo.ph',
+            resetCode: '999999',
+            newPassword: 'NewPassword123!'
+        });
+        assert(invalidReset.status === 400 && invalidReset.data.error.includes('Invalid or expired'), 'Reset with wrong code is rejected with 400');
+
+        // Reset with valid code
+        const validReset = await makeRequest('POST', '/api/auth/reset-password', {
+            email: 'commuter@inertayo.ph',
+            resetCode: generatedCode,
+            newPassword: 'ResetPassword123!'
+        });
+        assert(validReset.status === 200, 'POST /api/auth/reset-password succeeds with valid code and updates password');
+
+        // Verify login with new password
+        const loginWithNew = await makeRequest('POST', '/api/auth/login', {
+            username: 'commuter',
+            password: 'ResetPassword123!'
+        });
+        assert(loginWithNew.status === 200, 'Login succeeds with newly reset password');
+
+        // Restore default password for remaining tests
+        const forgotRestore = await makeRequest('POST', '/api/auth/forgot-password', {
+            identifier: 'commuter@inertayo.ph'
+        });
+        await makeRequest('POST', '/api/auth/reset-password', {
+            email: 'commuter@inertayo.ph',
+            resetCode: forgotRestore.data.devCode,
+            newPassword: 'Commuter123!'
+        });
 
         // Login existing commuter
         const loginRes = await makeRequest('POST', '/api/auth/login', {

@@ -43,13 +43,15 @@ export default function App() {
     return <Home />;
   };
 
+  const isMapPage = currentPath === '/map';
+
   return (
     <div className="flex flex-col min-h-screen bg-white selection:bg-emerald-100 selection:text-emerald-900">
       <Navbar />
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col">
         {renderPage()}
       </main>
-      <Footer />
+      {!isMapPage && <Footer />}
       <AuthModal />
     </div>
   );
