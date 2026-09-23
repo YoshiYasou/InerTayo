@@ -14,7 +14,6 @@ import {
   KeyRound,
   ArrowLeft,
   CheckCircle2,
-  Info
 } from 'lucide-react';
 
 export default function AuthModal() {
@@ -39,7 +38,6 @@ export default function AuthModal() {
   
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [devCodeHint, setDevCodeHint] = useState('');
   const [loading, setLoading] = useState(false);
   
   // Security & Rate limiting state
@@ -109,7 +107,6 @@ export default function AuthModal() {
     setShowConfirmPassword(false);
     setError('');
     setSuccessMsg('');
-    setDevCodeHint('');
   };
 
   const handleSwitchMode = (mode) => {
@@ -200,10 +197,6 @@ export default function AuthModal() {
         const identifier = email.trim() || username.trim();
         const res = await forgotPassword(identifier);
         
-        if (res.devCode) {
-          setDevCodeHint(res.devCode);
-          setResetCode(res.devCode); // Auto-fill for developer convenience
-        }
         if (res.email) {
           setEmail(res.email);
         }
@@ -337,17 +330,6 @@ export default function AuthModal() {
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span>{successMsg}</span>
-          </div>
-        )}
-
-        {/* Developer Demo Code Notice */}
-        {devCodeHint && authModalMode === 'forgot_reset' && (
-          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-              <span>Demo Reset Code: <strong>{devCodeHint}</strong></span>
-            </div>
-            <span className="text-[10px] bg-indigo-200/60 text-indigo-800 px-2 py-0.5 rounded font-mono font-bold">15m valid</span>
           </div>
         )}
 

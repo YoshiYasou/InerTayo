@@ -19,8 +19,9 @@ InerTayo is a dedicated public transportation route information system built spe
 3. **Advisory Wording (§0.3):**
    - Transparently labeled as admin-managed advisories: *"Routes reflect current advisories"* (avoiding false live "auto-reroute" claims).
 
-4. **Generic Team Personas (§0.4):**
-   - Generic roles: *Transit Network Specialist*, *Full-Stack Systems Engineer*, *GIS & Local Research Mapper* (zero celebrity or identifiable real persona placeholders).
+4. **Project Team (§0.4):**
+   - Project Manager: **Dizon, Dean Vincent**
+   - Members: **Asuncion, Krystabel**, **Casilang, Zet Edades**, **De Guzman, Jian Clarence**, **Dizon, Joshua**, and **Ibasan, Kim Cyrus**.
 
 5. **Server-Side Advisory Travel-Time Recalculation (§0.5):**
    - Routes affected by active advisories dynamically reflect detour travel times computed on the server (e.g. Dagupan–Calasiao Detour Active reflects 30 mins vs 15 mins base).
@@ -93,7 +94,30 @@ npm start
 ```
 Visit **`http://localhost:5000`** in your browser.
 
-### 5. Run Automated Test Suite
+### 5. Run in Development Mode
+
+Use two terminals when developing the frontend:
+
+```powershell
+# Terminal 1: API server
+npm run server
+```
+
+```powershell
+# Terminal 2: Vite development server
+npm run client
+```
+
+Visit **`http://localhost:3000`**. Vite proxies `/api` requests to the backend at `http://localhost:5000`.
+
+### 6. Authentication Troubleshooting
+
+- Restart the backend after changing files under `server/`.
+- Refresh the browser after rebuilding the client.
+- Registration requires a username from 3–30 characters, a valid email, and a password containing at least 8 characters, one uppercase letter, one lowercase letter, one number, and one special character.
+- Authentication requests are rate-limited to 5 POST requests per minute per IP. GET profile requests do not consume the limit.
+
+### 7. Run Automated Test Suite
 ```powershell
 # Executes comprehensive automated test suite (82 automated checks)
 npm test

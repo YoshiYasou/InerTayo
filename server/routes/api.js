@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const { query } = require('../db/database');
 const { authenticateToken, optionalAuth, requireAdmin, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
@@ -1418,7 +1420,7 @@ router.post('/auth/forgot-password', async (req, res) => {
         }
 
         // Generate cryptographically random 6-digit code
-        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const resetCode = crypto.randomInt(100000, 1000000).toString();
 
         // Invalidate old unused codes for this user
         await query.run(
@@ -1433,14 +1435,38 @@ router.post('/auth/forgot-password', async (req, res) => {
             [user.id, user.email, resetCode]
         );
 
-        console.log(`[AUTH] Password reset code generated for ${user.email}: ${resetCode}`);
+        if (process.env.NODE_ENV !== 'test') {
+            if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+                return res.status(503).json({
+                    error: 'Password reset email is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD in .env.'
+                });
+            }
 
-        res.json({
-            message: 'A 6-digit password reset code has been generated.',
+            const transporter = nodemailer.createTransport({
+                host: 'smtp.gmail.com',
+                port: 465,
+                secure: true,
+                auth: {
+                    user: process.env.GMAIL_USER,
+                    pass: process.env.GMAIL_APP_PASSWORD
+                }
+            });
+
+            await transporter.sendMail({
+                from: `InerTayo <${process.env.GMAIL_USER}>`,
+                to: user.email,
+                subject: 'Your InerTayo password reset code',
+                text: `Your InerTayo password reset code is ${resetCode}. It expires in 15 minutes. If you did not request this, you can ignore this email.`
+            });
+        }
+
+        const response = {
+            message: 'A 6-digit password reset code has been sent to your email.',
             email: user.email,
-            sent: true,
-            devCode: resetCode
-        });
+            sent: true
+        };
+        if (process.env.NODE_ENV === 'test') response.devCode = resetCode;
+        res.json(response);
     } catch (err) {
         console.error('Forgot password error:', err);
         res.status(500).json({ error: 'Failed to process password reset request.' });
