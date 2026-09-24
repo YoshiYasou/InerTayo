@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import { Menu, X, ShieldCheck, LogOut, Compass, User, Bookmark } from 'lucide-react';
+import ConfirmDialog from './ConfirmDialog';
 
 export default function Navbar() {
   const { currentPath, navigate } = useRouter();
-  const { user, isAdmin, logout, openAuth } = useAuth();
+  const { user, isAdmin, isCommuter, logout, openAuth } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
 
   const navItems = [
     { label: 'Routes', path: '/routes' },
@@ -17,6 +19,16 @@ export default function Navbar() {
   const handleNav = (path) => {
     navigate(path);
     setMobileMenuOpen(false);
+  };
+
+  const requestLogout = () => {
+    setMobileMenuOpen(false);
+    setLogoutDialogOpen(true);
+  };
+
+  const confirmLogout = () => {
+    setLogoutDialogOpen(false);
+    logout();
   };
 
   return (
@@ -85,6 +97,17 @@ export default function Navbar() {
               <Compass className="w-4 h-4 text-emerald-500" />
               Launch Web Map
             </button>
+            {isCommuter && (
+              <button
+                onClick={() => handleNav('/saved-routes')}
+                className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+                  currentPath === '/saved-routes' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Bookmark className="w-4 h-4" />
+                Saved Routes
+              </button>
+            )}
 
             {/* Auth Buttons */}
             {user ? (
@@ -113,7 +136,7 @@ export default function Navbar() {
                   </button>
                 )}
                 <button
-                  onClick={logout}
+                  onClick={requestLogout}
                   className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors rounded-lg hover:bg-slate-100"
                   title="Sign Out"
                 >
@@ -181,6 +204,15 @@ export default function Navbar() {
             <Compass className="w-4 h-4 text-emerald-400" />
             Launch Web Map
           </button>
+          {isCommuter && (
+            <button
+              onClick={() => handleNav('/saved-routes')}
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-sm"
+            >
+              <Bookmark className="w-4 h-4" />
+              Saved Routes
+            </button>
+          )}
           
           <div className="pt-3 border-t border-slate-100">
             {user ? (
@@ -189,7 +221,7 @@ export default function Navbar() {
                   Signed in as {user.username} ({user.role})
                 </span>
                 <button
-                  onClick={logout}
+                  onClick={requestLogout}
                   className="text-xs text-rose-600 font-semibold hover:underline"
                 >
                   Sign Out
@@ -214,6 +246,14 @@ export default function Navbar() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={logoutDialogOpen}
+        title="Log out?"
+        message="Are you sure you want to log out?"
+        onCancel={() => setLogoutDialogOpen(false)}
+        onConfirm={confirmLogout}
+      />
     </header>
   );
 }

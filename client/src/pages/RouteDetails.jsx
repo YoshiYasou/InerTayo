@@ -18,7 +18,7 @@ import RouteMap from '../components/RouteMap';
 
 export default function RouteDetails() {
   const { currentPath, navigate } = useRouter();
-  const { user, isSaved, toggleSaveRoute, openAuth } = useAuth();
+  const { user, isCommuter, isSaved, toggleSaveRoute, openAuth } = useAuth();
 
   // Extract ID from path: /routes/:id
   const routeId = currentPath.split('/')[2];
@@ -153,7 +153,7 @@ export default function RouteDetails() {
           </div>
 
           {/* Bookmark / Save Route Button per §0.8 */}
-          <div className="flex items-center gap-3">
+          {isCommuter && <div className="flex items-center gap-3">
             <button
               onClick={handleToggleSave}
               className={`p-3 rounded-2xl border transition-all flex items-center justify-center gap-2 text-xs font-semibold shadow-sm ${
@@ -161,12 +161,13 @@ export default function RouteDetails() {
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                   : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-900'
               }`}
-              title={user ? (saved ? 'Remove saved route' : 'Save route') : 'Sign in to save this route'}
+              title={saved ? 'Remove saved route' : 'Save route'}
+              aria-label={saved ? 'Remove saved route' : 'Save route'}
             >
               <Bookmark className={`w-5 h-5 ${saved ? 'fill-emerald-600 text-emerald-600' : ''}`} />
               <span className="hidden sm:inline">{saved ? 'Saved' : 'Save Route'}</span>
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Advisory Callout if Affected */}

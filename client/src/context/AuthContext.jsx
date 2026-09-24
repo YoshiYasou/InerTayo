@@ -25,6 +25,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await fetch('/api/auth/me', {
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         }
       });
@@ -115,28 +116,27 @@ export function AuthProvider({ children }) {
   };
 
   const toggleSaveRoute = async (routeId) => {
-    if (!user) {
+    if (!user || user.role !== 'COMMUTER') {
       setAuthModalMode('login');
       setAuthModalOpen(true);
       return false;
     }
 
     try {
-      const res = await fetch(`/api/routes/${routeId}/save`, {
-        method: 'POST',
+      const currentlySaved = savedRouteIds.includes(routeId);
+      const res = await fetch(currentlySaved ? `/api/saved-routes/${routeId}` : '/api/saved-routes', {
+        method: currentlySaved ? 'DELETE' : 'POST',
+        body: currentlySaved ? undefined : JSON.stringify({ routeId }),
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.saved) {
-          setSavedRouteIds(prev => [...prev, routeId]);
-        } else {
-          setSavedRouteIds(prev => prev.filter(id => id !== routeId));
-        }
-        return data.saved;
-      }
+      if (!res.ok) throw new Error('Failed to update saved route.');
+      const data = await res.json();
+      setSavedRouteIds(prev => data.saved
+        ? (prev.includes(routeId) ? prev : [...prev, routeId])
+        : prev.filter(id => id !== routeId));
+      return data.saved;
     } catch (err) {
       console.error('Error toggling route bookmark:', err);
     }

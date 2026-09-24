@@ -12,6 +12,7 @@ import FareCalculator from './pages/FareCalculator';
 import About from './pages/About';
 import WebMap from './pages/WebMap';
 import Admin from './pages/Admin';
+import SavedRoutes from './pages/SavedRoutes';
 
 export default function App() {
   const { currentPath } = useRouter();
@@ -38,6 +39,9 @@ export default function App() {
     }
     if (currentPath === '/admin') {
       return <Admin />;
+    }
+    if (currentPath === '/saved-routes') {
+      return <SavedRoutes />;
     }
     // Fallback to Home
     return <Home />;

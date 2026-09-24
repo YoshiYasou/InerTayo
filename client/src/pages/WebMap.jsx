@@ -27,6 +27,7 @@ export default function WebMap() {
   const [showSchools, setShowSchools] = useState(true);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [legendOpen, setLegendOpen] = useState(false);
 
   // Journey Planner state
   const [origin, setOrigin] = useState(null);
@@ -407,50 +408,67 @@ export default function WebMap() {
             </div>
           )}
 
-          {/* Legend Overlay Card */}
-          <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-md border border-slate-200 z-10 text-xs space-y-1.5 hidden md:block">
-            <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Map Legend</div>
-            {selectedJourney && (
-              <div className="flex items-center gap-2 pb-1 border-b border-slate-100">
-                <span className="w-3 h-3 rounded-full bg-blue-600 ring-2 ring-emerald-400"></span>
-                <span className="text-emerald-800 font-bold text-[11px]">Selected Commute Path</span>
+          {/* Collapsible map key: layers remain interactive through their existing toggles and popups. */}
+          <div className="absolute top-4 right-4 z-10 hidden md:block">
+            <button
+              type="button"
+              onClick={() => setLegendOpen(!legendOpen)}
+              aria-expanded={legendOpen}
+              aria-controls="map-legend"
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold text-slate-700 shadow-md backdrop-blur-md transition-colors hover:bg-white"
+            >
+              <Layers className="h-3.5 w-3.5 text-emerald-600" />
+              Map key
+              <span className={`text-slate-400 transition-transform ${legendOpen ? 'rotate-180' : ''}`}>⌄</span>
+            </button>
+
+            {legendOpen && (
+              <div id="map-legend" className="mt-2 w-56 rounded-2xl border border-slate-200 bg-white/95 p-3 text-xs shadow-md backdrop-blur-md">
+                <div className="space-y-1.5">
+                  {selectedJourney && (
+                    <div className="flex items-center gap-2 border-b border-slate-100 pb-1">
+                      <span className="h-3 w-3 rounded-full bg-blue-600 ring-2 ring-emerald-400"></span>
+                      <span className="font-bold text-emerald-800">Selected Commute Path</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-pink-500"></span>
+                    <span className="text-slate-600">Jeepney Route</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-emerald-600"></span>
+                    <span className="text-slate-600">Bus Route</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-cyan-500"></span>
+                    <span className="text-slate-600">Tricycle Corridor</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full border-2 border-blue-600" style={{ background: 'repeating-linear-gradient(90deg, #2563eb 0, #2563eb 4px, transparent 4px, transparent 8px)' }}></span>
+                    <span className="text-slate-600">River Boat Crossing</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-amber-500"></span>
+                    <span className="text-slate-600">Flood Hazard Zone</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-3 w-3 items-center justify-center rounded-full bg-indigo-600 text-[8px] text-white">🎓</span>
+                    <span className="text-slate-600">Schools & Universities</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-3 w-3 items-center justify-center rounded bg-indigo-500 text-[8px] text-white">★</span>
+                    <span className="text-slate-600">Reference Landmarks</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-sky-600"></span>
+                    <span className="text-slate-600">River Stops / Places</span>
+                  </div>
+                </div>
+                <div className="mt-2 border-t border-slate-100 pt-1 text-[9px] italic text-slate-400">
+                  Click routes and markers for details. Boat routes are sample data.
+                </div>
               </div>
             )}
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-pink-500"></span>
-              <span className="text-slate-600">Jeepney Route</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
-              <span className="text-slate-600">Bus Loop</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-cyan-500"></span>
-              <span className="text-slate-600">Tricycle Corridors</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full border-2 border-blue-600" style={{ background: 'repeating-linear-gradient(90deg, #2563eb 0, #2563eb 4px, transparent 4px, transparent 8px)' }}></span>
-              <span className="text-slate-600">River Boat Crossing</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-amber-500"></span>
-              <span className="text-slate-600">Flood Hazard Zone</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-indigo-600 text-white text-[8px] flex items-center justify-center">🎓</span>
-              <span className="text-slate-600">Schools & Universities</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded bg-indigo-500 text-white text-[8px] flex items-center justify-center">★</span>
-              <span className="text-slate-600">Reference Landmarks</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-sky-600"></span>
-              <span className="text-slate-600">River Stops / Places</span>
-            </div>
-            <div className="border-t border-slate-100 pt-1 text-[9px] text-slate-400 italic">
-              Boat routes are sample data. Verify with admin.
-            </div>
           </div>
 
         </div>

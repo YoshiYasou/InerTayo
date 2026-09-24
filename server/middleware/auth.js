@@ -56,9 +56,17 @@ function requireAdmin(req, res, next) {
     next();
 }
 
+function requireCommuter(req, res, next) {
+    if (!req.user || req.user.role !== 'COMMUTER') {
+        return res.status(403).json({ error: 'Commuter privileges required for this action.' });
+    }
+    next();
+}
+
 module.exports = {
     JWT_SECRET,
     authenticateToken,
     optionalAuth,
-    requireAdmin
+    requireAdmin,
+    requireCommuter
 };

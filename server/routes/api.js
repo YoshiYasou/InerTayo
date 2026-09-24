@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { query } = require('../db/database');
-const { authenticateToken, optionalAuth, requireAdmin, JWT_SECRET } = require('../middleware/auth');
+const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
 const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
@@ -1580,7 +1580,7 @@ router.get('/auth/me', authenticateToken, async (req, res) => {
 // ============================================================================
 
 // GET /api/saved-routes - Get saved routes for current user
-router.get('/saved-routes', authenticateToken, async (req, res) => {
+router.get('/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
     try {
         const saved = await query.all(
             `SELECT r.id, r.route_name, tm.name as mode_name, tm.icon as mode_icon,
@@ -1605,7 +1605,7 @@ router.get('/saved-routes', authenticateToken, async (req, res) => {
 // If they do not match, a 403 Forbidden is returned — this is the BOLA/IDOR defense.
 // This endpoint exists specifically to provide a testable BOLA scenario for the VAPT
 // section of the security report (see addendum §4).
-router.get('/users/:id/saved-routes', authenticateToken, async (req, res) => {
+router.get('/users/:id/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
     const requestedId = parseInt(req.params.id, 10);
 
     // Validate path parameter
@@ -1639,12 +1639,60 @@ router.get('/users/:id/saved-routes', authenticateToken, async (req, res) => {
     }
 });
 
-// POST /api/routes/:id/save - Toggle bookmark in saved_routes
-router.post('/routes/:id/save', authenticateToken, async (req, res) => {
+// POST /api/saved-routes - Save a route for the authenticated commuter
+router.post('/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
+    try {
+        const routeId = parseInt(req.body?.routeId, 10);
+        if (isNaN(routeId)) {
+            return res.status(400).json({ error: 'Invalid route ID.' });
+        }
+
+        const route = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        if (!route) {
+            return res.status(404).json({ error: 'Route not found.' });
+        }
+
+        await query.run(
+            `INSERT OR IGNORE INTO saved_routes (user_id, route_id) VALUES (?, ?)`,
+            [req.user.id, routeId]
+        );
+        return res.status(201).json({ saved: true, message: 'Route saved successfully!' });
+    } catch (err) {
+        console.error('Error saving route:', err);
+        res.status(500).json({ error: 'Failed to save route.' });
+    }
+});
+
+// DELETE /api/saved-routes/:routeId - Remove a bookmark owned by the authenticated commuter
+router.delete('/saved-routes/:routeId', authenticateToken, requireCommuter, async (req, res) => {
+    try {
+        const routeId = parseInt(req.params.routeId, 10);
+        if (isNaN(routeId)) {
+            return res.status(400).json({ error: 'Invalid route ID.' });
+        }
+
+        await query.run(
+            `DELETE FROM saved_routes WHERE user_id = ? AND route_id = ?`,
+            [req.user.id, routeId]
+        );
+        return res.json({ saved: false, message: 'Route removed from saved routes.' });
+    } catch (err) {
+        console.error('Error removing saved route:', err);
+        res.status(500).json({ error: 'Failed to remove saved route.' });
+    }
+});
+
+// Legacy toggle endpoint retained for existing clients.
+router.post('/routes/:id/save', authenticateToken, requireCommuter, async (req, res) => {
     try {
         const routeId = parseInt(req.params.id, 10);
         if (isNaN(routeId)) {
             return res.status(400).json({ error: 'Invalid route ID.' });
+        }
+
+        const route = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        if (!route) {
+            return res.status(404).json({ error: 'Route not found.' });
         }
 
         const existing = await query.get(
@@ -1658,13 +1706,13 @@ router.post('/routes/:id/save', authenticateToken, async (req, res) => {
                 [req.user.id, routeId]
             );
             return res.json({ saved: false, message: 'Route removed from saved routes.' });
-        } else {
-            await query.run(
-                `INSERT INTO saved_routes (user_id, route_id) VALUES (?, ?)`,
-                [req.user.id, routeId]
-            );
-            return res.json({ saved: true, message: 'Route saved successfully!' });
         }
+
+        await query.run(
+            `INSERT INTO saved_routes (user_id, route_id) VALUES (?, ?)`,
+            [req.user.id, routeId]
+        );
+        return res.json({ saved: true, message: 'Route saved successfully!' });
     } catch (err) {
         console.error('Error toggling saved route:', err);
         res.status(500).json({ error: 'Failed to toggle saved route.' });

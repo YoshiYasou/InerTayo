@@ -400,7 +400,296 @@ async function seed() {
         ]
     );
 
-    console.log('Routes seeded (12 routes with GeoJSON geometry).');
+    // Additional Dagupan corridor routes. Coordinates are representative corridor
+    // points for routing display, not surveyed stop-level GPS positions.
+    const additionalRouteStops = [];
+    const additionalRouteSteps = [];
+    const additionalRoutes = [];
+
+    const addAdditionalRoute = async (data) => {
+        const route = await query.run(
+            `INSERT INTO routes (route_name, transport_mode_id, origin, destination, estimated_time, detour_time, minimum_fare, maximum_fare, status, description, geometry)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                data.name,
+                data.modeId,
+                data.origin,
+                data.destination,
+                data.estimatedTime,
+                data.detourTime,
+                data.minimumFare,
+                data.maximumFare,
+                data.status || 'CLEAR',
+                data.description,
+                JSON.stringify({ type: 'LineString', coordinates: data.coordinates })
+            ]
+        );
+
+        additionalRoutes.push({ id: route.lastID, base: data.minimumFare });
+        data.stops.forEach((stop, index) => {
+            additionalRouteStops.push({
+                routeId: route.lastID,
+                order: index + 1,
+                name: stop.name,
+                desc: stop.description,
+                transfer: stop.transfer ? 1 : 0,
+                lat: stop.lat,
+                lng: stop.lng
+            });
+        });
+        data.steps.forEach((step, index) => {
+            additionalRouteSteps.push({
+                routeId: route.lastID,
+                step: index + 1,
+                mode: step.mode,
+                instruction: step.instruction,
+                info: step.info
+            });
+        });
+    };
+
+    await addAdditionalRoute({
+        name: 'Magsaysay Market – Dagupan Plaza',
+        modeId: jeepney.lastID,
+        origin: 'Magsaysay Market',
+        destination: 'Dagupan City Plaza',
+        estimatedTime: 12,
+        detourTime: 20,
+        minimumFare: 13.00,
+        maximumFare: 20.00,
+        description: 'Downtown jeepney corridor linking Magsaysay Market, A.B. Fernandez Avenue, Perez Boulevard, and Dagupan City Plaza.',
+        coordinates: [[120.3410, 16.0470], [120.3390, 16.0450], [120.3385, 16.0415], [120.3340, 16.0435]],
+        stops: [
+            { name: 'Magsaysay Market Terminal', description: 'Market-side loading point.', transfer: true, lat: 16.0470, lng: 120.3410 },
+            { name: 'A.B. Fernandez Avenue East', description: 'Downtown commercial corridor stop.', lat: 16.0450, lng: 120.3390 },
+            { name: 'Perez Boulevard / Herrero', description: 'Transfer stop near the bus terminal.', transfer: true, lat: 16.0415, lng: 120.3385 },
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown terminus.', transfer: true, lat: 16.0435, lng: 120.3340 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to Magsaysay Market Terminal', info: 'Proceed to the jeepney loading area beside Magsaysay Market.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Magsaysay–Dagupan Plaza'", info: 'Ride via A.B. Fernandez Avenue and Perez Boulevard toward the city center.' },
+            { mode: 'Walk', instruction: 'Arrive at Dagupan City Plaza', info: 'Alight at the plaza terminal or an intermediate downtown stop.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan Plaza – Tapuac',
+        modeId: jeepney.lastID,
+        origin: 'Dagupan City Plaza',
+        destination: 'Tapuac District',
+        estimatedTime: 16,
+        detourTime: 24,
+        minimumFare: 13.00,
+        maximumFare: 22.00,
+        description: 'Jeepney corridor from the city center through A.B. Fernandez West and Tapuac-Lucao Road to Tapuac.',
+        coordinates: [[120.3340, 16.0435], [120.3320, 16.0430], [120.3280, 16.0350], [120.3290, 16.0390]],
+        stops: [
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown boarding point.', transfer: true, lat: 16.0435, lng: 120.3340 },
+            { name: 'A.B. Fernandez West', description: 'Western downtown corridor stop.', lat: 16.0430, lng: 120.3320 },
+            { name: 'Tapuac-Lucao Road Junction', description: 'Entry to the Tapuac residential corridor.', transfer: true, lat: 16.0350, lng: 120.3280 },
+            { name: 'Tapuac District Center', description: 'Tapuac community terminus.', lat: 16.0390, lng: 120.3290 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the Tapuac jeepney bay', info: 'Board near Dagupan City Plaza.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Tapuac'", info: 'Ride west via A.B. Fernandez Avenue and Tapuac-Lucao Road.' },
+            { mode: 'Walk', instruction: 'Arrive in Tapuac', info: 'Alight at Tapuac District Center or the requested roadside stop.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan Plaza – Pantal – Arellano-Bani',
+        modeId: jeepney.lastID,
+        origin: 'Dagupan City Plaza',
+        destination: 'Arellano-Bani Road',
+        estimatedTime: 18,
+        detourTime: 28,
+        minimumFare: 13.00,
+        maximumFare: 25.00,
+        description: 'Northern river-community jeepney corridor serving Pantal and the Arellano-Bani Road connection.',
+        coordinates: [[120.3340, 16.0435], [120.3370, 16.0460], [120.3395, 16.0495], [120.3420, 16.0540]],
+        stops: [
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown boarding point.', transfer: true, lat: 16.0435, lng: 120.3340 },
+            { name: 'Public Market / Malimgas', description: 'Market transfer stop.', transfer: true, lat: 16.0440, lng: 120.3370 },
+            { name: 'Pantal Barangay Junction', description: 'Pantal river-community access point.', lat: 16.0495, lng: 120.3395 },
+            { name: 'Arellano-Bani Road Terminus', description: 'Northern corridor terminus.', lat: 16.0540, lng: 120.3420 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the Pantal jeepney bay', info: 'Proceed to the city-center loading area.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Pantal–Arellano'", info: 'Ride north via the market district and Arellano-Bani Road.' },
+            { mode: 'Walk', instruction: 'Arrive at Arellano-Bani Road', info: 'Alight at Pantal or the northern terminus.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan Plaza – Calmay – Carael',
+        modeId: jeepney.lastID,
+        origin: 'Dagupan City Plaza',
+        destination: 'Carael District',
+        estimatedTime: 20,
+        detourTime: 30,
+        minimumFare: 15.00,
+        maximumFare: 25.00,
+        description: 'Western Dagupan jeepney corridor serving river communities in Calmay and Carael.',
+        coordinates: [[120.3340, 16.0435], [120.3300, 16.0460], [120.3200, 16.0500], [120.3150, 16.0460]],
+        stops: [
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown boarding point.', transfer: true, lat: 16.0435, lng: 120.3340 },
+            { name: 'Pantal River Dock Junction', description: 'Transfer point for river access.', transfer: true, lat: 16.0460, lng: 120.3300 },
+            { name: 'Calmay Barangay Center', description: 'River-community stop.', lat: 16.0500, lng: 120.3200 },
+            { name: 'Carael District Center', description: 'Western terminus.', lat: 16.0460, lng: 120.3150 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the western barangay jeepney bay', info: 'Board near Dagupan City Plaza.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Calmay–Carael'", info: 'Ride west through Pantal toward Calmay and Carael.' },
+            { mode: 'Walk', instruction: 'Arrive in Carael', info: 'Alight at the Carael District Center.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan Plaza – Bacayao Sur – Lasip Grande',
+        modeId: jeepney.lastID,
+        origin: 'Dagupan City Plaza',
+        destination: 'Lasip Grande',
+        estimatedTime: 22,
+        detourTime: 32,
+        minimumFare: 15.00,
+        maximumFare: 25.00,
+        description: 'Southern jeepney corridor through Bacayao and the Lasip barangays toward Lasip Grande.',
+        coordinates: [[120.3340, 16.0435], [120.3400, 16.0340], [120.3400, 16.0300], [120.3480, 16.0200]],
+        stops: [
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown boarding point.', transfer: true, lat: 16.0435, lng: 120.3340 },
+            { name: 'Bacayao Norte Junction', description: 'Southern corridor junction.', lat: 16.0340, lng: 120.3400 },
+            { name: 'Bacayao Sur Barangay Center', description: 'Bacayao community stop.', lat: 16.0300, lng: 120.3400 },
+            { name: 'Lasip Grande Barangay Center', description: 'Southern terminus.', lat: 16.0200, lng: 120.3480 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the southern barangay jeepney bay', info: 'Proceed to the city-center loading point.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Bacayao–Lasip'", info: 'Ride south through Bacayao Sur toward Lasip Grande.' },
+            { mode: 'Walk', instruction: 'Arrive at Lasip Grande', info: 'Alight at the barangay center or intermediate stop.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan Plaza – Caranglaan – Bacayao Norte',
+        modeId: jeepney.lastID,
+        origin: 'Dagupan City Plaza',
+        destination: 'Bacayao Norte',
+        estimatedTime: 18,
+        detourTime: 28,
+        minimumFare: 13.00,
+        maximumFare: 22.00,
+        description: 'Eastern jeepney corridor from downtown through Caranglaan to Bacayao Norte.',
+        coordinates: [[120.3340, 16.0435], [120.3420, 16.0480], [120.3510, 16.0420], [120.3420, 16.0340]],
+        stops: [
+            { name: 'Dagupan City Plaza Terminal', description: 'Central downtown boarding point.', transfer: true, lat: 16.0435, lng: 120.3340 },
+            { name: 'Mayombo District Junction', description: 'Eastern transfer junction.', transfer: true, lat: 16.0480, lng: 120.3420 },
+            { name: 'Caranglaan Barangay Center', description: 'Eastern community stop.', lat: 16.0420, lng: 120.3510 },
+            { name: 'Bacayao Norte Barangay Center', description: 'Northern terminus.', lat: 16.0340, lng: 120.3420 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the Caranglaan jeepney bay', info: 'Board near Dagupan City Plaza.' },
+            { mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Caranglaan–Bacayao'", info: 'Ride east via Mayombo and Caranglaan.' },
+            { mode: 'Walk', instruction: 'Arrive at Bacayao Norte', info: 'Alight at the barangay center.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Dagupan – San Carlos via Calasiao',
+        modeId: bus.lastID,
+        origin: 'Perez Blvd Integrated Bus Terminal',
+        destination: 'San Carlos City Terminal',
+        estimatedTime: 45,
+        detourTime: 60,
+        minimumFare: 35.00,
+        maximumFare: 60.00,
+        description: 'Provincial bus corridor extending south from Dagupan through the Calasiao boundary toward San Carlos City.',
+        coordinates: [[120.3385, 16.0415], [120.3550, 16.0320], [120.3600, 16.0120], [120.4050, 15.9500]],
+        stops: [
+            { name: 'Perez Blvd Integrated Bus Terminal', description: 'Provincial bus loading bay.', transfer: true, lat: 16.0415, lng: 120.3385 },
+            { name: 'Calasiao Boundary / Banaoang', description: 'Dagupan-Calasiao boundary stop.', transfer: true, lat: 16.0210, lng: 120.3580 },
+            { name: 'Calasiao Town Plaza', description: 'Calasiao town-center stop.', lat: 16.0120, lng: 120.3600 },
+            { name: 'San Carlos City Terminal', description: 'Provincial destination terminal.', transfer: true, lat: 15.9500, lng: 120.4050 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to Perez Blvd Integrated Bus Terminal', info: 'Use the provincial bus bay near Perez Boulevard.' },
+            { mode: 'Bus', instruction: "Board Bus 'Dagupan–San Carlos'", info: 'Ride south through Calasiao and the provincial corridor.' },
+            { mode: 'Walk', instruction: 'Arrive at San Carlos City Terminal', info: 'Alight at the city terminal.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Magsaysay – Lucao – Robinsons/Pantal',
+        modeId: tricycle.lastID,
+        origin: 'Magsaysay Market',
+        destination: 'Robinsons Place Pangasinan / Pantal',
+        estimatedTime: 15,
+        detourTime: 25,
+        minimumFare: 25.00,
+        maximumFare: 50.00,
+        description: 'Local tricycle feeder connecting Magsaysay Market and Lucao with the Robinsons/Pantal area.',
+        coordinates: [[120.3410, 16.0470], [120.3340, 16.0400], [120.3220, 16.0270], [120.3350, 16.0200]],
+        stops: [
+            { name: 'Magsaysay Market TODA', description: 'Local tricycle loading area.', transfer: true, lat: 16.0470, lng: 120.3410 },
+            { name: 'Dagupan Public Market', description: 'Downtown transfer stop.', transfer: true, lat: 16.0440, lng: 120.3370 },
+            { name: 'CSI The City Mall Lucao', description: 'Lucao commercial stop.', lat: 16.0270, lng: 120.3220 },
+            { name: 'Robinsons Place Pangasinan / Pantal', description: 'Southern feeder terminus.', transfer: true, lat: 16.0200, lng: 120.3350 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the Magsaysay TODA', info: 'Proceed to the marked tricycle loading area.' },
+            { mode: 'Tricycle', instruction: "Board a tricycle for 'Lucao–Robinsons/Pantal'", info: 'Ride via the market district and Lucao Road.' },
+            { mode: 'Walk', instruction: 'Arrive at Robinsons/Pantal', info: 'Alight at the mall or requested feeder stop.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Tapuac – Malued – Dagupan Market',
+        modeId: tricycle.lastID,
+        origin: 'Tapuac District',
+        destination: 'Dagupan Public Market',
+        estimatedTime: 12,
+        detourTime: 20,
+        minimumFare: 25.00,
+        maximumFare: 45.00,
+        description: 'Local tricycle feeder linking Tapuac and Malued residential areas with the downtown market.',
+        coordinates: [[120.3290, 16.0390], [120.3320, 16.0370], [120.3340, 16.0400], [120.3370, 16.0440]],
+        stops: [
+            { name: 'Tapuac District TODA', description: 'Tapuac local loading point.', transfer: true, lat: 16.0390, lng: 120.3290 },
+            { name: 'Malued Barangay Center', description: 'Malued residential stop.', lat: 16.0370, lng: 120.3320 },
+            { name: 'Galvan Street', description: 'Downtown approach stop.', lat: 16.0400, lng: 120.3340 },
+            { name: 'Dagupan Public Market', description: 'Market terminus and transfer point.', transfer: true, lat: 16.0440, lng: 120.3370 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to the Tapuac TODA', info: 'Proceed to the neighborhood tricycle stand.' },
+            { mode: 'Tricycle', instruction: "Board a tricycle for 'Malued–Market'", info: 'Ride through Malued and Galvan Street.' },
+            { mode: 'Walk', instruction: 'Arrive at Dagupan Public Market', info: 'Alight at the market-side terminal.' }
+        ]
+    });
+
+    await addAdditionalRoute({
+        name: 'Pantal River Dock – Calmay/Carael',
+        modeId: boat.lastID,
+        origin: 'Pantal River Dock (Downtown Side)',
+        destination: 'Calmay/Carael River Landing',
+        estimatedTime: 18,
+        detourTime: 30,
+        minimumFare: 20.00,
+        maximumFare: 30.00,
+        status: 'UNAVAILABLE',
+        description: 'ADMIN-CONTROLLED SAMPLE water route for a possible Pantal River connection; service is unavailable until locally verified.',
+        coordinates: [[120.3310, 16.0395], [120.3276, 16.0458], [120.3230, 16.0500], [120.3150, 16.0460]],
+        stops: [
+            { name: 'Pantal River Dock (Downtown Side)', description: 'Downtown river landing.', transfer: true, lat: 16.0395, lng: 120.3310 },
+            { name: 'Pantal River Midstream Landing', description: 'Intermediate river landing.', lat: 16.0458, lng: 120.3276 },
+            { name: 'Calmay River Landing', description: 'Calmay-side landing.', transfer: true, lat: 16.0500, lng: 120.3230 },
+            { name: 'Carael River Landing', description: 'Western river landing.', lat: 16.0460, lng: 120.3150 }
+        ],
+        steps: [
+            { mode: 'Walk', instruction: 'Walk to Pantal River Dock', info: 'Proceed to the downtown-side river landing.' },
+            { mode: 'Boat', instruction: 'Board the Pantal River boat service', info: 'This sample service is admin-controlled and currently unavailable.' },
+            { mode: 'Walk', instruction: 'Arrive at Calmay/Carael landing', info: 'Continue on foot from the river landing.' }
+        ]
+    });
+
+    console.log(`Routes seeded (12 existing routes plus ${additionalRoutes.length} approved corridor routes).`);
 
     // 4. Seed Stops for Routes
     const stopsData = [
@@ -486,7 +775,8 @@ async function seed() {
         { routeId: r12.lastID, order: 2, name: 'Bolosan Barangay Entry', desc: 'First major stop at Bolosan barangay along Bolosan Road', transfer: 0, lat: 16.0510, lng: 120.3280 },
         { routeId: r12.lastID, order: 3, name: 'Salisay Barangay Center', desc: 'Community stop at Salisay barangay market', transfer: 0, lat: 16.0560, lng: 120.3250 },
         { routeId: r12.lastID, order: 4, name: 'Tambac Barangay Junction', desc: 'Tambac stop along northern road corridor', transfer: 0, lat: 16.0620, lng: 120.3220 },
-        { routeId: r12.lastID, order: 5, name: 'Tebeng District Terminus', desc: 'Final stop at Tebeng barangay district center', transfer: 0, lat: 16.0680, lng: 120.3190 }
+        { routeId: r12.lastID, order: 5, name: 'Tebeng District Terminus', desc: 'Final stop at Tebeng barangay district center', transfer: 0, lat: 16.0680, lng: 120.3190 },
+        ...additionalRouteStops
     ];
 
     for (const stop of stopsData) {
@@ -559,7 +849,8 @@ async function seed() {
         // Route 12: Dagupan – Bolosan / Salisay / Tambac / Tebeng
         { routeId: r12.lastID, step: 1, mode: 'Walk', instruction: 'Walk to Dagupan Plaza North Terminal', info: 'Head to the northern barangay jeepney bay at Dagupan Plaza.' },
         { routeId: r12.lastID, step: 2, mode: 'Jeepney', instruction: "Board Jeepney 'Dagupan–Tebeng'", info: 'Ride via Bolosan Road northward through Bolosan, Salisay, and Tambac barangays to Tebeng District.' },
-        { routeId: r12.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Tebeng / Barangay Destination', info: 'Alight at your barangay stop along the northern corridor (Bolosan, Salisay, Tambac, or Tebeng).' }
+        { routeId: r12.lastID, step: 3, mode: 'Walk', instruction: 'Arrive at Tebeng / Barangay Destination', info: 'Alight at your barangay stop along the northern corridor (Bolosan, Salisay, Tambac, or Tebeng).' },
+        ...additionalRouteSteps
     ];
 
     for (const s of stepsData) {
@@ -584,7 +875,8 @@ async function seed() {
         { id: r9.lastID, base: 12.00 },
         { id: r10.lastID, base: 15.00 },
         { id: r11.lastID, base: 12.00 },
-        { id: r12.lastID, base: 15.00 }
+        { id: r12.lastID, base: 15.00 },
+        ...additionalRoutes
     ];
 
     for (const r of routesList) {
