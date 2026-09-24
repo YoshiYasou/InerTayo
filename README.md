@@ -107,6 +107,11 @@ npm run server
 # Terminal 2: Vite development server
 npm run client
 ```
+# Terminal 1: API server
+npm run server
+# Terminal 2: Vite development server
+npm run client
+``
 
 Visit **`http://localhost:3000`**. Vite proxies `/api` requests to the backend at `http://localhost:5000`.
 
