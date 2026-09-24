@@ -5,22 +5,27 @@
  * DOES NOT modify or overwrite any database records.
  */
 
-const { query } = require('../db/database');
+const { connectDB } = require('../db/connection');
+const Route = require('../models/Route');
+const TransportMode = require('../models/TransportMode');
 const { validateGeometry } = require('../utils/geometryValidator');
 
 async function auditRoadRoutes() {
+    await connectDB();
+
     console.log('====================================================');
     console.log('       InerTayo Stored Road Routes Audit           ');
     console.log('====================================================\n');
 
-    const routes = await query.all(`
-        SELECT r.id, r.route_name, tm.name AS mode_name, r.geometry, r.geometry_corrected,
-               r.use_corrected_geometry, r.status, r.origin, r.destination
-        FROM routes r
-        JOIN transport_modes tm ON r.transport_mode_id = tm.id
-        WHERE LOWER(tm.name) != 'boat'
-        ORDER BY r.id ASC
-    `);
+    const [routesData, modes] = await Promise.all([
+        Route.find().sort({ id: 1 }).lean(),
+        TransportMode.find().lean()
+    ]);
+    const modeNames = new Map(modes.map(mode => [mode.id, mode.name]));
+    const routes = routesData
+        .filter(route => modeNames.has(route.transport_mode_id)
+            && modeNames.get(route.transport_mode_id).toLowerCase() !== 'boat')
+        .map(route => ({ ...route, mode_name: modeNames.get(route.transport_mode_id) || 'Unknown' }));
 
     console.log(`Found ${routes.length} road transit routes to evaluate.\n`);
 

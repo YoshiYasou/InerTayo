@@ -8,29 +8,44 @@
  * Usage: node server/scripts/coverageAudit.js
  */
 
-const path = require('path');
-
-const { query } = require('../db/database');
+const { connectDB } = require('../db/connection');
+const Stop = require('../models/Stop');
+const Route = require('../models/Route');
+const TransportMode = require('../models/TransportMode');
+const School = require('../models/School');
+const Location = require('../models/Location');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { haversineDistance } = require('../utils/geoUtils');
 
 const RADIUS = ROUTING_CONFIG.walkingRadius; // 600m default
 
 async function main() {
+    await connectDB();
+
     console.log('='.repeat(80));
     console.log('InerTayo — Routes Coverage Audit (READ-ONLY)');
     console.log(`Walking radius: ${RADIUS}m`);
     console.log('='.repeat(80));
 
     // Load all stops with lat/lng
-    const allStops = await query.all(
-        'SELECT route_id, id, stop_name, latitude, longitude FROM stops WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
-    );
+    const allStops = await Stop.find({
+        latitude: { $ne: null },
+        longitude: { $ne: null }
+    }).lean();
 
     // Load all routes with geometry
-    const allRoutes = await query.all(
-        'SELECT id, route_name, mode_name, geometry FROM (SELECT r.id, r.route_name, tm.name AS mode_name, COALESCE(CASE WHEN r.use_corrected_geometry=1 THEN r.geometry_corrected END, r.geometry) AS geometry FROM routes r JOIN transport_modes tm ON r.transport_mode_id = tm.id)'
-    );
+    const [routes, modes] = await Promise.all([Route.find().lean(), TransportMode.find().lean()]);
+    const modeNames = new Map(modes.map(mode => [mode.id, mode.name]));
+    const allRoutes = routes
+        .filter(route => modeNames.has(route.transport_mode_id))
+        .map(route => ({
+        id: route.id,
+        route_name: route.route_name,
+        mode_name: modeNames.get(route.transport_mode_id),
+        geometry: route.use_corrected_geometry === 1 && route.geometry_corrected
+            ? route.geometry_corrected
+            : route.geometry
+        }));
 
     // Helper: nearest stop distance from point
     function nearestStopDist(lat, lng) {
@@ -53,9 +68,7 @@ async function main() {
     const rows = [];
 
     // --- Schools ---
-    const schools = await query.all(
-        'SELECT id, name, latitude, longitude, entrance_latitude, entrance_longitude, verified FROM schools WHERE active = 1'
-    );
+    const schools = await School.find({ active: 1 }).lean();
     for (const sch of schools) {
         const lat = sch.entrance_latitude || sch.latitude;
         const lng = sch.entrance_longitude || sch.longitude;
@@ -76,10 +89,11 @@ async function main() {
     }
 
     // --- Barangays ---
-    const barangays = await query.all(
-        'SELECT id, name, latitude, longitude FROM locations WHERE type = ? AND status = ? AND latitude IS NOT NULL',
-        ['BARANGAY', 'ACTIVE']
-    );
+    const barangays = await Location.find({
+        type: 'BARANGAY',
+        status: 'ACTIVE',
+        latitude: { $ne: null }
+    }).lean();
     for (const brgy of barangays) {
         const { minDist, nearestStop, nearestRouteName } = nearestStopDist(brgy.latitude, brgy.longitude);
         rows.push({
@@ -94,10 +108,11 @@ async function main() {
     }
 
     // --- Boat Stops / River Stops ---
-    const riverStops = await query.all(
-        'SELECT id, name, latitude, longitude FROM locations WHERE type = ? AND status = ? AND latitude IS NOT NULL',
-        ['RIVER_STOP', 'ACTIVE']
-    );
+    const riverStops = await Location.find({
+        type: 'RIVER_STOP',
+        status: 'ACTIVE',
+        latitude: { $ne: null }
+    }).lean();
     for (const rs of riverStops) {
         const { minDist, nearestStop, nearestRouteName } = nearestStopDist(rs.latitude, rs.longitude);
         rows.push({

@@ -4,30 +4,51 @@
  * Flags routes that cross land, contain suspicious jumps, or fail to connect stops.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { query } = require('../db/database');
+const { connectDB } = require('../db/connection');
+const Route = require('../models/Route');
+const TransportMode = require('../models/TransportMode');
+const BoatRouteDetail = require('../models/BoatRouteDetail');
+const Location = require('../models/Location');
 const { pointDistanceMeters } = require('../utils/geoUtils');
 const waterwaysRef = require('../data/dagupan_waterways_reference.json');
 
 async function validateBoatRoutes() {
+    await connectDB();
+
     console.log('====================================================');
     console.log('       InerTayo River Boat Geometry Audit          ');
     console.log('====================================================\n');
 
     // 1. Fetch boat routes from DB
-    const boatRoutes = await query.all(`
-        SELECT r.id, r.route_name, r.geometry, r.geometry_corrected, r.use_corrected_geometry, r.status,
-               brd.waterway, brd.operating_status,
-               orig.name AS origin_stop, orig.latitude AS orig_lat, orig.longitude AS orig_lng,
-               dest.name AS dest_stop, dest.latitude AS dest_lat, dest.longitude AS dest_lng
-        FROM routes r
-        JOIN transport_modes tm ON r.transport_mode_id = tm.id
-        LEFT JOIN boat_route_details brd ON r.id = brd.route_id
-        LEFT JOIN locations orig ON brd.origin_river_stop_id = orig.id
-        LEFT JOIN locations dest ON brd.destination_river_stop_id = dest.id
-        WHERE LOWER(tm.name) = 'boat'
-    `);
+    const [routes, modes, details, locations] = await Promise.all([
+        Route.find().lean(),
+        TransportMode.find().lean(),
+        BoatRouteDetail.find().lean(),
+        Location.find().lean()
+    ]);
+    const modeIds = new Set(modes
+        .filter(mode => (mode.name || '').toLowerCase() === 'boat')
+        .map(mode => mode.id));
+    const locationsById = new Map(locations.map(location => [location.id, location]));
+    const detailsByRouteId = new Map(details.map(detail => [detail.route_id, detail]));
+    const boatRoutes = routes
+        .filter(route => modeIds.has(route.transport_mode_id))
+        .map(route => {
+            const detail = detailsByRouteId.get(route.id) || {};
+            const origin = locationsById.get(detail.origin_river_stop_id) || {};
+            const destination = locationsById.get(detail.destination_river_stop_id) || {};
+            return {
+                ...route,
+                waterway: detail.waterway,
+                operating_status: detail.operating_status,
+                origin_stop: origin.name,
+                orig_lat: origin.latitude,
+                orig_lng: origin.longitude,
+                dest_stop: destination.name,
+                dest_lat: destination.latitude,
+                dest_lng: destination.longitude
+            };
+        });
 
     if (boatRoutes.length === 0) {
         console.log('No boat routes found in database.');
