@@ -1,9 +1,29 @@
+'use strict';
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
-const { query } = require('../db/database');
+const mongoose = require('mongoose');
+
+const User = require('../models/User');
+const TransportMode = require('../models/TransportMode');
+const Route = require('../models/Route');
+const Stop = require('../models/Stop');
+const RouteStep = require('../models/RouteStep');
+const Fare = require('../models/Fare');
+const Advisory = require('../models/Advisory');
+const AdvisoryRoute = require('../models/AdvisoryRoute');
+const Feedback = require('../models/Feedback');
+const SavedRoute = require('../models/SavedRoute');
+const Landmark = require('../models/Landmark');
+const Location = require('../models/Location');
+const BoatRouteDetail = require('../models/BoatRouteDetail');
+const RouteSegment = require('../models/RouteSegment');
+const School = require('../models/School');
+const PasswordReset = require('../models/PasswordReset');
+const { nextId } = require('../db/counter');
+
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
@@ -13,19 +33,61 @@ const { haversineDistance } = require('../utils/geoUtils');
 
 const router = express.Router();
 
+// Helper: parse ID from request parameter
+function parseId(param) {
+    const num = parseInt(param, 10);
+    return isNaN(num) ? null : num;
+}
+
+// Helper: sync route status based on active advisories and boat details
+async function syncRouteAdvisoryStatus(routeId) {
+    const advRoutes = await AdvisoryRoute.find({ route_id: routeId }).lean();
+    const advIds = advRoutes.map(ar => ar.advisory_id);
+    const activeAdvisories = await Advisory.find({ id: { $in: advIds }, status: 'ACTIVE' }).lean();
+
+    let newStatus = 'CLEAR';
+    if (activeAdvisories.length > 0) {
+        const hasUnavailable = activeAdvisories.some(a =>
+            a.condition === 'ROAD_CLOSURE' ||
+            a.condition === 'ROUTE_UNAVAILABLE' ||
+            a.condition === 'RIVER_TRANSPORT_SUSPENDED'
+        );
+        if (hasUnavailable) {
+            newStatus = 'UNAVAILABLE';
+        } else if (activeAdvisories.some(a => a.condition === 'RIVER_ADVISORY' || a.condition === 'ADVISORY')) {
+            newStatus = 'ADVISORY';
+        } else {
+            newStatus = 'DETOUR_ACTIVE';
+        }
+    }
+
+    const boatDetail = await BoatRouteDetail.findOne({ route_id: routeId }).lean();
+    if (boatDetail && (boatDetail.operating_status === 'SUSPENDED' || boatDetail.operating_status === 'UNAVAILABLE')) {
+        newStatus = 'UNAVAILABLE';
+    }
+
+    await Route.updateOne({ id: routeId }, { status: newStatus, updated_at: new Date() });
+    return newStatus;
+}
+
 // ============================================================================
 // 1. PUBLIC TRANSIT ENDPOINTS (Accessible to Commuters & Guests)
 // ============================================================================
 
 // Health check
 router.get('/health', (req, res) => {
-    res.json({ status: 'OK', timestamp: new Date().toISOString() });
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        database: 'MongoDB',
+        connected: mongoose.connection.readyState === 1
+    });
 });
 
 // GET /api/transport-modes - List all transport modes
 router.get('/transport-modes', async (req, res) => {
     try {
-        const modes = await query.all(`SELECT * FROM transport_modes ORDER BY id ASC`);
+        const modes = await TransportMode.find().sort({ id: 1 }).lean();
         res.json(modes);
     } catch (err) {
         console.error('Error fetching transport modes:', err);
@@ -33,7 +95,7 @@ router.get('/transport-modes', async (req, res) => {
     }
 });
 
-// GET /api/search/suggestions - Unified search suggestions across locations, streets, barangays, landmarks & routes
+// GET /api/search/suggestions - Unified search suggestions
 router.get('/search/suggestions', async (req, res) => {
     try {
         const { q } = req.query;
@@ -42,33 +104,37 @@ router.get('/search/suggestions', async (req, res) => {
         }
 
         const queryTerm = q.trim();
-        const term = `%${queryTerm}%`;
+        const regex = new RegExp(queryTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
-        // 1. Search Schools (Universities, Colleges, High Schools inside Dagupan)
-        const matchingSchools = await query.all(
-            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops
-             FROM schools
-             WHERE active = 1 AND (
-                 name LIKE ? OR 
-                 aliases LIKE ? OR 
-                 address LIKE ? OR 
-                 barangay LIKE ?
-             )
-             ORDER BY 
-                 CASE 
-                     WHEN LOWER(name) = LOWER(?) THEN 1
-                     WHEN LOWER(aliases) LIKE ? THEN 2
-                     WHEN LOWER(name) LIKE ? THEN 3
-                     ELSE 4
-                 END,
-                 name ASC
-             LIMIT 6`,
-            [term, term, term, term, queryTerm, `%${queryTerm.toLowerCase()}%`, `${queryTerm.toLowerCase()}%`]
-        );
+        // 1. Schools
+        const matchingSchools = await School.find({
+            active: 1,
+            $or: [
+                { name: regex },
+                { aliases: regex },
+                { address: regex },
+                { barangay: regex }
+            ]
+        }).lean();
 
-        const schoolSuggestions = matchingSchools.map(sch => {
+        // Sort schools
+        matchingSchools.sort((a, b) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            const qLower = queryTerm.toLowerCase();
+            const aRank = aName === qLower ? 1 : ((a.aliases && a.aliases.toLowerCase().includes(qLower)) ? 2 : (aName.startsWith(qLower) ? 3 : 4));
+            const bRank = bName === qLower ? 1 : ((b.aliases && b.aliases.toLowerCase().includes(qLower)) ? 2 : (bName.startsWith(qLower) ? 3 : 4));
+            if (aRank !== bRank) return aRank - bRank;
+            return aName.localeCompare(bName);
+        });
+
+        const schoolSuggestions = matchingSchools.slice(0, 6).map(sch => {
             let stops = [];
-            try { stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []); } catch (e) {}
+            try {
+                stops = typeof sch.nearby_stops === 'string' ? JSON.parse(sch.nearby_stops) : (sch.nearby_stops || []);
+            } catch (e) {
+                stops = [];
+            }
             return {
                 id: sch.id,
                 name: sch.name,
@@ -86,53 +152,44 @@ router.get('/search/suggestions', async (req, res) => {
             };
         });
 
-        // 2. Search Locations (Streets, Roads, Barangays, Landmarks, Terminals, etc.)
-        const matchingLocations = await query.all(
-            `SELECT id, name, type, barangay, address, latitude, longitude, search_keywords
-             FROM locations
-             WHERE status = 'ACTIVE' AND (
-                 name LIKE ? OR 
-                 barangay LIKE ? OR 
-                 search_keywords LIKE ? OR 
-                 address LIKE ?
-             )
-             ORDER BY 
-                 CASE 
-                     WHEN LOWER(name) = LOWER(?) THEN 1
-                     WHEN LOWER(name) LIKE ? THEN 2
-                     WHEN search_keywords LIKE ? THEN 3
-                     ELSE 4
-                 END,
-                 name ASC
-             LIMIT 12`,
-            [term, term, term, term, queryTerm, `${queryTerm.toLowerCase()}%`, term]
-        );
+        // 2. Locations
+        const matchingLocations = await Location.find({
+            status: 'ACTIVE',
+            $or: [
+                { name: regex },
+                { barangay: regex },
+                { search_keywords: regex },
+                { address: regex }
+            ]
+        }).lean();
+
+        matchingLocations.sort((a, b) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            const qLower = queryTerm.toLowerCase();
+            const aRank = aName === qLower ? 1 : (aName.startsWith(qLower) ? 2 : ((a.search_keywords && a.search_keywords.toLowerCase().includes(qLower)) ? 3 : 4));
+            const bRank = bName === qLower ? 1 : (bName.startsWith(qLower) ? 2 : ((b.search_keywords && b.search_keywords.toLowerCase().includes(qLower)) ? 3 : 4));
+            if (aRank !== bRank) return aRank - bRank;
+            return aName.localeCompare(bName);
+        });
 
         const getTypeLabel = (type) => {
             const upper = (type || '').toUpperCase();
             switch (upper) {
                 case 'STREET':
-                case 'ROAD':
-                    return 'Street / Road';
-                case 'BARANGAY':
-                    return 'Barangay';
+                case 'ROAD': return 'Street / Road';
+                case 'BARANGAY': return 'Barangay';
                 case 'LANDMARK':
-                case 'ESTABLISHMENT':
-                    return 'Landmark';
-                case 'TERMINAL':
-                    return 'Terminal';
-                case 'RIVER_STOP':
-                    return 'River Stop';
-                case 'DESTINATION':
-                    return 'Destination';
-                case 'INTERSECTION':
-                    return 'Intersection';
-                default:
-                    return 'Location';
+                case 'ESTABLISHMENT': return 'Landmark';
+                case 'TERMINAL': return 'Terminal';
+                case 'RIVER_STOP': return 'River Stop';
+                case 'DESTINATION': return 'Destination';
+                case 'INTERSECTION': return 'Intersection';
+                default: return 'Location';
             }
         };
 
-        const locationSuggestions = matchingLocations.map(loc => ({
+        const locationSuggestions = matchingLocations.slice(0, 12).map(loc => ({
             id: loc.id,
             name: loc.name,
             type: loc.type,
@@ -144,29 +201,34 @@ router.get('/search/suggestions', async (req, res) => {
             category: 'location'
         }));
 
-        // 3. Search Routes (by route_name, origin, destination, description)
-        const matchingRoutes = await query.all(
-            `SELECT r.id, r.route_name, tm.name AS mode_name, tm.icon AS mode_icon, r.origin, r.destination, r.status
-             FROM routes r
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             WHERE r.route_name LIKE ? OR r.origin LIKE ? OR r.destination LIKE ? OR r.description LIKE ?
-             ORDER BY r.route_name ASC
-             LIMIT 6`,
-            [term, term, term, term]
-        );
+        // 3. Routes
+        const matchingRoutes = await Route.find({
+            $or: [
+                { route_name: regex },
+                { origin: regex },
+                { destination: regex },
+                { description: regex }
+            ]
+        }).sort({ route_name: 1 }).lean();
 
-        const routeSuggestions = matchingRoutes.map(r => ({
-            id: r.id,
-            name: r.route_name,
-            type: 'ROUTE',
-            typeLabel: 'Route',
-            mode: r.mode_name,
-            modeIcon: r.mode_icon,
-            origin: r.origin,
-            destination: r.destination,
-            status: r.status,
-            category: 'route'
-        }));
+        const modes = await TransportMode.find().lean();
+        const modeMap = new Map(modes.map(m => [m.id, m]));
+
+        const routeSuggestions = matchingRoutes.slice(0, 6).map(r => {
+            const m = modeMap.get(r.transport_mode_id) || {};
+            return {
+                id: r.id,
+                name: r.route_name,
+                type: 'ROUTE',
+                typeLabel: 'Route',
+                mode: m.name,
+                modeIcon: m.icon,
+                origin: r.origin,
+                destination: r.destination,
+                status: r.status,
+                category: 'route'
+            };
+        });
 
         res.json([...schoolSuggestions, ...locationSuggestions, ...routeSuggestions]);
     } catch (err) {
@@ -175,41 +237,44 @@ router.get('/search/suggestions', async (req, res) => {
     }
 });
 
-// GET /api/locations - List and search locations (streets, landmarks, river stops, barangays, etc.)
+// GET /api/locations - List and search locations
 router.get('/locations', async (req, res) => {
     try {
         const { search, type, status } = req.query;
-        let sql = `SELECT id, name, type, barangay, address, latitude, longitude, description, search_keywords, status, created_at, updated_at FROM locations WHERE 1=1`;
-        const params = [];
+        const filter = {};
 
-        // Status filter: default to ACTIVE unless specified as ALL or specific status
         if (status && status !== 'ALL') {
-            sql += ` AND status = ?`;
-            params.push(status.toUpperCase());
+            filter.status = status.toUpperCase();
         } else if (!status) {
-            sql += ` AND status = 'ACTIVE'`;
+            filter.status = 'ACTIVE';
         }
 
-        // Search query: case-insensitive partial match on name, barangay, search_keywords, address, or description
-        if (search && search.trim() !== '') {
-            const term = `%${search.trim()}%`;
-            sql += ` AND (name LIKE ? OR barangay LIKE ? OR search_keywords LIKE ? OR address LIKE ? OR description LIKE ?)`;
-            params.push(term, term, term, term, term);
-        }
-
-        // Type filter: STREET | ROAD | LANDMARK | ESTABLISHMENT | TERMINAL | STOP | INTERSECTION | BARANGAY | RIVER_STOP | DESTINATION
         if (type && type !== 'ALL') {
             const upperType = type.toUpperCase();
             if (upperType === 'ROAD' || upperType === 'STREET') {
-                sql += ` AND UPPER(type) IN ('STREET', 'ROAD')`;
+                filter.type = { $in: ['STREET', 'ROAD'] };
             } else {
-                sql += ` AND UPPER(type) = ?`;
-                params.push(upperType);
+                filter.type = upperType;
             }
         }
 
-        sql += ` ORDER BY name ASC`;
-        const locations = await query.all(sql, params);
+        if (search && search.trim() !== '') {
+            const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            filter.$or = [
+                { name: regex },
+                { barangay: regex },
+                { search_keywords: regex },
+                { address: regex },
+                { description: regex }
+            ];
+        }
+
+        const locations = await Location.find(filter, {
+            id: 1, name: 1, type: 1, barangay: 1, address: 1,
+            latitude: 1, longitude: 1, description: 1, search_keywords: 1,
+            status: 1, created_at: 1, updated_at: 1, _id: 0
+        }).sort({ name: 1 }).lean();
+
         res.json(locations);
     } catch (err) {
         console.error('Error fetching locations:', err);
@@ -220,33 +285,57 @@ router.get('/locations', async (req, res) => {
 // GET /api/locations/:id - Single location details with connected routes
 router.get('/locations/:id', async (req, res) => {
     try {
-        const locationId = parseInt(req.params.id, 10);
-        if (isNaN(locationId)) {
+        const locationId = parseId(req.params.id);
+        if (locationId === null) {
             return res.status(400).json({ error: 'Invalid location ID.' });
         }
 
-        const location = await query.get(
-            `SELECT id, name, type, barangay, address, latitude, longitude, description, search_keywords, status, created_at, updated_at 
-             FROM locations WHERE id = ?`,
-            [locationId]
-        );
+        const location = await Location.findOne({ id: locationId }, {
+            id: 1, name: 1, type: 1, barangay: 1, address: 1,
+            latitude: 1, longitude: 1, description: 1, search_keywords: 1,
+            status: 1, created_at: 1, updated_at: 1, _id: 0
+        }).lean();
 
         if (!location) {
             return res.status(404).json({ error: 'Location not found.' });
         }
 
-        // Find routes that pass through this location (via route_segments, stops, or origin/destination)
-        const connectedRoutes = await query.all(
-            `SELECT DISTINCT r.id, r.route_name, tm.name AS mode_name, tm.icon AS mode_icon, r.minimum_fare, r.maximum_fare, r.status
-             FROM routes r
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             LEFT JOIN route_segments rs ON r.id = rs.route_id
-             WHERE rs.start_location_id = ? OR rs.end_location_id = ? 
-                OR r.origin LIKE ? OR r.destination LIKE ?
-                OR r.description LIKE ?
-                OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?)`,
-            [locationId, locationId, `%${location.name}%`, `%${location.name}%`, `%${location.name}%`, `%${location.name}%`]
-        );
+        // Find segments connecting to this location
+        const segments = await RouteSegment.find({
+            $or: [{ start_location_id: locationId }, { end_location_id: locationId }]
+        }).lean();
+        const segmentRouteIds = segments.map(s => s.route_id);
+
+        // Find stops with name matching location
+        const locRegex = new RegExp(location.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const stops = await Stop.find({ stop_name: locRegex }).lean();
+        const stopRouteIds = stops.map(s => s.route_id);
+
+        const routeFilter = {
+            $or: [
+                { id: { $in: [...segmentRouteIds, ...stopRouteIds] } },
+                { origin: locRegex },
+                { destination: locRegex },
+                { description: locRegex }
+            ]
+        };
+
+        const matchingRoutes = await Route.find(routeFilter).lean();
+        const modes = await TransportMode.find().lean();
+        const modeMap = new Map(modes.map(m => [m.id, m]));
+
+        const connectedRoutes = matchingRoutes.map(r => {
+            const m = modeMap.get(r.transport_mode_id) || {};
+            return {
+                id: r.id,
+                route_name: r.route_name,
+                mode_name: m.name,
+                mode_icon: m.icon,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                status: r.status
+            };
+        });
 
         res.json({
             ...location,
@@ -258,25 +347,24 @@ router.get('/locations/:id', async (req, res) => {
     }
 });
 
-// GET /api/landmarks - List reference landmarks with optional search (legacy backward compatibility)
+// GET /api/landmarks - List reference landmarks
 router.get('/landmarks', async (req, res) => {
     try {
         const { search, type } = req.query;
-        let sql = `SELECT id, name, latitude, longitude, type FROM landmarks WHERE 1=1`;
-        const params = [];
-
-        if (search && search.trim() !== '') {
-            sql += ` AND name LIKE ?`;
-            params.push(`%${search.trim()}%`);
-        }
+        const filter = {};
 
         if (type && type !== 'ALL') {
-            sql += ` AND type = ?`;
-            params.push(type.toUpperCase());
+            filter.type = type.toUpperCase();
         }
 
-        sql += ` ORDER BY name ASC`;
-        const landmarks = await query.all(sql, params);
+        if (search && search.trim() !== '') {
+            filter.name = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        }
+
+        const landmarks = await Landmark.find(filter, {
+            id: 1, name: 1, latitude: 1, longitude: 1, type: 1, _id: 0
+        }).sort({ name: 1 }).lean();
+
         res.json(landmarks);
     } catch (err) {
         console.error('Error fetching landmarks:', err);
@@ -288,23 +376,23 @@ router.get('/landmarks', async (req, res) => {
 router.get('/schools', async (req, res) => {
     try {
         const { search, type } = req.query;
-        let sql = `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source, active, created_at, updated_at FROM schools WHERE active = 1`;
-        const params = [];
-
-        if (search && search.trim() !== '') {
-            const term = `%${search.trim()}%`;
-            sql += ` AND (name LIKE ? OR aliases LIKE ? OR address LIKE ? OR barangay LIKE ?)`;
-            params.push(term, term, term, term);
-        }
+        const filter = { active: 1 };
 
         if (type && type !== 'ALL') {
-            sql += ` AND type = ?`;
-            params.push(type.toUpperCase());
+            filter.type = type.toUpperCase();
         }
 
-        sql += ` ORDER BY name ASC`;
-        const schools = await query.all(sql, params);
-        
+        if (search && search.trim() !== '') {
+            const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            filter.$or = [
+                { name: regex },
+                { aliases: regex },
+                { address: regex },
+                { barangay: regex }
+            ];
+        }
+
+        const schools = await School.find(filter).sort({ name: 1 }).lean();
         const formatted = schools.map(sch => {
             let stops = [];
             try {
@@ -334,27 +422,27 @@ router.get('/schools/search', async (req, res) => {
         }
 
         const queryTerm = q.trim();
-        const term = `%${queryTerm}%`;
+        const regex = new RegExp(queryTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
-        const schools = await query.all(
-            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source
-             FROM schools
-             WHERE active = 1 AND (
-                 name LIKE ? OR 
-                 aliases LIKE ? OR 
-                 address LIKE ? OR 
-                 barangay LIKE ?
-             )
-             ORDER BY 
-                 CASE 
-                     WHEN LOWER(name) = LOWER(?) THEN 1
-                     WHEN LOWER(aliases) LIKE ? THEN 2
-                     WHEN LOWER(name) LIKE ? THEN 3
-                     ELSE 4
-                 END,
-                 name ASC`,
-            [term, term, term, term, queryTerm, `%${queryTerm.toLowerCase()}%`, `${queryTerm.toLowerCase()}%`]
-        );
+        const schools = await School.find({
+            active: 1,
+            $or: [
+                { name: regex },
+                { aliases: regex },
+                { address: regex },
+                { barangay: regex }
+            ]
+        }).lean();
+
+        schools.sort((a, b) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            const qLower = queryTerm.toLowerCase();
+            const aRank = aName === qLower ? 1 : ((a.aliases && a.aliases.toLowerCase().includes(qLower)) ? 2 : (aName.startsWith(qLower) ? 3 : 4));
+            const bRank = bName === qLower ? 1 : ((b.aliases && b.aliases.toLowerCase().includes(qLower)) ? 2 : (bName.startsWith(qLower) ? 3 : 4));
+            if (aRank !== bRank) return aRank - bRank;
+            return aName.localeCompare(bName);
+        });
 
         const formatted = schools.map(sch => {
             let stops = [];
@@ -379,17 +467,12 @@ router.get('/schools/search', async (req, res) => {
 // GET /api/schools/:id - Single school details
 router.get('/schools/:id', async (req, res) => {
     try {
-        const schoolId = parseInt(req.params.id, 10);
-        if (isNaN(schoolId)) {
+        const schoolId = parseId(req.params.id);
+        if (schoolId === null) {
             return res.status(400).json({ error: 'Invalid school ID format.' });
         }
 
-        const sch = await query.get(
-            `SELECT id, name, aliases, type, address, barangay, city, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops, verified, source, active
-             FROM schools WHERE id = ?`,
-            [schoolId]
-        );
-
+        const sch = await School.findOne({ id: schoolId }).lean();
         if (!sch) {
             return res.status(404).json({ error: 'School not found.' });
         }
@@ -451,7 +534,7 @@ router.post('/journey/plan', async (req, res) => {
     }
 });
 
-// GET /api/geocode - Free Nominatim OSM geocoding with database caching
+// GET /api/geocode - OSM Nominatim geocoding with database caching
 router.get('/geocode', async (req, res) => {
     try {
         const { query: queryText } = req.query;
@@ -460,12 +543,14 @@ router.get('/geocode', async (req, res) => {
         }
 
         const cleanQuery = queryText.trim();
+        const regex = new RegExp(cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
-        // 0. Check unified locations table first
-        const locMatch = await query.get(
-            `SELECT name, latitude, longitude FROM locations WHERE (name LIKE ? OR search_keywords LIKE ? OR barangay LIKE ?) AND latitude IS NOT NULL AND longitude IS NOT NULL LIMIT 1`,
-            [`%${cleanQuery}%`, `%${cleanQuery}%`, `%${cleanQuery}%`]
-        );
+        // 0. Check unified locations
+        const locMatch = await Location.findOne({
+            $or: [{ name: regex }, { search_keywords: regex }, { barangay: regex }],
+            latitude: { $ne: null },
+            longitude: { $ne: null }
+        }).lean();
 
         if (locMatch) {
             return res.json({
@@ -476,12 +561,8 @@ router.get('/geocode', async (req, res) => {
             });
         }
 
-        // 1. Check local DB landmarks
-        const dbMatch = await query.get(
-            `SELECT name, latitude, longitude FROM landmarks WHERE name LIKE ? LIMIT 1`,
-            [`%${cleanQuery}%`]
-        );
-
+        // 1. Check local landmarks
+        const dbMatch = await Landmark.findOne({ name: regex }).lean();
         if (dbMatch) {
             return res.json({
                 name: dbMatch.name,
@@ -491,11 +572,12 @@ router.get('/geocode', async (req, res) => {
             });
         }
 
-        // 2. Check local DB stops
-        const stopMatch = await query.get(
-            `SELECT stop_name, latitude, longitude FROM stops WHERE stop_name LIKE ? AND latitude IS NOT NULL LIMIT 1`,
-            [`%${cleanQuery}%`]
-        );
+        // 2. Check local stops
+        const stopMatch = await Stop.findOne({
+            stop_name: regex,
+            latitude: { $ne: null },
+            longitude: { $ne: null }
+        }).lean();
 
         if (stopMatch) {
             return res.json({
@@ -506,37 +588,43 @@ router.get('/geocode', async (req, res) => {
             });
         }
 
-        // 3. Fallback: Query OSM Nominatim bounded to Dagupan area
+        // 3. Fallback: Query OSM Nominatim
         const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanQuery + ', Dagupan, Pangasinan')}&limit=1`;
-        const osmRes = await fetch(osmUrl, {
-            headers: {
-                'User-Agent': 'InerTayo-Dagupan-Transit/1.0 (transit@inertayo.ph)'
+        try {
+            const osmRes = await fetch(osmUrl, {
+                headers: { 'User-Agent': 'InerTayo-Dagupan-Transit/1.0 (transit@inertayo.ph)' }
+            });
+
+            if (osmRes.ok) {
+                const data = await osmRes.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    const result = data[0];
+                    const lat = parseFloat(result.lat);
+                    const lon = parseFloat(result.lon);
+
+                    try {
+                        const existingLm = await Landmark.findOne({ name: cleanQuery });
+                        if (!existingLm) {
+                            const newLmId = await nextId('Landmark');
+                            await Landmark.create({
+                                id: newLmId,
+                                name: cleanQuery,
+                                latitude: lat,
+                                longitude: lon,
+                                type: 'GEOCODED'
+                            });
+                        }
+                    } catch (e) {}
+
+                    return res.json({
+                        name: result.display_name,
+                        latitude: lat,
+                        longitude: lon,
+                        source: 'nominatim_osm'
+                    });
+                }
             }
-        });
-
-        if (osmRes.ok) {
-            const data = await osmRes.json();
-            if (Array.isArray(data) && data.length > 0) {
-                const result = data[0];
-                const lat = parseFloat(result.lat);
-                const lon = parseFloat(result.lon);
-
-                // Cache in landmarks table
-                try {
-                    await query.run(
-                        `INSERT OR IGNORE INTO landmarks (name, latitude, longitude, type) VALUES (?, ?, ?, 'GEOCODED')`,
-                        [cleanQuery, lat, lon]
-                    );
-                } catch (e) {}
-
-                return res.json({
-                    name: result.display_name,
-                    latitude: lat,
-                    longitude: lon,
-                    source: 'nominatim_osm'
-                });
-            }
-        }
+        } catch (e) {}
 
         // Fallback default coordinates (Dagupan Plaza)
         res.json({
@@ -556,181 +644,186 @@ router.get('/geocode', async (req, res) => {
     }
 });
 
-// Helper: sync route status based on active advisories
-async function syncRouteAdvisoryStatus(routeId) {
-    const activeAdvisories = await query.all(
-        `SELECT a.condition, a.status FROM advisories a
-         JOIN advisory_routes ar ON a.id = ar.advisory_id
-         WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
-        [routeId]
-    );
-
-    let newStatus = 'CLEAR';
-    if (activeAdvisories.length > 0) {
-        const hasUnavailable = activeAdvisories.some(a => 
-            a.condition === 'ROAD_CLOSURE' || 
-            a.condition === 'ROUTE_UNAVAILABLE' ||
-            a.condition === 'RIVER_TRANSPORT_SUSPENDED'
-        );
-        if (hasUnavailable) {
-            newStatus = 'UNAVAILABLE';
-        } else if (activeAdvisories.some(a => a.condition === 'RIVER_ADVISORY' || a.condition === 'ADVISORY')) {
-            newStatus = 'ADVISORY';
-        } else {
-            newStatus = 'DETOUR_ACTIVE';
-        }
-    }
-
-    // Check boat_route_details if this route has boat operating_status
-    const boatDetail = await query.get(`SELECT operating_status FROM boat_route_details WHERE route_id = ?`, [routeId]);
-    if (boatDetail && (boatDetail.operating_status === 'SUSPENDED' || boatDetail.operating_status === 'UNAVAILABLE')) {
-        newStatus = 'UNAVAILABLE';
-    }
-
-    await query.run(
-        `UPDATE routes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [newStatus, routeId]
-    );
-    return newStatus;
-}
-
 // GET /api/routes - Search, filter, and sort routes
 router.get('/routes', async (req, res) => {
     try {
         const { search, mode, sort, from, to, use_corrected } = req.query;
         const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
 
-        let sql = `
-            SELECT 
-                r.id,
-                r.route_name,
-                r.transport_mode_id,
-                tm.name AS mode_name,
-                tm.icon AS mode_icon,
-                r.origin,
-                r.destination,
-                r.estimated_time,
-                r.detour_time,
-                CASE 
-                    WHEN r.status = 'DETOUR_ACTIVE' AND r.detour_time IS NOT NULL THEN r.detour_time
-                    ELSE r.estimated_time
-                END AS active_travel_time,
-                r.minimum_fare,
-                r.maximum_fare,
-                CASE
-                    WHEN brd.operating_status = 'SUSPENDED' OR brd.operating_status = 'UNAVAILABLE' THEN 'UNAVAILABLE'
-                    ELSE r.status
-                END AS status,
-                r.description,
-                r.geometry AS geometry_original,
-                r.geometry_corrected,
-                r.use_corrected_geometry,
-                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry,
-                r.created_at,
-                r.updated_at,
-                brd.waterway,
-                brd.operating_status AS boat_operating_status
-            FROM routes r
-            JOIN transport_modes tm ON r.transport_mode_id = tm.id
-            LEFT JOIN boat_route_details brd ON r.id = brd.route_id
-            WHERE 1=1
-        `;
+        const allRoutes = await Route.find().lean();
+        const allModes = await TransportMode.find().lean();
+        const modeMap = new Map(allModes.map(m => [m.id, m]));
+        const allStops = await Stop.find().lean();
+        const stopsByRoute = new Map();
+        for (const s of allStops) {
+            if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
+            stopsByRoute.get(s.route_id).push(s);
+        }
 
-        const params = [];
+        const allSegments = await RouteSegment.find().lean();
+        const allLocations = await Location.find().lean();
+        const locMap = new Map(allLocations.map(l => [l.id, l]));
 
-        // Filter by transport mode (Jeepney, Bus, Tricycle, Boat)
+        const boatDetails = await BoatRouteDetail.find().lean();
+        const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
+
+        // Mode filter
+        let filteredRoutes = allRoutes;
         if (mode && mode !== 'All Modes' && mode !== 'ALL') {
-            sql += ` AND LOWER(tm.name) = LOWER(?)`;
-            params.push(mode);
+            filteredRoutes = filteredRoutes.filter(r => {
+                const m = modeMap.get(r.transport_mode_id);
+                return m && m.name.toLowerCase() === mode.toLowerCase();
+            });
         }
 
-        // Search query (matches route name, origin, destination, description, stops, connected locations, or school names/aliases)
+        // Search filter
         if (search && search.trim() !== '') {
-            const term = `%${search.trim()}%`;
-            sql += ` AND (
-                r.route_name LIKE ? OR 
-                r.origin LIKE ? OR 
-                r.destination LIKE ? OR 
-                r.description LIKE ? OR
-                r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR
-                r.id IN (
-                    SELECT route_id FROM route_segments rs 
-                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
-                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
-                ) OR
-                r.id IN (
-                    SELECT s.route_id FROM stops s, schools sch
-                    WHERE sch.active = 1
-                      AND (sch.name LIKE ? OR sch.aliases LIKE ?)
-                      AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
-                      AND sch.latitude IS NOT NULL AND sch.longitude IS NOT NULL
-                      AND (
-                          (s.latitude - COALESCE(sch.entrance_latitude, sch.latitude)) *
-                          (s.latitude - COALESCE(sch.entrance_latitude, sch.latitude)) +
-                          (s.longitude - COALESCE(sch.entrance_longitude, sch.longitude)) *
-                          (s.longitude - COALESCE(sch.entrance_longitude, sch.longitude))
-                      ) < 0.000054
-                )
-            )`;
-            params.push(term, term, term, term, term, term, term, term, term, term);
+            const term = search.trim().toLowerCase();
+            const termRegex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+            // Find matching schools for proximity
+            const matchingSchools = await School.find({
+                active: 1,
+                $or: [{ name: termRegex }, { aliases: termRegex }]
+            }).lean();
+
+            const schoolProximityRouteIds = new Set();
+            for (const sch of matchingSchools) {
+                const schLat = sch.entrance_latitude || sch.latitude;
+                const schLng = sch.entrance_longitude || sch.longitude;
+                if (schLat && schLng) {
+                    for (const s of allStops) {
+                        if (s.latitude && s.longitude) {
+                            const dSq = (s.latitude - schLat) * (s.latitude - schLat) + (s.longitude - schLng) * (s.longitude - schLng);
+                            if (dSq < 0.000054) {
+                                schoolProximityRouteIds.add(s.route_id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            filteredRoutes = filteredRoutes.filter(r => {
+                if (r.route_name.toLowerCase().includes(term) ||
+                    r.origin.toLowerCase().includes(term) ||
+                    r.destination.toLowerCase().includes(term) ||
+                    (r.description && r.description.toLowerCase().includes(term))) {
+                    return true;
+                }
+
+                if (schoolProximityRouteIds.has(r.id)) return true;
+
+                // Check stops
+                const stops = stopsByRoute.get(r.id) || [];
+                if (stops.some(s => s.stop_name.toLowerCase().includes(term))) return true;
+
+                // Check segments
+                const segs = allSegments.filter(seg => seg.route_id === r.id);
+                for (const seg of segs) {
+                    const startLoc = locMap.get(seg.start_location_id);
+                    const endLoc = locMap.get(seg.end_location_id);
+                    if (startLoc && (startLoc.name.toLowerCase().includes(term) || (startLoc.barangay && startLoc.barangay.toLowerCase().includes(term)) || (startLoc.search_keywords && startLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                    if (endLoc && (endLoc.name.toLowerCase().includes(term) || (endLoc.barangay && endLoc.barangay.toLowerCase().includes(term)) || (endLoc.search_keywords && endLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                }
+
+                return false;
+            });
         }
 
-        // FROM / TO specific filtering if passed
+        // FROM filter
         if (from && from.trim() !== '') {
-            const termFrom = `%${from.trim()}%`;
-            sql += ` AND (
-                r.origin LIKE ? OR 
-                r.route_name LIKE ? OR 
-                r.description LIKE ? OR
-                r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR 
-                r.id IN (
-                    SELECT route_id FROM route_segments rs 
-                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
-                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
-                )
-            )`;
-            params.push(termFrom, termFrom, termFrom, termFrom, termFrom, termFrom, termFrom);
+            const term = from.trim().toLowerCase();
+            filteredRoutes = filteredRoutes.filter(r => {
+                if (r.origin.toLowerCase().includes(term) || r.route_name.toLowerCase().includes(term) || (r.description && r.description.toLowerCase().includes(term))) return true;
+                const stops = stopsByRoute.get(r.id) || [];
+                if (stops.some(s => s.stop_name.toLowerCase().includes(term))) return true;
+                const segs = allSegments.filter(seg => seg.route_id === r.id);
+                for (const seg of segs) {
+                    const startLoc = locMap.get(seg.start_location_id);
+                    const endLoc = locMap.get(seg.end_location_id);
+                    if (startLoc && (startLoc.name.toLowerCase().includes(term) || (startLoc.barangay && startLoc.barangay.toLowerCase().includes(term)) || (startLoc.search_keywords && startLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                    if (endLoc && (endLoc.name.toLowerCase().includes(term) || (endLoc.barangay && endLoc.barangay.toLowerCase().includes(term)) || (endLoc.search_keywords && endLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                }
+                return false;
+            });
         }
 
+        // TO filter
         if (to && to.trim() !== '') {
-            const termTo = `%${to.trim()}%`;
-            sql += ` AND (
-                r.destination LIKE ? OR 
-                r.route_name LIKE ? OR 
-                r.description LIKE ? OR
-                r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?) OR 
-                r.id IN (
-                    SELECT route_id FROM route_segments rs 
-                    JOIN locations l ON rs.start_location_id = l.id OR rs.end_location_id = l.id 
-                    WHERE l.name LIKE ? OR l.barangay LIKE ? OR l.search_keywords LIKE ?
-                )
-            )`;
-            params.push(termTo, termTo, termTo, termTo, termTo, termTo, termTo);
+            const term = to.trim().toLowerCase();
+            filteredRoutes = filteredRoutes.filter(r => {
+                if (r.destination.toLowerCase().includes(term) || r.route_name.toLowerCase().includes(term) || (r.description && r.description.toLowerCase().includes(term))) return true;
+                const stops = stopsByRoute.get(r.id) || [];
+                if (stops.some(s => s.stop_name.toLowerCase().includes(term))) return true;
+                const segs = allSegments.filter(seg => seg.route_id === r.id);
+                for (const seg of segs) {
+                    const startLoc = locMap.get(seg.start_location_id);
+                    const endLoc = locMap.get(seg.end_location_id);
+                    if (startLoc && (startLoc.name.toLowerCase().includes(term) || (startLoc.barangay && startLoc.barangay.toLowerCase().includes(term)) || (startLoc.search_keywords && startLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                    if (endLoc && (endLoc.name.toLowerCase().includes(term) || (endLoc.barangay && endLoc.barangay.toLowerCase().includes(term)) || (endLoc.search_keywords && endLoc.search_keywords.toLowerCase().includes(term)))) return true;
+                }
+                return false;
+            });
         }
+
+        // Load active advisories
+        const activeAdvisories = await Advisory.find({ status: 'ACTIVE' }).lean();
+        const advMap = new Map(activeAdvisories.map(a => [a.id, a]));
+        const advisoryRoutes = await AdvisoryRoute.find().lean();
+        const advisoriesByRoute = new Map();
+        for (const ar of advisoryRoutes) {
+            if (advMap.has(ar.advisory_id)) {
+                if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
+                advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+            }
+        }
+
+        // Transform results
+        const results = filteredRoutes.map(r => {
+            const m = modeMap.get(r.transport_mode_id) || {};
+            const boat = boatMap.get(r.id);
+            const active_travel_time = (r.status === 'DETOUR_ACTIVE' && r.detour_time != null) ? r.detour_time : r.estimated_time;
+            let status = r.status;
+            if (boat && (boat.operating_status === 'SUSPENDED' || boat.operating_status === 'UNAVAILABLE')) {
+                status = 'UNAVAILABLE';
+            }
+            const geometry = (useCorrected && r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+
+            return {
+                id: r.id,
+                route_name: r.route_name,
+                transport_mode_id: r.transport_mode_id,
+                mode_name: m.name,
+                mode_icon: m.icon,
+                origin: r.origin,
+                destination: r.destination,
+                estimated_time: r.estimated_time,
+                detour_time: r.detour_time,
+                active_travel_time,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                status,
+                description: r.description,
+                geometry_original: r.geometry,
+                geometry_corrected: r.geometry_corrected,
+                use_corrected_geometry: r.use_corrected_geometry,
+                geometry,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                waterway: boat ? boat.waterway : null,
+                boat_operating_status: boat ? boat.operating_status : null,
+                advisories: advisoriesByRoute.get(r.id) || []
+            };
+        });
 
         // Sorting
         if (sort === 'cheapest' || sort === 'Cheapest Fare') {
-            sql += ` ORDER BY r.minimum_fare ASC, active_travel_time ASC`;
+            results.sort((a, b) => a.minimum_fare - b.minimum_fare || a.active_travel_time - b.active_travel_time);
         } else {
-            // Default: fastest travel time (respecting advisory detour time per §0.5)
-            sql += ` ORDER BY active_travel_time ASC, r.minimum_fare ASC`;
+            results.sort((a, b) => a.active_travel_time - b.active_travel_time || a.minimum_fare - b.minimum_fare);
         }
 
-        const routes = await query.all(sql, params);
-
-        // Fetch active advisories for each route
-        for (const r of routes) {
-            const advisories = await query.all(
-                `SELECT a.id, a.title, a.affected_road, a.condition, a.description, a.status
-                 FROM advisories a
-                 JOIN advisory_routes ar ON a.id = ar.advisory_id
-                 WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
-                [r.id]
-            );
-            r.advisories = advisories;
-        }
-
-        res.json(routes);
+        res.json(results);
     } catch (err) {
         console.error('Error fetching routes:', err);
         res.status(500).json({ error: 'Failed to retrieve routes.' });
@@ -738,10 +831,6 @@ router.get('/routes', async (req, res) => {
 });
 
 // GET /api/routes/nearby - Find existing routes serving a geographic point
-// Query params: lat (required), lng (required), radius (meters, default walkingRadius),
-//               mode (optional filter), sort (optional)
-// Returns routes sorted by walk distance to nearest boarding stop.
-// MUST be declared before /routes/:id so Express matches it first.
 router.get('/routes/nearby', async (req, res) => {
     try {
         const lat = parseFloat(req.query.lat);
@@ -751,7 +840,6 @@ router.get('/routes/nearby', async (req, res) => {
             return res.status(400).json({ error: 'lat and lng are required numeric parameters.' });
         }
 
-        // Boundary check — only serve Dagupan City locations
         const inDagupan = isInsideDagupanCity(lat, lng);
         if (!inDagupan) {
             return res.json({ routes: [], outsideDagupan: true });
@@ -761,53 +849,30 @@ router.get('/routes/nearby', async (req, res) => {
         const { mode, sort, use_corrected } = req.query;
         const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
 
-        // Load all active routes with their stops and geometry
-        let routesSql = `
-            SELECT 
-                r.id, r.route_name, r.transport_mode_id,
-                tm.name AS mode_name, tm.icon AS mode_icon,
-                r.origin, r.destination,
-                r.estimated_time, r.detour_time,
-                CASE 
-                    WHEN r.status = 'DETOUR_ACTIVE' AND r.detour_time IS NOT NULL THEN r.detour_time
-                    ELSE r.estimated_time
-                END AS active_travel_time,
-                r.minimum_fare, r.maximum_fare,
-                CASE
-                    WHEN brd.operating_status = 'SUSPENDED' OR brd.operating_status = 'UNAVAILABLE' THEN 'UNAVAILABLE'
-                    ELSE r.status
-                END AS status,
-                r.description,
-                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry
-            FROM routes r
-            JOIN transport_modes tm ON r.transport_mode_id = tm.id
-            LEFT JOIN boat_route_details brd ON r.id = brd.route_id
-            WHERE 1=1
-        `;
-        const routeParams = [];
+        let allRoutes = await Route.find().lean();
+        const allModes = await TransportMode.find().lean();
+        const modeMap = new Map(allModes.map(m => [m.id, m]));
+        const boatDetails = await BoatRouteDetail.find().lean();
+        const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
 
         if (mode && mode !== 'All Modes' && mode !== 'ALL') {
-            routesSql += ` AND LOWER(tm.name) = LOWER(?)`;
-            routeParams.push(mode);
+            allRoutes = allRoutes.filter(r => {
+                const m = modeMap.get(r.transport_mode_id);
+                return m && m.name.toLowerCase() === mode.toLowerCase();
+            });
         }
 
-        const allRoutes = await query.all(routesSql, routeParams);
+        const allStops = await Stop.find({
+            latitude: { $ne: null },
+            longitude: { $ne: null }
+        }).sort({ route_id: 1, stop_order: 1 }).lean();
 
-        // Load all stops (with lat/lng) grouped by route
-        const allStops = await query.all(
-            `SELECT route_id, id, stop_name, stop_order, latitude, longitude FROM stops
-             WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-             ORDER BY route_id, stop_order ASC`
-        );
-
-        // Build stop map: routeId → stops[]
         const stopsByRoute = {};
         for (const stop of allStops) {
             if (!stopsByRoute[stop.route_id]) stopsByRoute[stop.route_id] = [];
             stopsByRoute[stop.route_id].push(stop);
         }
 
-        // Helper: nearest distance from query point to a route geometry LineString
         function distToGeometry(geomJson) {
             if (!geomJson) return Infinity;
             let geom;
@@ -816,14 +881,23 @@ router.get('/routes/nearby', async (req, res) => {
             if (!Array.isArray(coords) || coords.length < 2) return Infinity;
             let minDist = Infinity;
             for (const coord of coords) {
-                // coord is [lng, lat] (GeoJSON)
                 const d = haversineDistance(lat, lng, coord[1], coord[0]);
                 if (d < minDist) minDist = d;
             }
             return minDist;
         }
 
-        // Score each route: find nearest stop and nearest geometry point
+        const activeAdvisories = await Advisory.find({ status: 'ACTIVE' }).lean();
+        const advMap = new Map(activeAdvisories.map(a => [a.id, a]));
+        const advisoryRoutes = await AdvisoryRoute.find().lean();
+        const advisoriesByRoute = new Map();
+        for (const ar of advisoryRoutes) {
+            if (advMap.has(ar.advisory_id)) {
+                if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
+                advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+            }
+        }
+
         const results = [];
         for (const route of allRoutes) {
             const stops = stopsByRoute[route.id] || [];
@@ -838,23 +912,36 @@ router.get('/routes/nearby', async (req, res) => {
                 }
             }
 
-            // Also check route geometry for routes that pass near but may lack a nearby stop
-            const geomDist = distToGeometry(route.geometry);
+            const geom = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected) ? route.geometry_corrected : route.geometry;
+            const geomDist = distToGeometry(geom);
             const walkDistanceMeters = Math.min(minStopDist, geomDist);
 
             if (walkDistanceMeters <= radius) {
-                // Fetch advisories for this route
-                const advisories = await query.all(
-                    `SELECT a.id, a.title, a.affected_road, a.condition, a.description, a.status
-                     FROM advisories a
-                     JOIN advisory_routes ar ON a.id = ar.advisory_id
-                     WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
-                    [route.id]
-                );
+                const m = modeMap.get(route.transport_mode_id) || {};
+                const boat = boatMap.get(route.id);
+                let status = route.status;
+                if (boat && (boat.operating_status === 'SUSPENDED' || boat.operating_status === 'UNAVAILABLE')) {
+                    status = 'UNAVAILABLE';
+                }
+                const active_travel_time = (route.status === 'DETOUR_ACTIVE' && route.detour_time != null) ? route.detour_time : route.estimated_time;
 
                 results.push({
-                    ...route,
-                    advisories,
+                    id: route.id,
+                    route_name: route.route_name,
+                    transport_mode_id: route.transport_mode_id,
+                    mode_name: m.name,
+                    mode_icon: m.icon,
+                    origin: route.origin,
+                    destination: route.destination,
+                    estimated_time: route.estimated_time,
+                    detour_time: route.detour_time,
+                    active_travel_time,
+                    minimum_fare: route.minimum_fare,
+                    maximum_fare: route.maximum_fare,
+                    status,
+                    description: route.description,
+                    geometry: geom,
+                    advisories: advisoriesByRoute.get(route.id) || [],
                     walkDistanceMeters: Math.round(walkDistanceMeters),
                     nearestStop: nearestStop ? {
                         id: nearestStop.id,
@@ -863,17 +950,14 @@ router.get('/routes/nearby', async (req, res) => {
                         lng: nearestStop.longitude,
                         distanceMeters: Math.round(minStopDist)
                     } : null,
-                    // Flag so the frontend knows this came from a proximity search
                     fromProximitySearch: true
                 });
             }
         }
 
-        // Sort: by walk distance first, then by selected sort key
         if (sort === 'Cheapest Fare' || sort === 'cheapest') {
             results.sort((a, b) => a.minimum_fare - b.minimum_fare || a.walkDistanceMeters - b.walkDistanceMeters);
         } else {
-            // Default: nearest walk distance, then fastest travel time
             results.sort((a, b) => a.walkDistanceMeters - b.walkDistanceMeters || a.active_travel_time - b.active_travel_time);
         }
 
@@ -887,138 +971,115 @@ router.get('/routes/nearby', async (req, res) => {
 // GET /api/routes/:id - Single route with stops, steps, and fare breakdown
 router.get('/routes/:id', async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
         const { use_corrected } = req.query;
         const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
 
-        const route = await query.get(
-            `SELECT 
-                r.id,
-                r.route_name,
-                r.transport_mode_id,
-                tm.name AS mode_name,
-                tm.icon AS mode_icon,
-                r.origin,
-                r.destination,
-                r.estimated_time,
-                r.detour_time,
-                CASE 
-                    WHEN r.status = 'DETOUR_ACTIVE' AND r.detour_time IS NOT NULL THEN r.detour_time
-                    ELSE r.estimated_time
-                END AS active_travel_time,
-                r.minimum_fare,
-                r.maximum_fare,
-                CASE
-                    WHEN brd.operating_status = 'SUSPENDED' OR brd.operating_status = 'UNAVAILABLE' THEN 'UNAVAILABLE'
-                    ELSE r.status
-                END AS status,
-                r.description,
-                r.geometry AS geometry_original,
-                r.geometry_corrected,
-                r.use_corrected_geometry,
-                ${useCorrected ? `COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry)` : `r.geometry`} AS geometry,
-                r.created_at,
-                r.updated_at,
-                brd.waterway,
-                brd.operating_status AS boat_operating_status
-            FROM routes r
-            JOIN transport_modes tm ON r.transport_mode_id = tm.id
-            LEFT JOIN boat_route_details brd ON r.id = brd.route_id
-            WHERE r.id = ?`,
-            [routeId]
-        );
-
+        const route = await Route.findOne({ id: routeId }).lean();
         if (!route) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        // Fetch stops
-        const stops = await query.all(
-            `SELECT id, stop_name, stop_order, description, is_transfer_point, latitude, longitude
-             FROM stops
-             WHERE route_id = ?
-             ORDER BY stop_order ASC`,
-            [routeId]
-        );
+        const mode = await TransportMode.findOne({ id: route.transport_mode_id }).lean();
+        const boatDetail = await BoatRouteDetail.findOne({ route_id: routeId }).lean();
 
-        // Fetch steps
-        const steps = await query.all(
-            `SELECT id, step_number, mode, instruction, location_info
-             FROM route_steps
-             WHERE route_id = ?
-             ORDER BY step_number ASC`,
-            [routeId]
-        );
+        let boatDetailsWithNames = null;
+        if (boatDetail) {
+            const origLoc = boatDetail.origin_river_stop_id ? await Location.findOne({ id: boatDetail.origin_river_stop_id }).lean() : null;
+            const destLoc = boatDetail.destination_river_stop_id ? await Location.findOne({ id: boatDetail.destination_river_stop_id }).lean() : null;
+            boatDetailsWithNames = {
+                ...boatDetail,
+                origin_stop_name: origLoc ? origLoc.name : null,
+                destination_stop_name: destLoc ? destLoc.name : null
+            };
+        }
 
-        // Fetch fares
-        const fares = await query.all(
-            `SELECT id, passenger_type, base_fare, discount_percentage, final_fare, effective_date
-             FROM fares
-             WHERE route_id = ?
-             ORDER BY id ASC`,
-            [routeId]
-        );
+        let status = route.status;
+        if (boatDetail && (boatDetail.operating_status === 'SUSPENDED' || boatDetail.operating_status === 'UNAVAILABLE')) {
+            status = 'UNAVAILABLE';
+        }
 
-        // Fetch active advisories
-        const advisories = await query.all(
-            `SELECT a.id, a.title, a.affected_road, a.condition, a.description, a.status
-             FROM advisories a
-             JOIN advisory_routes ar ON a.id = ar.advisory_id
-             WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
-            [routeId]
-        );
+        const active_travel_time = (route.status === 'DETOUR_ACTIVE' && route.detour_time != null) ? route.detour_time : route.estimated_time;
+        const geometry = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected) ? route.geometry_corrected : route.geometry;
 
-        // Fetch boat details if available
-        const boatDetails = await query.get(
-            `SELECT brd.*, 
-                    orig.name AS origin_stop_name, 
-                    dest.name AS destination_stop_name 
-             FROM boat_route_details brd
-             LEFT JOIN locations orig ON brd.origin_river_stop_id = orig.id
-             LEFT JOIN locations dest ON brd.destination_river_stop_id = dest.id
-             WHERE brd.route_id = ?`,
-            [routeId]
-        );
+        const stops = await Stop.find({ route_id: routeId }, {
+            id: 1, stop_name: 1, stop_order: 1, description: 1, is_transfer_point: 1, latitude: 1, longitude: 1, _id: 0
+        }).sort({ stop_order: 1 }).lean();
 
-        // Fetch route segments if available
-        const segments = await query.all(
-            `SELECT rs.*, 
-                    sl.name AS start_location_name, 
-                    el.name AS end_location_name 
-             FROM route_segments rs
-             LEFT JOIN locations sl ON rs.start_location_id = sl.id
-             LEFT JOIN locations el ON rs.end_location_id = el.id
-             WHERE rs.route_id = ?
-             ORDER BY rs.segment_order ASC`,
-            [routeId]
-        );
+        const steps = await RouteStep.find({ route_id: routeId }, {
+            id: 1, step_number: 1, mode: 1, instruction: 1, location_info: 1, _id: 0
+        }).sort({ step_number: 1 }).lean();
 
-        // Find alternative clear routes if current route is affected
+        const fares = await Fare.find({ route_id: routeId }, {
+            id: 1, passenger_type: 1, base_fare: 1, discount_percentage: 1, final_fare: 1, effective_date: 1, _id: 0
+        }).sort({ id: 1 }).lean();
+
+        const advRoutes = await AdvisoryRoute.find({ route_id: routeId }).lean();
+        const advIds = advRoutes.map(ar => ar.advisory_id);
+        const advisories = await Advisory.find({ id: { $in: advIds }, status: 'ACTIVE' }, {
+            id: 1, title: 1, affected_road: 1, condition: 1, description: 1, status: 1, _id: 0
+        }).lean();
+
+        const rawSegments = await RouteSegment.find({ route_id: routeId }).sort({ segment_order: 1 }).lean();
+        const locIds = [...new Set(rawSegments.flatMap(s => [s.start_location_id, s.end_location_id]).filter(Boolean))];
+        const segLocs = await Location.find({ id: { $in: locIds } }).lean();
+        const segLocMap = new Map(segLocs.map(l => [l.id, l]));
+
+        const segments = rawSegments.map(rs => ({
+            ...rs,
+            start_location_name: segLocMap.get(rs.start_location_id) ? segLocMap.get(rs.start_location_id).name : null,
+            end_location_name: segLocMap.get(rs.end_location_id) ? segLocMap.get(rs.end_location_id).name : null
+        }));
+
         let alternativeRoutes = [];
-        if (route.status === 'DETOUR_ACTIVE' || route.status === 'UNAVAILABLE') {
-            alternativeRoutes = await query.all(
-                `SELECT r.id, r.route_name, r.minimum_fare, r.maximum_fare, r.estimated_time, tm.name as mode_name
-                 FROM routes r
-                 JOIN transport_modes tm ON r.transport_mode_id = tm.id
-                 WHERE r.id != ? AND r.status = 'CLEAR'
-                 LIMIT 2`,
-                [routeId]
-            );
+        if (status === 'DETOUR_ACTIVE' || status === 'UNAVAILABLE') {
+            const alts = await Route.find({ id: { $ne: routeId }, status: 'CLEAR' }).limit(2).lean();
+            const altModes = await TransportMode.find().lean();
+            const altModeMap = new Map(altModes.map(m => [m.id, m]));
+            alternativeRoutes = alts.map(r => ({
+                id: r.id,
+                route_name: r.route_name,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                estimated_time: r.estimated_time,
+                mode_name: altModeMap.get(r.transport_mode_id) ? altModeMap.get(r.transport_mode_id).name : null
+            }));
         }
 
         res.json({
-            ...route,
+            id: route.id,
+            route_name: route.route_name,
+            transport_mode_id: route.transport_mode_id,
+            mode_name: mode ? mode.name : null,
+            mode_icon: mode ? mode.icon : null,
+            origin: route.origin,
+            destination: route.destination,
+            estimated_time: route.estimated_time,
+            detour_time: route.detour_time,
+            active_travel_time,
+            minimum_fare: route.minimum_fare,
+            maximum_fare: route.maximum_fare,
+            status,
+            description: route.description,
+            geometry_original: route.geometry,
+            geometry_corrected: route.geometry_corrected,
+            use_corrected_geometry: route.use_corrected_geometry,
+            geometry,
+            created_at: route.created_at,
+            updated_at: route.updated_at,
+            waterway: boatDetail ? boatDetail.waterway : null,
+            boat_operating_status: boatDetail ? boatDetail.operating_status : null,
             stops,
             steps,
             fares,
             advisories,
             alternativeRoutes,
-            boat_details: boatDetails || null,
-            segments: segments || []
+            boat_details: boatDetailsWithNames,
+            segments
         });
     } catch (err) {
         console.error('Error fetching route details:', err);
@@ -1026,29 +1087,21 @@ router.get('/routes/:id', async (req, res) => {
     }
 });
 
-// GET /api/routes/:id/geojson - RFC 7946 GeoJSON Feature representation of route corridor
+// GET /api/routes/:id/geojson - RFC 7946 GeoJSON Feature representation
 router.get('/routes/:id/geojson', async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
-        const route = await query.get(
-            `SELECT r.*, tm.name AS mode_name FROM routes r
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             WHERE r.id = ?`,
-            [routeId]
-        );
-
+        const route = await Route.findOne({ id: routeId }).lean();
         if (!route) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        const stops = await query.all(
-            `SELECT * FROM stops WHERE route_id = ? ORDER BY stop_order ASC`,
-            [routeId]
-        );
+        const mode = await TransportMode.findOne({ id: route.transport_mode_id }).lean();
+        const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
 
         let geometryObj = null;
         if (route.geometry) {
@@ -1059,11 +1112,10 @@ router.get('/routes/:id/geojson', async (req, res) => {
             }
         }
 
-        // Fallback: derive GeoJSON LineString coordinates from sequential stops
         if (!geometryObj && stops.length >= 2) {
             const coords = stops
                 .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number')
-                .map(s => [s.longitude, s.latitude]); // RFC 7946: [lon, lat]
+                .map(s => [s.longitude, s.latitude]);
             geometryObj = {
                 type: 'LineString',
                 coordinates: coords
@@ -1075,7 +1127,7 @@ router.get('/routes/:id/geojson', async (req, res) => {
             properties: {
                 id: route.id,
                 routeName: route.route_name,
-                mode: route.mode_name,
+                mode: mode ? mode.name : null,
                 origin: route.origin,
                 destination: route.destination,
                 estimatedTime: route.estimated_time,
@@ -1097,23 +1149,29 @@ router.get('/routes/:id/geojson', async (req, res) => {
 // GET /api/advisories - All active advisories with affected route lists
 router.get('/advisories', async (req, res) => {
     try {
-        const advisories = await query.all(
-            `SELECT a.id, a.title, a.affected_road, a.condition, a.description, a.status, a.created_at, a.updated_at
-             FROM advisories a
-             WHERE a.status = 'ACTIVE'
-             ORDER BY a.created_at DESC`
-        );
+        const advisories = await Advisory.find({ status: 'ACTIVE' }, {
+            id: 1, title: 1, affected_road: 1, condition: 1, description: 1, status: 1, created_at: 1, updated_at: 1, _id: 0
+        }).sort({ created_at: -1 }).lean();
+
+        const allAdvisoryRoutes = await AdvisoryRoute.find().lean();
+        const allRoutes = await Route.find().lean();
+        const routeMap = new Map(allRoutes.map(r => [r.id, r]));
+        const allModes = await TransportMode.find().lean();
+        const modeMap = new Map(allModes.map(m => [m.id, m]));
 
         for (const adv of advisories) {
-            const affectedRoutes = await query.all(
-                `SELECT r.id, r.route_name, tm.name AS mode_name, r.status
-                 FROM routes r
-                 JOIN transport_modes tm ON r.transport_mode_id = tm.id
-                 JOIN advisory_routes ar ON r.id = ar.route_id
-                 WHERE ar.advisory_id = ?`,
-                [adv.id]
-            );
-            adv.affected_routes = affectedRoutes;
+            const links = allAdvisoryRoutes.filter(ar => ar.advisory_id === adv.id);
+            adv.affected_routes = links.map(ar => {
+                const r = routeMap.get(ar.route_id);
+                if (!r) return null;
+                const m = modeMap.get(r.transport_mode_id);
+                return {
+                    id: r.id,
+                    route_name: r.route_name,
+                    mode_name: m ? m.name : null,
+                    status: r.status
+                };
+            }).filter(Boolean);
         }
 
         res.json(advisories);
@@ -1133,7 +1191,6 @@ router.post('/fare-calculator', async (req, res) => {
             ? passengerType.toUpperCase()
             : 'REGULAR';
 
-        // Default discount configuration
         const discountRates = {
             'REGULAR': 0,
             'STUDENT': 20,
@@ -1142,51 +1199,56 @@ router.post('/fare-calculator', async (req, res) => {
         };
         const discountPercentage = discountRates[normalizedType] || 0;
 
-        // Try to match a known route for FROM and TO (bidirectional search)
         let matchingRoute = null;
         if (from && to) {
-            const fromTerm = `%${from.trim()}%`;
-            const toTerm = `%${to.trim()}%`;
-            matchingRoute = await query.get(
-                `SELECT r.*, tm.name as mode_name
-                 FROM routes r
-                 JOIN transport_modes tm ON r.transport_mode_id = tm.id
-                 WHERE (
-                     (r.origin LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?))
-                     AND
-                     (r.destination LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?))
-                 ) OR (
-                     (r.destination LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?))
-                     AND
-                     (r.origin LIKE ? OR r.route_name LIKE ? OR r.id IN (SELECT route_id FROM stops WHERE stop_name LIKE ?))
-                 )
-                 LIMIT 1`,
-                [fromTerm, fromTerm, fromTerm, toTerm, toTerm, toTerm, fromTerm, fromTerm, fromTerm, toTerm, toTerm, toTerm]
-            );
+            const fromTerm = from.trim().toLowerCase();
+            const toTerm = to.trim().toLowerCase();
+
+            const allRoutes = await Route.find().lean();
+            const allStops = await Stop.find().lean();
+            const stopsByRoute = new Map();
+            for (const s of allStops) {
+                if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
+                stopsByRoute.get(s.route_id).push(s);
+            }
+
+            for (const r of allRoutes) {
+                const stops = stopsByRoute.get(r.id) || [];
+                const matchesOrigin = r.origin.toLowerCase().includes(fromTerm) || r.route_name.toLowerCase().includes(fromTerm) || stops.some(s => s.stop_name.toLowerCase().includes(fromTerm));
+                const matchesDest = r.destination.toLowerCase().includes(toTerm) || r.route_name.toLowerCase().includes(toTerm) || stops.some(s => s.stop_name.toLowerCase().includes(toTerm));
+
+                const reverseOrigin = r.destination.toLowerCase().includes(fromTerm) || r.route_name.toLowerCase().includes(fromTerm) || stops.some(s => s.stop_name.toLowerCase().includes(fromTerm));
+                const reverseDest = r.origin.toLowerCase().includes(toTerm) || r.route_name.toLowerCase().includes(toTerm) || stops.some(s => s.stop_name.toLowerCase().includes(toTerm));
+
+                if ((matchesOrigin && matchesDest) || (reverseOrigin && reverseDest)) {
+                    matchingRoute = r;
+                    break;
+                }
+            }
         }
 
         let legs = [];
         let totalEstimatedFare = 0;
 
         if (matchingRoute) {
-            // Check if there are structured route segments configured
-            const segments = await query.all(
-                `SELECT rs.*, sl.name as start_location_name, el.name as end_location_name
-                 FROM route_segments rs
-                 LEFT JOIN locations sl ON rs.start_location_id = sl.id
-                 LEFT JOIN locations el ON rs.end_location_id = el.id
-                 WHERE rs.route_id = ?
-                 ORDER BY rs.segment_order ASC`,
-                [matchingRoute.id]
-            );
+            const mode = await TransportMode.findOne({ id: matchingRoute.transport_mode_id }).lean();
+            matchingRoute.mode_name = mode ? mode.name : null;
+
+            const segments = await RouteSegment.find({ route_id: matchingRoute.id }).sort({ segment_order: 1 }).lean();
 
             if (segments.length > 0) {
+                const locIds = [...new Set(segments.flatMap(s => [s.start_location_id, s.end_location_id]).filter(Boolean))];
+                const locs = await Location.find({ id: { $in: locIds } }).lean();
+                const locMap = new Map(locs.map(l => [l.id, l]));
+
                 for (const seg of segments) {
                     const isFree = (seg.mode.toLowerCase() === 'walk' || seg.fare === 0);
                     const baseFare = seg.fare;
                     const finalFare = isFree ? 0 : (discountPercentage > 0 ? Number((baseFare * (1 - discountPercentage / 100)).toFixed(2)) : baseFare);
-                    const instruction = seg.notes || `${seg.mode}: ${seg.start_location_name || 'Origin'} – ${seg.end_location_name || 'Destination'}`;
-                    
+                    const startLoc = locMap.get(seg.start_location_id);
+                    const endLoc = locMap.get(seg.end_location_id);
+                    const instruction = seg.notes || `${seg.mode}: ${startLoc ? startLoc.name : 'Origin'} – ${endLoc ? endLoc.name : 'Destination'}`;
+
                     legs.push({
                         mode: seg.mode,
                         instruction,
@@ -1200,25 +1262,18 @@ router.post('/fare-calculator', async (req, res) => {
                 }
                 totalEstimatedFare = Number(totalEstimatedFare.toFixed(2));
             } else {
-                // Fallback to single route fare record
-                const dbFare = await query.get(
-                    `SELECT base_fare, discount_percentage, final_fare FROM fares WHERE route_id = ? AND passenger_type = ?`,
-                    [matchingRoute.id, normalizedType]
-                );
-
+                const dbFare = await Fare.findOne({ route_id: matchingRoute.id, passenger_type: normalizedType }).lean();
                 const baseFare = dbFare ? dbFare.base_fare : matchingRoute.minimum_fare;
                 const finalFare = dbFare ? dbFare.final_fare : Number((baseFare * (1 - discountPercentage / 100)).toFixed(2));
 
-                legs = [
-                    {
-                        mode: matchingRoute.mode_name,
-                        instruction: `${matchingRoute.origin} – ${matchingRoute.destination}`,
-                        baseFare: baseFare,
-                        discountPercent: discountPercentage,
-                        finalFare: finalFare,
-                        isFree: false
-                    }
-                ];
+                legs = [{
+                    mode: matchingRoute.mode_name,
+                    instruction: `${matchingRoute.origin} – ${matchingRoute.destination}`,
+                    baseFare,
+                    discountPercent: discountPercentage,
+                    finalFare,
+                    isFree: false
+                }];
                 totalEstimatedFare = finalFare;
             }
 
@@ -1245,7 +1300,7 @@ router.post('/fare-calculator', async (req, res) => {
     }
 });
 
-// POST /api/feedback - Commuter feedback submission (guest or authenticated)
+// POST /api/feedback - Commuter feedback submission
 router.post('/feedback', optionalAuth, async (req, res) => {
     try {
         const { name, email, message } = req.body;
@@ -1255,15 +1310,20 @@ router.post('/feedback', optionalAuth, async (req, res) => {
         }
 
         const userId = req.user ? req.user.id : null;
+        const feedbackId = await nextId('Feedback');
 
-        const result = await query.run(
-            `INSERT INTO feedback (user_id, name, email, message, status) VALUES (?, ?, ?, ?, 'NEW')`,
-            [userId, name.trim(), email.trim(), message.trim()]
-        );
+        await Feedback.create({
+            id: feedbackId,
+            user_id: userId,
+            name: name.trim(),
+            email: email.trim(),
+            message: message.trim(),
+            status: 'NEW'
+        });
 
         res.status(201).json({
             message: 'Feedback submitted successfully. Thank you for helping improve Dagupan transit!',
-            feedbackId: result.lastID
+            feedbackId
         });
     } catch (err) {
         console.error('Error saving feedback:', err);
@@ -1287,7 +1347,6 @@ router.post('/auth/register', async (req, res) => {
         const trimmedUsername = username.trim();
         const trimmedEmail = email.trim().toLowerCase();
 
-        // 1. Username constraints: 3-30 characters, alphanumeric, underscores, hyphens, periods
         if (trimmedUsername.length < 3 || trimmedUsername.length > 30) {
             return res.status(400).json({ error: 'Username must be between 3 and 30 characters.' });
         }
@@ -1295,13 +1354,11 @@ router.post('/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Username can only contain letters, numbers, underscores, and hyphens.' });
         }
 
-        // 2. Email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(trimmedEmail)) {
             return res.status(400).json({ error: 'Please enter a valid email address.' });
         }
 
-        // 3. Password constraints: min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character
         if (password.length < 8) {
             return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
         }
@@ -1318,24 +1375,26 @@ router.post('/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
         }
 
-        // Check if username or email exists
-        const existing = await query.get(
-            `SELECT id FROM users WHERE username = ? OR email = ?`,
-            [trimmedUsername, trimmedEmail]
-        );
+        const existing = await User.findOne({
+            $or: [{ username: trimmedUsername }, { email: trimmedEmail }]
+        });
         if (existing) {
             return res.status(409).json({ error: 'Username or email is already registered.' });
         }
 
         const passwordHash = await bcrypt.hash(password, 12);
+        const userId = await nextId('User');
 
-        const result = await query.run(
-            `INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, 'COMMUTER')`,
-            [trimmedUsername, trimmedEmail, passwordHash]
-        );
+        await User.create({
+            id: userId,
+            username: trimmedUsername,
+            email: trimmedEmail,
+            password_hash: passwordHash,
+            role: 'COMMUTER'
+        });
 
         const userPayload = {
-            id: result.lastID,
+            id: userId,
             username: trimmedUsername,
             email: trimmedEmail,
             role: 'COMMUTER'
@@ -1363,10 +1422,10 @@ router.post('/auth/login', async (req, res) => {
             return res.status(400).json({ error: 'Username/Email and password are required.' });
         }
 
-        const user = await query.get(
-            `SELECT id, username, email, password_hash, role FROM users WHERE username = ? OR email = ?`,
-            [username.trim(), username.trim().toLowerCase()]
-        );
+        const cleanInput = username.trim();
+        const user = await User.findOne({
+            $or: [{ username: cleanInput }, { email: cleanInput.toLowerCase() }]
+        });
 
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials.' });
@@ -1406,34 +1465,35 @@ router.post('/auth/forgot-password', async (req, res) => {
         }
 
         const cleanId = identifier.trim();
-        const user = await query.get(
-            `SELECT id, username, email FROM users WHERE username = ? OR email = ?`,
-            [cleanId, cleanId.toLowerCase()]
-        );
+        const user = await User.findOne({
+            $or: [{ username: cleanId }, { email: cleanId.toLowerCase() }]
+        });
 
         if (!user) {
-            // Protect against user enumeration by returning a generic success message
             return res.json({
                 message: 'If an account matches that email or username, a 6-digit reset code has been generated.',
                 sent: true
             });
         }
 
-        // Generate cryptographically random 6-digit code
         const resetCode = crypto.randomInt(100000, 1000000).toString();
 
-        // Invalidate old unused codes for this user
-        await query.run(
-            `UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0`,
-            [user.id]
+        await PasswordReset.updateMany(
+            { user_id: user.id, used: 0 },
+            { $set: { used: 1 } }
         );
 
-        // Insert new code with 15 minutes expiration
-        await query.run(
-            `INSERT INTO password_resets (user_id, email, reset_code, expires_at) 
-             VALUES (?, ?, ?, datetime('now', '+15 minutes'))`,
-            [user.id, user.email, resetCode]
-        );
+        const resetId = await nextId('PasswordReset');
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        await PasswordReset.create({
+            id: resetId,
+            user_id: user.id,
+            email: user.email,
+            reset_code: resetCode,
+            expires_at: expiresAt,
+            used: 0
+        });
 
         if (process.env.NODE_ENV !== 'test') {
             if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
@@ -1485,7 +1545,6 @@ router.post('/auth/reset-password', async (req, res) => {
         const cleanEmail = email.trim().toLowerCase();
         const cleanCode = resetCode.trim();
 
-        // 1. Validate password policy
         if (newPassword.length < 8) {
             return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
         }
@@ -1502,37 +1561,20 @@ router.post('/auth/reset-password', async (req, res) => {
             return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
         }
 
-        // 2. Find valid unexpired reset record
-        const resetRecord = await query.get(
-            `SELECT pr.id, pr.user_id, u.username, u.email
-             FROM password_resets pr
-             JOIN users u ON pr.user_id = u.id
-             WHERE (pr.email = ? OR u.username = ?) 
-               AND pr.reset_code = ? 
-               AND pr.used = 0 
-               AND pr.expires_at > CURRENT_TIMESTAMP
-             ORDER BY pr.id DESC LIMIT 1`,
-            [cleanEmail, cleanEmail, cleanCode]
-        );
+        const resetRecord = await PasswordReset.findOne({
+            email: cleanEmail,
+            reset_code: cleanCode,
+            used: 0,
+            expires_at: { $gt: new Date() }
+        }).sort({ id: -1 });
 
         if (!resetRecord) {
             return res.status(400).json({ error: 'Invalid or expired reset code. Please request a new code.' });
         }
 
-        // 3. Hash new password
         const passwordHash = await bcrypt.hash(newPassword, 12);
-
-        // 4. Update user password
-        await query.run(
-            `UPDATE users SET password_hash = ? WHERE id = ?`,
-            [passwordHash, resetRecord.user_id]
-        );
-
-        // 5. Invalidate the code
-        await query.run(
-            `UPDATE password_resets SET used = 1 WHERE id = ?`,
-            [resetRecord.id]
-        );
+        await User.updateOne({ id: resetRecord.user_id }, { password_hash: passwordHash });
+        await PasswordReset.updateOne({ id: resetRecord.id }, { used: 1 });
 
         res.json({
             message: 'Password has been reset successfully! You can now sign in with your new password.'
@@ -1546,29 +1588,36 @@ router.post('/auth/reset-password', async (req, res) => {
 // GET /api/auth/me - Current profile & saved routes
 router.get('/auth/me', authenticateToken, async (req, res) => {
     try {
-        const user = await query.get(
-            `SELECT id, username, email, role, created_at FROM users WHERE id = ?`,
-            [req.user.id]
-        );
+        const user = await User.findOne({ id: req.user.id }, {
+            id: 1, username: 1, email: 1, role: 1, created_at: 1, _id: 0
+        }).lean();
 
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
 
-        const savedRoutes = await query.all(
-            `SELECT r.id, r.route_name, tm.name as mode_name, r.minimum_fare, r.maximum_fare, r.status
-             FROM saved_routes sr
-             JOIN routes r ON sr.route_id = r.id
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             WHERE sr.user_id = ?
-             ORDER BY sr.created_at DESC`,
-            [req.user.id]
-        );
+        const userSaved = await SavedRoute.find({ user_id: req.user.id }).sort({ created_at: -1 }).lean();
+        const routeIds = userSaved.map(s => s.route_id);
+        const routes = await Route.find({ id: { $in: routeIds } }).lean();
+        const routeMap = new Map(routes.map(r => [r.id, r]));
+        const modes = await TransportMode.find().lean();
+        const modeMap = new Map(modes.map(m => [m.id, m]));
 
-        res.json({
-            user,
-            savedRoutes
-        });
+        const savedRoutes = userSaved.map(sr => {
+            const r = routeMap.get(sr.route_id);
+            if (!r) return null;
+            const m = modeMap.get(r.transport_mode_id);
+            return {
+                id: r.id,
+                route_name: r.route_name,
+                mode_name: m ? m.name : null,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                status: r.status
+            };
+        }).filter(Boolean);
+
+        res.json({ user, savedRoutes });
     } catch (err) {
         console.error('Error fetching profile:', err);
         res.status(500).json({ error: 'Failed to fetch user profile.' });
@@ -1576,23 +1625,38 @@ router.get('/auth/me', authenticateToken, async (req, res) => {
 });
 
 // ============================================================================
-// 3. COMMUTER SAVED ROUTES (per §0.8)
+// 3. COMMUTER SAVED ROUTES
 // ============================================================================
 
 // GET /api/saved-routes - Get saved routes for current user
 router.get('/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
     try {
-        const saved = await query.all(
-            `SELECT r.id, r.route_name, tm.name as mode_name, tm.icon as mode_icon,
-                    r.origin, r.destination, r.estimated_time, r.minimum_fare, r.maximum_fare, r.status,
-                    sr.created_at as saved_at
-             FROM saved_routes sr
-             JOIN routes r ON sr.route_id = r.id
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             WHERE sr.user_id = ?
-             ORDER BY sr.created_at DESC`,
-            [req.user.id]
-        );
+        const userSaved = await SavedRoute.find({ user_id: req.user.id }).sort({ created_at: -1 }).lean();
+        const routeIds = userSaved.map(s => s.route_id);
+        const routes = await Route.find({ id: { $in: routeIds } }).lean();
+        const routeMap = new Map(routes.map(r => [r.id, r]));
+        const modes = await TransportMode.find().lean();
+        const modeMap = new Map(modes.map(m => [m.id, m]));
+
+        const saved = userSaved.map(sr => {
+            const r = routeMap.get(sr.route_id);
+            if (!r) return null;
+            const m = modeMap.get(r.transport_mode_id);
+            return {
+                id: r.id,
+                route_name: r.route_name,
+                mode_name: m ? m.name : null,
+                mode_icon: m ? m.icon : null,
+                origin: r.origin,
+                destination: r.destination,
+                estimated_time: r.estimated_time,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                status: r.status,
+                saved_at: sr.created_at
+            };
+        }).filter(Boolean);
+
         res.json(saved);
     } catch (err) {
         console.error('Error fetching saved routes:', err);
@@ -1601,19 +1665,13 @@ router.get('/saved-routes', authenticateToken, requireCommuter, async (req, res)
 });
 
 // GET /api/users/:id/saved-routes — BOLA/IDOR-protected user-scoped saved routes
-// The server compares the :id path parameter to the authenticated user's JWT subject.
-// If they do not match, a 403 Forbidden is returned — this is the BOLA/IDOR defense.
-// This endpoint exists specifically to provide a testable BOLA scenario for the VAPT
-// section of the security report (see addendum §4).
 router.get('/users/:id/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
-    const requestedId = parseInt(req.params.id, 10);
+    const requestedId = parseId(req.params.id);
 
-    // Validate path parameter
-    if (isNaN(requestedId)) {
+    if (requestedId === null) {
         return res.status(400).json({ error: 'Invalid user ID format.' });
     }
 
-    // ── BOLA/IDOR defence: reject cross-user access
     if (requestedId !== req.user.id) {
         return res.status(403).json({
             error: 'Access denied. You may only retrieve your own saved routes.'
@@ -1621,17 +1679,32 @@ router.get('/users/:id/saved-routes', authenticateToken, requireCommuter, async 
     }
 
     try {
-        const saved = await query.all(
-            `SELECT r.id, r.route_name, tm.name as mode_name, tm.icon as mode_icon,
-                    r.origin, r.destination, r.estimated_time, r.minimum_fare, r.maximum_fare, r.status,
-                    sr.created_at as saved_at
-             FROM saved_routes sr
-             JOIN routes r ON sr.route_id = r.id
-             JOIN transport_modes tm ON r.transport_mode_id = tm.id
-             WHERE sr.user_id = ?
-             ORDER BY sr.created_at DESC`,
-            [req.user.id]
-        );
+        const userSaved = await SavedRoute.find({ user_id: req.user.id }).sort({ created_at: -1 }).lean();
+        const routeIds = userSaved.map(s => s.route_id);
+        const routes = await Route.find({ id: { $in: routeIds } }).lean();
+        const routeMap = new Map(routes.map(r => [r.id, r]));
+        const modes = await TransportMode.find().lean();
+        const modeMap = new Map(modes.map(m => [m.id, m]));
+
+        const saved = userSaved.map(sr => {
+            const r = routeMap.get(sr.route_id);
+            if (!r) return null;
+            const m = modeMap.get(r.transport_mode_id);
+            return {
+                id: r.id,
+                route_name: r.route_name,
+                mode_name: m ? m.name : null,
+                mode_icon: m ? m.icon : null,
+                origin: r.origin,
+                destination: r.destination,
+                estimated_time: r.estimated_time,
+                minimum_fare: r.minimum_fare,
+                maximum_fare: r.maximum_fare,
+                status: r.status,
+                saved_at: sr.created_at
+            };
+        }).filter(Boolean);
+
         res.json(saved);
     } catch (err) {
         console.error('Error fetching user saved routes:', err);
@@ -1642,20 +1715,22 @@ router.get('/users/:id/saved-routes', authenticateToken, requireCommuter, async 
 // POST /api/saved-routes - Save a route for the authenticated commuter
 router.post('/saved-routes', authenticateToken, requireCommuter, async (req, res) => {
     try {
-        const routeId = parseInt(req.body?.routeId, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.body?.routeId);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID.' });
         }
 
-        const route = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        const route = await Route.findOne({ id: routeId }).lean();
         if (!route) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        await query.run(
-            `INSERT OR IGNORE INTO saved_routes (user_id, route_id) VALUES (?, ?)`,
-            [req.user.id, routeId]
-        );
+        const existing = await SavedRoute.findOne({ user_id: req.user.id, route_id: routeId });
+        if (!existing) {
+            const id = await nextId('SavedRoute');
+            await SavedRoute.create({ id, user_id: req.user.id, route_id: routeId });
+        }
+
         return res.status(201).json({ saved: true, message: 'Route saved successfully!' });
     } catch (err) {
         console.error('Error saving route:', err);
@@ -1666,15 +1741,12 @@ router.post('/saved-routes', authenticateToken, requireCommuter, async (req, res
 // DELETE /api/saved-routes/:routeId - Remove a bookmark owned by the authenticated commuter
 router.delete('/saved-routes/:routeId', authenticateToken, requireCommuter, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.routeId, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.routeId);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID.' });
         }
 
-        await query.run(
-            `DELETE FROM saved_routes WHERE user_id = ? AND route_id = ?`,
-            [req.user.id, routeId]
-        );
+        await SavedRoute.deleteOne({ user_id: req.user.id, route_id: routeId });
         return res.json({ saved: false, message: 'Route removed from saved routes.' });
     } catch (err) {
         console.error('Error removing saved route:', err);
@@ -1682,36 +1754,27 @@ router.delete('/saved-routes/:routeId', authenticateToken, requireCommuter, asyn
     }
 });
 
-// Legacy toggle endpoint retained for existing clients.
+// Legacy toggle endpoint retained for existing clients
 router.post('/routes/:id/save', authenticateToken, requireCommuter, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID.' });
         }
 
-        const route = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        const route = await Route.findOne({ id: routeId }).lean();
         if (!route) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        const existing = await query.get(
-            `SELECT id FROM saved_routes WHERE user_id = ? AND route_id = ?`,
-            [req.user.id, routeId]
-        );
-
+        const existing = await SavedRoute.findOne({ user_id: req.user.id, route_id: routeId });
         if (existing) {
-            await query.run(
-                `DELETE FROM saved_routes WHERE user_id = ? AND route_id = ?`,
-                [req.user.id, routeId]
-            );
+            await SavedRoute.deleteOne({ id: existing.id });
             return res.json({ saved: false, message: 'Route removed from saved routes.' });
         }
 
-        await query.run(
-            `INSERT INTO saved_routes (user_id, route_id) VALUES (?, ?)`,
-            [req.user.id, routeId]
-        );
+        const id = await nextId('SavedRoute');
+        await SavedRoute.create({ id, user_id: req.user.id, route_id: routeId });
         return res.json({ saved: true, message: 'Route saved successfully!' });
     } catch (err) {
         console.error('Error toggling saved route:', err);
@@ -1720,26 +1783,26 @@ router.post('/routes/:id/save', authenticateToken, requireCommuter, async (req, 
 });
 
 // ============================================================================
-// 4. ADMIN MANAGEMENT ENDPOINTS (Strictly requires ADMIN role per §18, §19)
+// 4. ADMIN MANAGEMENT ENDPOINTS
 // ============================================================================
 
 // GET /api/admin/stats - Admin dashboard overview metrics
 router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const totalRoutes = await query.get(`SELECT COUNT(*) as count FROM routes`);
-        const activeAdvisories = await query.get(`SELECT COUNT(*) as count FROM advisories WHERE status = 'ACTIVE'`);
-        const totalStops = await query.get(`SELECT COUNT(*) as count FROM stops`);
-        const pendingFeedback = await query.get(`SELECT COUNT(*) as count FROM feedback WHERE status = 'NEW'`);
-        const totalLocations = await query.get(`SELECT COUNT(*) as count FROM locations`);
-        const totalModes = await query.get(`SELECT COUNT(*) as count FROM transport_modes`);
+        const totalRoutes = await Route.countDocuments();
+        const activeAdvisories = await Advisory.countDocuments({ status: 'ACTIVE' });
+        const totalStops = await Stop.countDocuments();
+        const pendingFeedback = await Feedback.countDocuments({ status: 'NEW' });
+        const totalLocations = await Location.countDocuments();
+        const totalModes = await TransportMode.countDocuments();
 
         res.json({
-            totalRoutes: totalRoutes.count,
-            activeAdvisories: activeAdvisories.count,
-            totalStops: totalStops.count,
-            pendingFeedback: pendingFeedback.count,
-            totalLocations: totalLocations ? totalLocations.count : 0,
-            totalModes: totalModes ? totalModes.count : 0
+            totalRoutes,
+            activeAdvisories,
+            totalStops,
+            pendingFeedback,
+            totalLocations,
+            totalModes
         });
     } catch (err) {
         console.error('Error fetching admin stats:', err);
@@ -1752,7 +1815,7 @@ router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => 
 // ============================================================================
 
 const VALID_LOCATION_TYPES = [
-    'STREET', 'ROAD', 'LANDMARK', 'ESTABLISHMENT', 'TERMINAL', 
+    'STREET', 'ROAD', 'LANDMARK', 'ESTABLISHMENT', 'TERMINAL',
     'STOP', 'INTERSECTION', 'BARANGAY', 'RIVER_STOP', 'DESTINATION'
 ];
 
@@ -1760,27 +1823,28 @@ const VALID_LOCATION_TYPES = [
 router.get('/admin/locations', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { search, type, status } = req.query;
-        let sql = `SELECT * FROM locations WHERE 1=1`;
-        const params = [];
+        const filter = {};
 
         if (status && status !== 'ALL') {
-            sql += ` AND status = ?`;
-            params.push(status.toUpperCase());
+            filter.status = status.toUpperCase();
         }
 
         if (type && type !== 'ALL') {
-            sql += ` AND UPPER(type) = ?`;
-            params.push(type.toUpperCase());
+            filter.type = type.toUpperCase();
         }
 
         if (search && search.trim() !== '') {
-            sql += ` AND (name LIKE ? OR barangay LIKE ? OR search_keywords LIKE ? OR address LIKE ? OR description LIKE ?)`;
-            const term = `%${search.trim()}%`;
-            params.push(term, term, term, term, term);
+            const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            filter.$or = [
+                { name: regex },
+                { barangay: regex },
+                { search_keywords: regex },
+                { address: regex },
+                { description: regex }
+            ];
         }
 
-        sql += ` ORDER BY name ASC`;
-        const locations = await query.all(sql, params);
+        const locations = await Location.find(filter).sort({ name: 1 }).lean();
         res.json(locations);
     } catch (err) {
         console.error('Error fetching admin locations:', err);
@@ -1798,8 +1862,8 @@ router.post('/admin/locations', authenticateToken, requireAdmin, async (req, res
         }
 
         if (!type || !VALID_LOCATION_TYPES.includes(type.toUpperCase())) {
-            return res.status(400).json({ 
-                error: `Invalid location type. Must be one of: ${VALID_LOCATION_TYPES.join(', ')}` 
+            return res.status(400).json({
+                error: `Invalid location type. Must be one of: ${VALID_LOCATION_TYPES.join(', ')}`
             });
         }
 
@@ -1820,26 +1884,24 @@ router.post('/admin/locations', authenticateToken, requireAdmin, async (req, res
         }
 
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        const locationId = await nextId('Location');
 
-        const result = await query.run(
-            `INSERT INTO locations (name, type, barangay, address, latitude, longitude, description, search_keywords, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                name.trim(), 
-                type.toUpperCase(), 
-                barangay ? barangay.trim() : null, 
-                address ? address.trim() : null, 
-                lat, 
-                lng, 
-                description ? description.trim() : null, 
-                search_keywords ? search_keywords.trim() : null, 
-                validStatus
-            ]
-        );
+        await Location.create({
+            id: locationId,
+            name: name.trim(),
+            type: type.toUpperCase(),
+            barangay: barangay ? barangay.trim() : null,
+            address: address ? address.trim() : null,
+            latitude: lat,
+            longitude: lng,
+            description: description ? description.trim() : null,
+            search_keywords: search_keywords ? search_keywords.trim() : null,
+            status: validStatus
+        });
 
         res.status(201).json({
             message: 'Location created successfully.',
-            locationId: result.lastID
+            locationId
         });
     } catch (err) {
         console.error('Error creating location:', err);
@@ -1850,8 +1912,8 @@ router.post('/admin/locations', authenticateToken, requireAdmin, async (req, res
 // PUT /api/admin/locations/:id - Update location
 router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const locationId = parseInt(req.params.id, 10);
-        if (isNaN(locationId)) {
+        const locationId = parseId(req.params.id);
+        if (locationId === null) {
             return res.status(400).json({ error: 'Invalid location ID format.' });
         }
 
@@ -1862,8 +1924,8 @@ router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, 
         }
 
         if (!type || !VALID_LOCATION_TYPES.includes(type.toUpperCase())) {
-            return res.status(400).json({ 
-                error: `Invalid location type. Must be one of: ${VALID_LOCATION_TYPES.join(', ')}` 
+            return res.status(400).json({
+                error: `Invalid location type. Must be one of: ${VALID_LOCATION_TYPES.join(', ')}`
             });
         }
 
@@ -1885,37 +1947,25 @@ router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, 
 
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-        // GAP-5: Verify location exists before updating
-        const existing = await query.get(`SELECT id FROM locations WHERE id = ?`, [locationId]);
+        const existing = await Location.findOne({ id: locationId });
         if (!existing) {
             return res.status(404).json({ error: 'Location not found.' });
         }
 
-        await query.run(
-            `UPDATE locations SET
-                name = ?,
-                type = ?,
-                barangay = ?,
-                address = ?,
-                latitude = ?,
-                longitude = ?,
-                description = ?,
-                search_keywords = ?,
-                status = ?,
-                updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [
-                name.trim(), 
-                type.toUpperCase(), 
-                barangay ? barangay.trim() : null, 
-                address ? address.trim() : null, 
-                lat, 
-                lng, 
-                description ? description.trim() : null, 
-                search_keywords ? search_keywords.trim() : null, 
-                validStatus, 
-                locationId
-            ]
+        await Location.updateOne(
+            { id: locationId },
+            {
+                name: name.trim(),
+                type: type.toUpperCase(),
+                barangay: barangay ? barangay.trim() : null,
+                address: address ? address.trim() : null,
+                latitude: lat,
+                longitude: lng,
+                description: description ? description.trim() : null,
+                search_keywords: search_keywords ? search_keywords.trim() : null,
+                status: validStatus,
+                updated_at: new Date()
+            }
         );
 
         res.json({ message: 'Location updated successfully.' });
@@ -1928,17 +1978,17 @@ router.put('/admin/locations/:id', authenticateToken, requireAdmin, async (req, 
 // DELETE /api/admin/locations/:id - Delete location
 router.delete('/admin/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const locationId = parseInt(req.params.id, 10);
-        // GAP-6: Guard against non-numeric IDs
-        if (isNaN(locationId)) {
+        const locationId = parseId(req.params.id);
+        if (locationId === null) {
             return res.status(400).json({ error: 'Invalid location ID format.' });
         }
-        // GAP-6: Verify location exists before deleting
-        const existing = await query.get(`SELECT id FROM locations WHERE id = ?`, [locationId]);
+
+        const existing = await Location.findOne({ id: locationId });
         if (!existing) {
             return res.status(404).json({ error: 'Location not found.' });
         }
-        await query.run(`DELETE FROM locations WHERE id = ?`, [locationId]);
+
+        await Location.deleteOne({ id: locationId });
         res.json({ message: 'Location deleted successfully.' });
     } catch (err) {
         console.error('Error deleting location:', err);
@@ -1953,7 +2003,7 @@ router.delete('/admin/locations/:id', authenticateToken, requireAdmin, async (re
 // GET /api/admin/transport-modes - List all transport modes
 router.get('/admin/transport-modes', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const modes = await query.all(`SELECT * FROM transport_modes ORDER BY id ASC`);
+        const modes = await TransportMode.find().sort({ id: 1 }).lean();
         res.json(modes);
     } catch (err) {
         res.status(500).json({ error: 'Failed to retrieve transport modes.' });
@@ -1969,12 +2019,17 @@ router.post('/admin/transport-modes', authenticateToken, requireAdmin, async (re
         }
 
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
-        const result = await query.run(
-            `INSERT INTO transport_modes (name, description, icon, status) VALUES (?, ?, ?, ?)`,
-            [name.trim(), description ? description.trim() : null, icon ? icon.trim() : 'bus', validStatus]
-        );
+        const modeId = await nextId('TransportMode');
 
-        res.status(201).json({ message: 'Transport mode created.', modeId: result.lastID });
+        await TransportMode.create({
+            id: modeId,
+            name: name.trim(),
+            description: description ? description.trim() : null,
+            icon: icon ? icon.trim() : 'bus',
+            status: validStatus
+        });
+
+        res.status(201).json({ message: 'Transport mode created.', modeId });
     } catch (err) {
         console.error('Error creating transport mode:', err);
         res.status(500).json({ error: 'Failed to create transport mode.' });
@@ -1984,28 +2039,29 @@ router.post('/admin/transport-modes', authenticateToken, requireAdmin, async (re
 // PUT /api/admin/transport-modes/:id - Update transport mode
 router.put('/admin/transport-modes/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const modeId = parseInt(req.params.id, 10);
-        // GAP-7: Guard against non-numeric IDs
-        if (isNaN(modeId)) {
+        const modeId = parseId(req.params.id);
+        if (modeId === null) {
             return res.status(400).json({ error: 'Invalid transport mode ID format.' });
         }
 
         const { name, description, icon, status } = req.body;
-
-        // GAP-7: Required-field guard — prevents name.trim() TypeError
         if (!name || typeof name !== 'string' || name.trim() === '') {
             return res.status(400).json({ error: 'Mode name is required.' });
         }
 
-        // GAP-7: Verify exists before updating
-        const existing = await query.get(`SELECT id FROM transport_modes WHERE id = ?`, [modeId]);
+        const existing = await TransportMode.findOne({ id: modeId });
         if (!existing) {
             return res.status(404).json({ error: 'Transport mode not found.' });
         }
 
-        await query.run(
-            `UPDATE transport_modes SET name = ?, description = ?, icon = ?, status = ? WHERE id = ?`,
-            [name.trim(), description ? description.trim() : null, icon ? icon.trim() : null, status || 'ACTIVE', modeId]
+        await TransportMode.updateOne(
+            { id: modeId },
+            {
+                name: name.trim(),
+                description: description ? description.trim() : null,
+                icon: icon ? icon.trim() : null,
+                status: status || 'ACTIVE'
+            }
         );
 
         res.json({ message: 'Transport mode updated.' });
@@ -2021,15 +2077,25 @@ router.put('/admin/transport-modes/:id', authenticateToken, requireAdmin, async 
 // GET /api/admin/boat-details - List all boat route details
 router.get('/admin/boat-details', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const details = await query.all(
-            `SELECT brd.*, r.route_name, orig.name AS origin_stop_name, dest.name AS destination_stop_name
-             FROM boat_route_details brd
-             JOIN routes r ON brd.route_id = r.id
-             LEFT JOIN locations orig ON brd.origin_river_stop_id = orig.id
-             LEFT JOIN locations dest ON brd.destination_river_stop_id = dest.id
-             ORDER BY brd.id ASC`
-        );
-        res.json(details);
+        const details = await BoatRouteDetail.find().sort({ id: 1 }).lean();
+        const routes = await Route.find().lean();
+        const routeMap = new Map(routes.map(r => [r.id, r]));
+        const locs = await Location.find().lean();
+        const locMap = new Map(locs.map(l => [l.id, l]));
+
+        const results = details.map(brd => {
+            const r = routeMap.get(brd.route_id);
+            const orig = locMap.get(brd.origin_river_stop_id);
+            const dest = locMap.get(brd.destination_river_stop_id);
+            return {
+                ...brd,
+                route_name: r ? r.route_name : null,
+                origin_stop_name: orig ? orig.name : null,
+                destination_stop_name: dest ? dest.name : null
+            };
+        });
+
+        res.json(results);
     } catch (err) {
         res.status(500).json({ error: 'Failed to retrieve boat route details.' });
     }
@@ -2038,17 +2104,22 @@ router.get('/admin/boat-details', authenticateToken, requireAdmin, async (req, r
 // GET /api/admin/routes/:id/boat-details - Get boat details for a specific route
 router.get('/admin/routes/:id/boat-details', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        const details = await query.get(
-            `SELECT brd.*, r.route_name, orig.name AS origin_stop_name, dest.name AS destination_stop_name
-             FROM boat_route_details brd
-             JOIN routes r ON brd.route_id = r.id
-             LEFT JOIN locations orig ON brd.origin_river_stop_id = orig.id
-             LEFT JOIN locations dest ON brd.destination_river_stop_id = dest.id
-             WHERE brd.route_id = ?`,
-            [routeId]
-        );
-        res.json(details || null);
+        const routeId = parseId(req.params.id);
+        const details = await BoatRouteDetail.findOne({ route_id: routeId }).lean();
+        if (!details) {
+            return res.json(null);
+        }
+
+        const r = await Route.findOne({ id: routeId }).lean();
+        const orig = details.origin_river_stop_id ? await Location.findOne({ id: details.origin_river_stop_id }).lean() : null;
+        const dest = details.destination_river_stop_id ? await Location.findOne({ id: details.destination_river_stop_id }).lean() : null;
+
+        res.json({
+            ...details,
+            route_name: r ? r.route_name : null,
+            origin_stop_name: orig ? orig.name : null,
+            destination_stop_name: dest ? dest.name : null
+        });
     } catch (err) {
         res.status(500).json({ error: 'Failed to retrieve route boat details.' });
     }
@@ -2063,55 +2134,54 @@ router.post('/admin/boat-details', authenticateToken, requireAdmin, async (req, 
             return res.status(400).json({ error: 'route_id is required.' });
         }
 
-        // Validate operating_status
         const validStatuses = ['ACTIVE', 'SUSPENDED', 'UNAVAILABLE'];
         if (!validStatuses.includes(operating_status)) {
             return res.status(400).json({ error: 'operating_status must be ACTIVE, SUSPENDED, or UNAVAILABLE.' });
         }
 
-        // Verify origin and destination are RIVER_STOP if provided
         if (origin_river_stop_id) {
-            const orig = await query.get(`SELECT id, type FROM locations WHERE id = ?`, [origin_river_stop_id]);
+            const orig = await Location.findOne({ id: origin_river_stop_id });
             if (!orig || orig.type !== 'RIVER_STOP') {
                 return res.status(400).json({ error: 'origin_river_stop_id must refer to a location of type RIVER_STOP.' });
             }
         }
 
         if (destination_river_stop_id) {
-            const dest = await query.get(`SELECT id, type FROM locations WHERE id = ?`, [destination_river_stop_id]);
+            const dest = await Location.findOne({ id: destination_river_stop_id });
             if (!dest || dest.type !== 'RIVER_STOP') {
                 return res.status(400).json({ error: 'destination_river_stop_id must refer to a location of type RIVER_STOP.' });
             }
         }
 
-        // Upsert into boat_route_details
-        const existing = await query.get(`SELECT id FROM boat_route_details WHERE route_id = ?`, [route_id]);
+        const existing = await BoatRouteDetail.findOne({ route_id });
         let id;
         if (existing) {
-            await query.run(
-                `UPDATE boat_route_details SET
-                    waterway = ?,
-                    origin_river_stop_id = ?,
-                    destination_river_stop_id = ?,
-                    operating_status = ?,
-                    notes = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?`,
-                [waterway ? waterway.trim() : null, origin_river_stop_id || null, destination_river_stop_id || null, operating_status, notes ? notes.trim() : null, existing.id]
+            await BoatRouteDetail.updateOne(
+                { id: existing.id },
+                {
+                    waterway: waterway ? waterway.trim() : null,
+                    origin_river_stop_id: origin_river_stop_id || null,
+                    destination_river_stop_id: destination_river_stop_id || null,
+                    operating_status,
+                    notes: notes ? notes.trim() : null,
+                    updated_at: new Date()
+                }
             );
             id = existing.id;
         } else {
-            const result = await query.run(
-                `INSERT INTO boat_route_details (route_id, waterway, origin_river_stop_id, destination_river_stop_id, operating_status, notes)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [route_id, waterway ? waterway.trim() : null, origin_river_stop_id || null, destination_river_stop_id || null, operating_status, notes ? notes.trim() : null]
-            );
-            id = result.lastID;
+            id = await nextId('BoatRouteDetail');
+            await BoatRouteDetail.create({
+                id,
+                route_id,
+                waterway: waterway ? waterway.trim() : null,
+                origin_river_stop_id: origin_river_stop_id || null,
+                destination_river_stop_id: destination_river_stop_id || null,
+                operating_status,
+                notes: notes ? notes.trim() : null
+            });
         }
 
-        // Resync route status with new boat operating status
         await syncRouteAdvisoryStatus(route_id);
-
         res.status(201).json({ message: 'Boat route details configured successfully.', id });
     } catch (err) {
         console.error('Error saving boat details:', err);
@@ -2122,10 +2192,10 @@ router.post('/admin/boat-details', authenticateToken, requireAdmin, async (req, 
 // PUT /api/admin/boat-details/:id - Update boat route details
 router.put('/admin/boat-details/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseId(req.params.id);
         const { waterway, origin_river_stop_id, destination_river_stop_id, operating_status, notes } = req.body;
 
-        const current = await query.get(`SELECT route_id FROM boat_route_details WHERE id = ?`, [id]);
+        const current = await BoatRouteDetail.findOne({ id });
         if (!current) {
             return res.status(404).json({ error: 'Boat details not found.' });
         }
@@ -2136,33 +2206,32 @@ router.put('/admin/boat-details/:id', authenticateToken, requireAdmin, async (re
         }
 
         if (origin_river_stop_id) {
-            const orig = await query.get(`SELECT id, type FROM locations WHERE id = ?`, [origin_river_stop_id]);
+            const orig = await Location.findOne({ id: origin_river_stop_id });
             if (!orig || orig.type !== 'RIVER_STOP') {
                 return res.status(400).json({ error: 'origin_river_stop_id must refer to a location of type RIVER_STOP.' });
             }
         }
 
         if (destination_river_stop_id) {
-            const dest = await query.get(`SELECT id, type FROM locations WHERE id = ?`, [destination_river_stop_id]);
+            const dest = await Location.findOne({ id: destination_river_stop_id });
             if (!dest || dest.type !== 'RIVER_STOP') {
                 return res.status(400).json({ error: 'destination_river_stop_id must refer to a location of type RIVER_STOP.' });
             }
         }
 
-        await query.run(
-            `UPDATE boat_route_details SET
-                waterway = ?,
-                origin_river_stop_id = ?,
-                destination_river_stop_id = ?,
-                operating_status = ?,
-                notes = ?,
-                updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
-            [waterway ? waterway.trim() : null, origin_river_stop_id || null, destination_river_stop_id || null, operating_status || 'ACTIVE', notes ? notes.trim() : null, id]
+        await BoatRouteDetail.updateOne(
+            { id },
+            {
+                waterway: waterway ? waterway.trim() : null,
+                origin_river_stop_id: origin_river_stop_id || null,
+                destination_river_stop_id: destination_river_stop_id || null,
+                operating_status: operating_status || 'ACTIVE',
+                notes: notes ? notes.trim() : null,
+                updated_at: new Date()
+            }
         );
 
         await syncRouteAdvisoryStatus(current.route_id);
-
         res.json({ message: 'Boat details updated successfully.' });
     } catch (err) {
         console.error('Error updating boat details:', err);
@@ -2173,9 +2242,9 @@ router.put('/admin/boat-details/:id', authenticateToken, requireAdmin, async (re
 // DELETE /api/admin/boat-details/:id - Delete boat route details
 router.delete('/admin/boat-details/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
-        const current = await query.get(`SELECT route_id FROM boat_route_details WHERE id = ?`, [id]);
-        await query.run(`DELETE FROM boat_route_details WHERE id = ?`, [id]);
+        const id = parseId(req.params.id);
+        const current = await BoatRouteDetail.findOne({ id });
+        await BoatRouteDetail.deleteOne({ id });
         if (current) {
             await syncRouteAdvisoryStatus(current.route_id);
         }
@@ -2192,17 +2261,19 @@ router.delete('/admin/boat-details/:id', authenticateToken, requireAdmin, async 
 // GET /api/admin/routes/:id/segments - List segments for a route
 router.get('/admin/routes/:id/segments', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        const segments = await query.all(
-            `SELECT rs.*, sl.name AS start_location_name, el.name AS end_location_name
-             FROM route_segments rs
-             LEFT JOIN locations sl ON rs.start_location_id = sl.id
-             LEFT JOIN locations el ON rs.end_location_id = el.id
-             WHERE rs.route_id = ?
-             ORDER BY rs.segment_order ASC`,
-            [routeId]
-        );
-        res.json(segments);
+        const routeId = parseId(req.params.id);
+        const segments = await RouteSegment.find({ route_id: routeId }).sort({ segment_order: 1 }).lean();
+        const locIds = [...new Set(segments.flatMap(s => [s.start_location_id, s.end_location_id]).filter(Boolean))];
+        const locs = await Location.find({ id: { $in: locIds } }).lean();
+        const locMap = new Map(locs.map(l => [l.id, l]));
+
+        const results = segments.map(rs => ({
+            ...rs,
+            start_location_name: locMap.get(rs.start_location_id) ? locMap.get(rs.start_location_id).name : null,
+            end_location_name: locMap.get(rs.end_location_id) ? locMap.get(rs.end_location_id).name : null
+        }));
+
+        res.json(results);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch route segments.' });
     }
@@ -2227,13 +2298,21 @@ router.post('/admin/segments', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'Estimated time must be non-negative.' });
         }
 
-        const result = await query.run(
-            `INSERT INTO route_segments (route_id, segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [route_id, parseInt(segment_order, 10), mode.trim(), start_location_id || null, end_location_id || null, fareVal, timeVal, notes ? notes.trim() : null]
-        );
+        const segmentId = await nextId('RouteSegment');
 
-        res.status(201).json({ message: 'Route segment created.', segmentId: result.lastID });
+        await RouteSegment.create({
+            id: segmentId,
+            route_id,
+            segment_order: parseInt(segment_order, 10),
+            mode: mode.trim(),
+            start_location_id: start_location_id || null,
+            end_location_id: end_location_id || null,
+            fare: fareVal,
+            estimated_time: timeVal,
+            notes: notes ? notes.trim() : null
+        });
+
+        res.status(201).json({ message: 'Route segment created.', segmentId });
     } catch (err) {
         console.error('Error creating segment:', err);
         res.status(500).json({ error: 'Failed to create segment.' });
@@ -2243,7 +2322,7 @@ router.post('/admin/segments', authenticateToken, requireAdmin, async (req, res)
 // PUT /api/admin/segments/:id - Update route segment
 router.put('/admin/segments/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const segmentId = parseInt(req.params.id, 10);
+        const segmentId = parseId(req.params.id);
         const { segment_order, mode, start_location_id, end_location_id, fare, estimated_time, notes } = req.body;
 
         const fareVal = parseFloat(fare);
@@ -2256,17 +2335,17 @@ router.put('/admin/segments/:id', authenticateToken, requireAdmin, async (req, r
             return res.status(400).json({ error: 'Estimated time must be non-negative.' });
         }
 
-        await query.run(
-            `UPDATE route_segments SET
-                segment_order = ?,
-                mode = ?,
-                start_location_id = ?,
-                end_location_id = ?,
-                fare = ?,
-                estimated_time = ?,
-                notes = ?
-             WHERE id = ?`,
-            [parseInt(segment_order, 10), mode ? mode.trim() : 'Walk', start_location_id || null, end_location_id || null, fareVal, timeVal, notes ? notes.trim() : null, segmentId]
+        await RouteSegment.updateOne(
+            { id: segmentId },
+            {
+                segment_order: parseInt(segment_order, 10),
+                mode: mode ? mode.trim() : 'Walk',
+                start_location_id: start_location_id || null,
+                end_location_id: end_location_id || null,
+                fare: fareVal,
+                estimated_time: timeVal,
+                notes: notes ? notes.trim() : null
+            }
         );
 
         res.json({ message: 'Segment updated.' });
@@ -2278,8 +2357,8 @@ router.put('/admin/segments/:id', authenticateToken, requireAdmin, async (req, r
 // DELETE /api/admin/segments/:id - Delete route segment
 router.delete('/admin/segments/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const segmentId = parseInt(req.params.id, 10);
-        await query.run(`DELETE FROM route_segments WHERE id = ?`, [segmentId]);
+        const segmentId = parseId(req.params.id);
+        await RouteSegment.deleteOne({ id: segmentId });
         res.json({ message: 'Segment deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete segment.' });
@@ -2332,37 +2411,46 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         }
 
         const geomString = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
+        const routeId = await nextId('Route');
 
-        const result = await query.run(
-            `INSERT INTO routes (
-                route_name, transport_mode_id, origin, destination, estimated_time,
-                detour_time, minimum_fare, maximum_fare, status, description, geometry
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                route_name.trim(),
-                transport_mode_id,
-                origin.trim(),
-                destination.trim(),
-                parsedEstimatedTime,
-                detour_time ? parseInt(detour_time, 10) : null,
-                parsedMinFare,
-                parsedMaxFare,
-                routeStatus,
-                description ? description.trim() : null,
-                geomString
-            ]
-        );
+        await Route.create({
+            id: routeId,
+            route_name: route_name.trim(),
+            transport_mode_id,
+            origin: origin.trim(),
+            destination: destination.trim(),
+            estimated_time: parsedEstimatedTime,
+            detour_time: detour_time ? parseInt(detour_time, 10) : null,
+            minimum_fare: parsedMinFare,
+            maximum_fare: parsedMaxFare,
+            status: routeStatus,
+            description: description ? description.trim() : null,
+            geometry: geomString
+        });
 
         // Seed default fares for this new route
-        const minFare = parseFloat(minimum_fare);
-        await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'REGULAR', ?, 0, ?)`, [result.lastID, minFare, minFare]);
-        await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'STUDENT', ?, 20, ?)`, [result.lastID, minFare, Number((minFare * 0.8).toFixed(2))]);
-        await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'SENIOR_CITIZEN', ?, 20, ?)`, [result.lastID, minFare, Number((minFare * 0.8).toFixed(2))]);
-        await query.run(`INSERT INTO fares (route_id, passenger_type, base_fare, discount_percentage, final_fare) VALUES (?, 'PWD', ?, 20, ?)`, [result.lastID, minFare, Number((minFare * 0.8).toFixed(2))]);
+        const fareTypes = [
+            { type: 'REGULAR', discount: 0, final: parsedMinFare },
+            { type: 'STUDENT', discount: 20, final: Number((parsedMinFare * 0.8).toFixed(2)) },
+            { type: 'SENIOR_CITIZEN', discount: 20, final: Number((parsedMinFare * 0.8).toFixed(2)) },
+            { type: 'PWD', discount: 20, final: Number((parsedMinFare * 0.8).toFixed(2)) }
+        ];
+
+        for (const ft of fareTypes) {
+            const fareId = await nextId('Fare');
+            await Fare.create({
+                id: fareId,
+                route_id: routeId,
+                passenger_type: ft.type,
+                base_fare: parsedMinFare,
+                discount_percentage: ft.discount,
+                final_fare: ft.final
+            });
+        }
 
         res.status(201).json({
             message: 'Route created successfully.',
-            routeId: result.lastID
+            routeId
         });
     } catch (err) {
         console.error('Error creating route:', err);
@@ -2373,8 +2461,8 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
 // PUT /api/admin/routes/:id - Update route
 router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
@@ -2392,7 +2480,6 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             geometry
         } = req.body;
 
-        // GAP-3: Validate required fields and numeric ranges
         if (!route_name || typeof route_name !== 'string' || route_name.trim() === '') {
             return res.status(400).json({ error: 'route_name is required.' });
         }
@@ -2432,76 +2519,30 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_ROUTE_STATUSES.join(', ')}` });
         }
 
-        // GAP-1: Verify route exists before updating
-        const existing = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        const existing = await Route.findOne({ id: routeId });
         if (!existing) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        const geomString = geometry !== undefined ? (geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null) : undefined;
+        const updateData = {
+            route_name: route_name.trim(),
+            transport_mode_id,
+            origin: origin.trim(),
+            destination: destination.trim(),
+            estimated_time: parsedEstimatedTime,
+            detour_time: detour_time ? parseInt(detour_time, 10) : null,
+            minimum_fare: parsedMinFare,
+            maximum_fare: parsedMaxFare,
+            status: routeStatus,
+            description: description ? description.trim() : null,
+            updated_at: new Date()
+        };
 
-        if (geomString !== undefined) {
-            await query.run(
-                `UPDATE routes SET
-                    route_name = ?,
-                    transport_mode_id = ?,
-                    origin = ?,
-                    destination = ?,
-                    estimated_time = ?,
-                    detour_time = ?,
-                    minimum_fare = ?,
-                    maximum_fare = ?,
-                    status = ?,
-                    description = ?,
-                    geometry = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?`,
-                [
-                    route_name.trim(),
-                    transport_mode_id,
-                    origin.trim(),
-                    destination.trim(),
-                    parsedEstimatedTime,
-                    detour_time ? parseInt(detour_time, 10) : null,
-                    parsedMinFare,
-                    parsedMaxFare,
-                    routeStatus,
-                    description ? description.trim() : null,
-                    geomString,
-                    routeId
-                ]
-            );
-        } else {
-            await query.run(
-                `UPDATE routes SET
-                    route_name = ?,
-                    transport_mode_id = ?,
-                    origin = ?,
-                    destination = ?,
-                    estimated_time = ?,
-                    detour_time = ?,
-                    minimum_fare = ?,
-                    maximum_fare = ?,
-                    status = ?,
-                    description = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?`,
-                [
-                    route_name.trim(),
-                    transport_mode_id,
-                    origin.trim(),
-                    destination.trim(),
-                    parsedEstimatedTime,
-                    detour_time ? parseInt(detour_time, 10) : null,
-                    parsedMinFare,
-                    parsedMaxFare,
-                    routeStatus,
-                    description ? description.trim() : null,
-                    routeId
-                ]
-            );
+        if (geometry !== undefined) {
+            updateData.geometry = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
         }
 
+        await Route.updateOne({ id: routeId }, updateData);
         res.json({ message: 'Route updated successfully.' });
     } catch (err) {
         console.error('Error updating route:', err);
@@ -2509,21 +2550,28 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
     }
 });
 
-// DELETE /api/admin/routes/:id - Delete route
-router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
+// DELETE /api/admin/routes/:id - Delete route and cascade related entities
+router.delete('/api/admin/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const routeId = parseInt(req.params.id, 10);
-        if (isNaN(routeId)) {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
-        // GAP-2: Verify route exists before deleting
-        const existing = await query.get(`SELECT id FROM routes WHERE id = ?`, [routeId]);
+        const existing = await Route.findOne({ id: routeId });
         if (!existing) {
             return res.status(404).json({ error: 'Route not found.' });
         }
 
-        await query.run(`DELETE FROM routes WHERE id = ?`, [routeId]);
+        await Route.deleteOne({ id: routeId });
+        await Stop.deleteMany({ route_id: routeId });
+        await RouteStep.deleteMany({ route_id: routeId });
+        await Fare.deleteMany({ route_id: routeId });
+        await RouteSegment.deleteMany({ route_id: routeId });
+        await BoatRouteDetail.deleteMany({ route_id: routeId });
+        await SavedRoute.deleteMany({ route_id: routeId });
+        await AdvisoryRoute.deleteMany({ route_id: routeId });
+
         res.json({ message: 'Route deleted successfully.' });
     } catch (err) {
         console.error('Error deleting route:', err);
@@ -2531,14 +2579,40 @@ router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, 
     }
 });
 
+// Express route alias without extra /api prefix
+router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const routeId = parseId(req.params.id);
+        if (routeId === null) {
+            return res.status(400).json({ error: 'Invalid route ID format.' });
+        }
+
+        const existing = await Route.findOne({ id: routeId });
+        if (!existing) {
+            return res.status(404).json({ error: 'Route not found.' });
+        }
+
+        await Route.deleteOne({ id: routeId });
+        await Stop.deleteMany({ route_id: routeId });
+        await RouteStep.deleteMany({ route_id: routeId });
+        await Fare.deleteMany({ route_id: routeId });
+        await RouteSegment.deleteMany({ route_id: routeId });
+        await BoatRouteDetail.deleteMany({ route_id: routeId });
+        await SavedRoute.deleteMany({ route_id: routeId });
+        await AdvisoryRoute.deleteMany({ route_id: routeId });
+
+        res.json({ message: 'Route deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting route:', err);
+        res.status(500).json({ error: 'Failed to delete route.' });
+    }
+});
 
 // GET /api/admin/routes/:id/stops - Stops for a route
 router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stops = await query.all(
-            `SELECT * FROM stops WHERE route_id = ? ORDER BY stop_order ASC`,
-            [req.params.id]
-        );
+        const routeId = parseId(req.params.id);
+        const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
         res.json(stops);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch stops.' });
@@ -2549,7 +2623,7 @@ router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (re
 router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { route_id, stop_name, stop_order, description, is_transfer_point, latitude, longitude } = req.body;
-        
+
         if (!route_id || !stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'route_id, stop_name, and stop_order are required.' });
         }
@@ -2559,12 +2633,20 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             return res.status(400).json({ error: 'stop_order must be a valid non-negative integer.' });
         }
 
-        const result = await query.run(
-            `INSERT INTO stops (route_id, stop_name, stop_order, description, is_transfer_point, latitude, longitude)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [route_id, stop_name.trim(), parsedStopOrder, description, is_transfer_point ? 1 : 0, latitude || null, longitude || null]
-        );
-        res.status(201).json({ message: 'Stop added.', stopId: result.lastID });
+        const stopId = await nextId('Stop');
+
+        await Stop.create({
+            id: stopId,
+            route_id,
+            stop_name: stop_name.trim(),
+            stop_order: parsedStopOrder,
+            description: description || null,
+            is_transfer_point: is_transfer_point ? 1 : 0,
+            latitude: latitude || null,
+            longitude: longitude || null
+        });
+
+        res.status(201).json({ message: 'Stop added.', stopId });
     } catch (err) {
         res.status(500).json({ error: 'Failed to create stop.' });
     }
@@ -2573,8 +2655,8 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/admin/stops/:id - Update stop
 router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stopId = parseInt(req.params.id, 10);
-        if (isNaN(stopId)) {
+        const stopId = parseId(req.params.id);
+        if (stopId === null) {
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
@@ -2588,15 +2670,23 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'stop_order must be a valid non-negative integer.' });
         }
 
-        const existing = await query.get(`SELECT id FROM stops WHERE id = ?`, [stopId]);
+        const existing = await Stop.findOne({ id: stopId });
         if (!existing) {
             return res.status(404).json({ error: 'Stop not found.' });
         }
 
-        await query.run(
-            `UPDATE stops SET stop_name = ?, stop_order = ?, description = ?, is_transfer_point = ?, latitude = ?, longitude = ? WHERE id = ?`,
-            [stop_name.trim(), parsedStopOrder, description, is_transfer_point ? 1 : 0, latitude || null, longitude || null, stopId]
+        await Stop.updateOne(
+            { id: stopId },
+            {
+                stop_name: stop_name.trim(),
+                stop_order: parsedStopOrder,
+                description: description || null,
+                is_transfer_point: is_transfer_point ? 1 : 0,
+                latitude: latitude || null,
+                longitude: longitude || null
+            }
         );
+
         res.json({ message: 'Stop updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update stop.' });
@@ -2606,17 +2696,17 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
 // DELETE /api/admin/stops/:id - Delete stop
 router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stopId = parseInt(req.params.id, 10);
-        if (isNaN(stopId)) {
+        const stopId = parseId(req.params.id);
+        if (stopId === null) {
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
-        const existing = await query.get(`SELECT id FROM stops WHERE id = ?`, [stopId]);
+        const existing = await Stop.findOne({ id: stopId });
         if (!existing) {
             return res.status(404).json({ error: 'Stop not found.' });
         }
 
-        await query.run(`DELETE FROM stops WHERE id = ?`, [stopId]);
+        await Stop.deleteOne({ id: stopId });
         res.json({ message: 'Stop deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete stop.' });
@@ -2626,10 +2716,8 @@ router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, r
 // GET /api/admin/routes/:id/steps - Steps for a route
 router.get('/admin/routes/:id/steps', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const steps = await query.all(
-            `SELECT * FROM route_steps WHERE route_id = ? ORDER BY step_number ASC`,
-            [req.params.id]
-        );
+        const routeId = parseId(req.params.id);
+        const steps = await RouteStep.find({ route_id: routeId }).sort({ step_number: 1 }).lean();
         res.json(steps);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch steps.' });
@@ -2649,11 +2737,18 @@ router.post('/admin/steps', authenticateToken, requireAdmin, async (req, res) =>
             return res.status(400).json({ error: 'step_number must be a valid non-negative integer.' });
         }
 
-        const result = await query.run(
-            `INSERT INTO route_steps (route_id, step_number, mode, instruction, location_info) VALUES (?, ?, ?, ?, ?)`,
-            [route_id, parsedStepNumber, mode, instruction.trim(), location_info]
-        );
-        res.status(201).json({ message: 'Step added.', stepId: result.lastID });
+        const stepId = await nextId('RouteStep');
+
+        await RouteStep.create({
+            id: stepId,
+            route_id,
+            step_number: parsedStepNumber,
+            mode,
+            instruction: instruction.trim(),
+            location_info: location_info || null
+        });
+
+        res.status(201).json({ message: 'Step added.', stepId });
     } catch (err) {
         res.status(500).json({ error: 'Failed to add step.' });
     }
@@ -2662,8 +2757,8 @@ router.post('/admin/steps', authenticateToken, requireAdmin, async (req, res) =>
 // PUT /api/admin/steps/:id - Update step
 router.put('/admin/steps/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stepId = parseInt(req.params.id, 10);
-        if (isNaN(stepId)) {
+        const stepId = parseId(req.params.id);
+        if (stepId === null) {
             return res.status(400).json({ error: 'Invalid step ID format.' });
         }
 
@@ -2674,15 +2769,21 @@ router.put('/admin/steps/:id', authenticateToken, requireAdmin, async (req, res)
 
         const parsedStepNumber = step_number !== undefined && step_number !== null ? parseInt(step_number, 10) : 1;
 
-        const existing = await query.get(`SELECT id FROM route_steps WHERE id = ?`, [stepId]);
+        const existing = await RouteStep.findOne({ id: stepId });
         if (!existing) {
             return res.status(404).json({ error: 'Step not found.' });
         }
 
-        await query.run(
-            `UPDATE route_steps SET step_number = ?, mode = ?, instruction = ?, location_info = ? WHERE id = ?`,
-            [parsedStepNumber, mode || 'Walk', instruction.trim(), location_info, stepId]
+        await RouteStep.updateOne(
+            { id: stepId },
+            {
+                step_number: parsedStepNumber,
+                mode: mode || 'Walk',
+                instruction: instruction.trim(),
+                location_info: location_info || null
+            }
         );
+
         res.json({ message: 'Step updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update step.' });
@@ -2692,17 +2793,17 @@ router.put('/admin/steps/:id', authenticateToken, requireAdmin, async (req, res)
 // DELETE /api/admin/steps/:id - Delete step
 router.delete('/admin/steps/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stepId = parseInt(req.params.id, 10);
-        if (isNaN(stepId)) {
+        const stepId = parseId(req.params.id);
+        if (stepId === null) {
             return res.status(400).json({ error: 'Invalid step ID format.' });
         }
 
-        const existing = await query.get(`SELECT id FROM route_steps WHERE id = ?`, [stepId]);
+        const existing = await RouteStep.findOne({ id: stepId });
         if (!existing) {
             return res.status(404).json({ error: 'Step not found.' });
         }
 
-        await query.run(`DELETE FROM route_steps WHERE id = ?`, [stepId]);
+        await RouteStep.deleteOne({ id: stepId });
         res.json({ message: 'Step deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete step.' });
@@ -2712,7 +2813,8 @@ router.delete('/admin/steps/:id', authenticateToken, requireAdmin, async (req, r
 // GET /api/admin/routes/:id/fares - Fares for a route
 router.get('/admin/routes/:id/fares', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const fares = await query.all(`SELECT * FROM fares WHERE route_id = ? ORDER BY id ASC`, [req.params.id]);
+        const routeId = parseId(req.params.id);
+        const fares = await Fare.find({ route_id: routeId }).sort({ id: 1 }).lean();
         res.json(fares);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch fares.' });
@@ -2722,8 +2824,8 @@ router.get('/admin/routes/:id/fares', authenticateToken, requireAdmin, async (re
 // PUT /api/admin/fares/:id - Update fare record
 router.put('/admin/fares/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const fareId = parseInt(req.params.id, 10);
-        if (isNaN(fareId)) {
+        const fareId = parseId(req.params.id);
+        if (fareId === null) {
             return res.status(400).json({ error: 'Invalid fare ID format.' });
         }
 
@@ -2745,36 +2847,45 @@ router.put('/admin/fares/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'discount_percentage must be a number between 0 and 100.' });
         }
 
-        const existing = await query.get(`SELECT id FROM fares WHERE id = ?`, [fareId]);
+        const existing = await Fare.findOne({ id: fareId });
         if (!existing) {
             return res.status(404).json({ error: 'Fare record not found.' });
         }
 
         const finalFare = Number((base * (1 - disc / 100)).toFixed(2));
 
-        await query.run(
-            `UPDATE fares SET base_fare = ?, discount_percentage = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [base, disc, finalFare, fareId]
+        await Fare.updateOne(
+            { id: fareId },
+            {
+                base_fare: base,
+                discount_percentage: disc,
+                final_fare: finalFare,
+                updated_at: new Date()
+            }
         );
+
         res.json({ message: 'Fare updated successfully.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update fare.' });
     }
 });
 
-// GET /api/admin/advisories - All advisories (Active & Inactive)
+// GET /api/admin/advisories - All advisories
 router.get('/admin/advisories', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const advisories = await query.all(`SELECT * FROM advisories ORDER BY created_at DESC`);
+        const advisories = await Advisory.find().sort({ created_at: -1 }).lean();
+        const allAdvisoryRoutes = await AdvisoryRoute.find().lean();
+        const allRoutes = await Route.find().lean();
+        const routeMap = new Map(allRoutes.map(r => [r.id, r]));
+
         for (const adv of advisories) {
-            const routes = await query.all(
-                `SELECT r.id, r.route_name FROM routes r
-                 JOIN advisory_routes ar ON r.id = ar.route_id
-                 WHERE ar.advisory_id = ?`,
-                [adv.id]
-            );
-            adv.routes = routes;
+            const links = allAdvisoryRoutes.filter(ar => ar.advisory_id === adv.id);
+            adv.routes = links.map(ar => {
+                const r = routeMap.get(ar.route_id);
+                return r ? { id: r.id, route_name: r.route_name } : null;
+            }).filter(Boolean);
         }
+
         res.json(advisories);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch advisories.' });
@@ -2782,8 +2893,8 @@ router.get('/admin/advisories', authenticateToken, requireAdmin, async (req, res
 });
 
 const VALID_ADVISORY_CONDITIONS = [
-    'FLOODED', 'HIGH_TIDE', 'ROAD_CLOSURE', 'DETOUR', 
-    'ROUTE_UNAVAILABLE', 'CLEAR', 'RIVER_TRANSPORT_SUSPENDED', 
+    'FLOODED', 'HIGH_TIDE', 'ROAD_CLOSURE', 'DETOUR',
+    'ROUTE_UNAVAILABLE', 'CLEAR', 'RIVER_TRANSPORT_SUSPENDED',
     'RIVER_ADVISORY', 'ROUTE_CLEAR'
 ];
 
@@ -2801,23 +2912,26 @@ router.post('/admin/advisories', authenticateToken, requireAdmin, async (req, re
 
         const normalizedCondition = condition.trim().toUpperCase();
         if (!VALID_ADVISORY_CONDITIONS.includes(normalizedCondition)) {
-            return res.status(400).json({ 
-                error: `Invalid condition. Must be one of: ${VALID_ADVISORY_CONDITIONS.join(', ')}` 
+            return res.status(400).json({
+                error: `Invalid condition. Must be one of: ${VALID_ADVISORY_CONDITIONS.join(', ')}`
             });
         }
 
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        const advisoryId = await nextId('Advisory');
 
-        const result = await query.run(
-            `INSERT INTO advisories (title, affected_road, condition, description, status) VALUES (?, ?, ?, ?, ?)`,
-            [title.trim(), affected_road.trim(), normalizedCondition, description.trim(), validStatus]
-        );
+        await Advisory.create({
+            id: advisoryId,
+            title: title.trim(),
+            affected_road: affected_road.trim(),
+            condition: normalizedCondition,
+            description: description.trim(),
+            status: validStatus
+        });
 
-        const advisoryId = result.lastID;
-
-        // Link routes
         for (const rId of route_ids) {
-            await query.run(`INSERT INTO advisory_routes (advisory_id, route_id) VALUES (?, ?)`, [advisoryId, rId]);
+            const arId = await nextId('AdvisoryRoute');
+            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, route_id: rId });
             await syncRouteAdvisoryStatus(rId);
         }
 
@@ -2831,8 +2945,8 @@ router.post('/admin/advisories', authenticateToken, requireAdmin, async (req, re
 // PUT /api/admin/advisories/:id - Update advisory and affected routes
 router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const advisoryId = parseInt(req.params.id, 10);
-        if (isNaN(advisoryId)) {
+        const advisoryId = parseId(req.params.id);
+        if (advisoryId === null) {
             return res.status(400).json({ error: 'Invalid advisory ID format.' });
         }
 
@@ -2846,33 +2960,38 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
 
         const normalizedCondition = condition ? condition.trim().toUpperCase() : 'FLOODED';
         if (!VALID_ADVISORY_CONDITIONS.includes(normalizedCondition)) {
-            return res.status(400).json({ 
-                error: `Invalid condition. Must be one of: ${VALID_ADVISORY_CONDITIONS.join(', ')}` 
+            return res.status(400).json({
+                error: `Invalid condition. Must be one of: ${VALID_ADVISORY_CONDITIONS.join(', ')}`
             });
         }
 
-        const existing = await query.get(`SELECT id FROM advisories WHERE id = ?`, [advisoryId]);
+        const existing = await Advisory.findOne({ id: advisoryId });
         if (!existing) {
             return res.status(404).json({ error: 'Advisory not found.' });
         }
 
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-        await query.run(
-            `UPDATE advisories SET title = ?, affected_road = ?, condition = ?, description = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [title.trim(), affected_road.trim(), normalizedCondition, description.trim(), validStatus, advisoryId]
+        await Advisory.updateOne(
+            { id: advisoryId },
+            {
+                title: title.trim(),
+                affected_road: affected_road.trim(),
+                condition: normalizedCondition,
+                description: description.trim(),
+                status: validStatus,
+                updated_at: new Date()
+            }
         );
 
-        // Get previously linked routes to resync later
-        const previousLinks = await query.all(`SELECT route_id FROM advisory_routes WHERE advisory_id = ?`, [advisoryId]);
+        const previousLinks = await AdvisoryRoute.find({ advisory_id: advisoryId }).lean();
+        await AdvisoryRoute.deleteMany({ advisory_id: advisoryId });
 
-        // Replace route links
-        await query.run(`DELETE FROM advisory_routes WHERE advisory_id = ?`, [advisoryId]);
         for (const rId of route_ids) {
-            await query.run(`INSERT INTO advisory_routes (advisory_id, route_id) VALUES (?, ?)`, [advisoryId, rId]);
+            const arId = await nextId('AdvisoryRoute');
+            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, route_id: rId });
         }
 
-        // Resync affected routes
         const allRoutesToSync = new Set([
             ...previousLinks.map(p => p.route_id),
             ...route_ids
@@ -2891,25 +3010,20 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
 // POST /api/admin/advisories/:id/toggle-status - Toggle active/inactive
 router.post('/admin/advisories/:id/toggle-status', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const advisoryId = parseInt(req.params.id, 10);
-        if (isNaN(advisoryId)) {
+        const advisoryId = parseId(req.params.id);
+        if (advisoryId === null) {
             return res.status(400).json({ error: 'Invalid advisory ID format.' });
         }
 
-        const current = await query.get(`SELECT status FROM advisories WHERE id = ?`, [advisoryId]);
-
+        const current = await Advisory.findOne({ id: advisoryId });
         if (!current) {
             return res.status(404).json({ error: 'Advisory not found.' });
         }
 
         const newStatus = current.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-        await query.run(
-            `UPDATE advisories SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            [newStatus, advisoryId]
-        );
+        await Advisory.updateOne({ id: advisoryId }, { status: newStatus, updated_at: new Date() });
 
-        // Resync all affected routes
-        const linkedRoutes = await query.all(`SELECT route_id FROM advisory_routes WHERE advisory_id = ?`, [advisoryId]);
+        const linkedRoutes = await AdvisoryRoute.find({ advisory_id: advisoryId }).lean();
         for (const r of linkedRoutes) {
             await syncRouteAdvisoryStatus(r.route_id);
         }
@@ -2924,19 +3038,19 @@ router.post('/admin/advisories/:id/toggle-status', authenticateToken, requireAdm
 // DELETE /api/admin/advisories/:id - Delete advisory
 router.delete('/admin/advisories/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const advisoryId = parseInt(req.params.id, 10);
-        if (isNaN(advisoryId)) {
+        const advisoryId = parseId(req.params.id);
+        if (advisoryId === null) {
             return res.status(400).json({ error: 'Invalid advisory ID format.' });
         }
 
-        const existing = await query.get(`SELECT id FROM advisories WHERE id = ?`, [advisoryId]);
+        const existing = await Advisory.findOne({ id: advisoryId });
         if (!existing) {
             return res.status(404).json({ error: 'Advisory not found.' });
         }
 
-        const linkedRoutes = await query.all(`SELECT route_id FROM advisory_routes WHERE advisory_id = ?`, [advisoryId]);
-
-        await query.run(`DELETE FROM advisories WHERE id = ?`, [advisoryId]);
+        const linkedRoutes = await AdvisoryRoute.find({ advisory_id: advisoryId }).lean();
+        await Advisory.deleteOne({ id: advisoryId });
+        await AdvisoryRoute.deleteMany({ advisory_id: advisoryId });
 
         for (const r of linkedRoutes) {
             await syncRouteAdvisoryStatus(r.route_id);
@@ -2951,7 +3065,7 @@ router.delete('/admin/advisories/:id', authenticateToken, requireAdmin, async (r
 // GET /api/admin/feedback - List all feedback
 router.get('/admin/feedback', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const feedbackList = await query.all(`SELECT * FROM feedback ORDER BY created_at DESC`);
+        const feedbackList = await Feedback.find().sort({ created_at: -1 }).lean();
         res.json(feedbackList);
     } catch (err) {
         res.status(500).json({ error: 'Failed to retrieve feedback.' });
@@ -2961,8 +3075,8 @@ router.get('/admin/feedback', authenticateToken, requireAdmin, async (req, res) 
 // PUT /api/admin/feedback/:id/status - Update feedback status
 router.put('/admin/feedback/:id/status', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const feedbackId = parseInt(req.params.id, 10);
-        if (isNaN(feedbackId)) {
+        const feedbackId = parseId(req.params.id);
+        if (feedbackId === null) {
             return res.status(400).json({ error: 'Invalid feedback ID format.' });
         }
 
@@ -2971,12 +3085,12 @@ router.put('/admin/feedback/:id/status', authenticateToken, requireAdmin, async 
             return res.status(400).json({ error: 'Invalid feedback status.' });
         }
 
-        const existing = await query.get(`SELECT id FROM feedback WHERE id = ?`, [feedbackId]);
+        const existing = await Feedback.findOne({ id: feedbackId });
         if (!existing) {
             return res.status(404).json({ error: 'Feedback not found.' });
         }
 
-        await query.run(`UPDATE feedback SET status = ? WHERE id = ?`, [status, feedbackId]);
+        await Feedback.updateOne({ id: feedbackId }, { status });
         res.json({ message: 'Feedback status updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update feedback status.' });
@@ -2986,17 +3100,17 @@ router.put('/admin/feedback/:id/status', authenticateToken, requireAdmin, async 
 // DELETE /api/admin/feedback/:id - Delete feedback
 router.delete('/admin/feedback/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const feedbackId = parseInt(req.params.id, 10);
-        if (isNaN(feedbackId)) {
+        const feedbackId = parseId(req.params.id);
+        if (feedbackId === null) {
             return res.status(400).json({ error: 'Invalid feedback ID format.' });
         }
 
-        const existing = await query.get(`SELECT id FROM feedback WHERE id = ?`, [feedbackId]);
+        const existing = await Feedback.findOne({ id: feedbackId });
         if (!existing) {
             return res.status(404).json({ error: 'Feedback not found.' });
         }
 
-        await query.run(`DELETE FROM feedback WHERE id = ?`, [feedbackId]);
+        await Feedback.deleteOne({ id: feedbackId });
         res.json({ message: 'Feedback deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete feedback.' });

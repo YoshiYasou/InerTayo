@@ -6,7 +6,7 @@
 
 const { haversineDistance, pathLengthMeters } = require('../utils/geoUtils');
 const ROUTING_CONFIG = require('../config/routingConfig');
-const { query } = require('../db/database');
+const Location = require('../models/Location');
 
 // Simple in-memory response cache: `${startLon},${startLat}-${endLon},${endLat}` -> result
 const routeCache = new Map();
@@ -151,13 +151,11 @@ async function generateRoadAlignedFallback(startLngLat, endLngLat, directDist) {
     const minLng = Math.min(startLon, endLon) - 0.002;
     const maxLng = Math.max(startLon, endLon) + 0.002;
 
-    const nearbyPoints = await query.all(
-        `SELECT latitude, longitude FROM locations 
-         WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? 
-           AND type IN ('STREET', 'ROAD', 'INTERSECTION')
-         LIMIT 6`,
-        [minLat, maxLat, minLng, maxLng]
-    );
+    const nearbyPoints = await Location.find({
+        latitude: { $gte: minLat, $lte: maxLat },
+        longitude: { $gte: minLng, $lte: maxLng },
+        type: { $in: ['STREET', 'ROAD', 'INTERSECTION'] }
+    }).limit(6).lean();
 
     // Pick 1 or 2 best intermediary waypoints that reduce perpendicular deviation (Manhattan-like cornering)
     const waypoints = [startLngLat];

@@ -6,7 +6,15 @@
  * Integrates flood hazard advisories with clear commuter warnings.
  */
 
-const { query } = require('../db/database');
+const School = require('../models/School');
+const Location = require('../models/Location');
+const Landmark = require('../models/Landmark');
+const Route = require('../models/Route');
+const TransportMode = require('../models/TransportMode');
+const Stop = require('../models/Stop');
+const Advisory = require('../models/Advisory');
+const AdvisoryRoute = require('../models/AdvisoryRoute');
+const BoatRouteDetail = require('../models/BoatRouteDetail');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { sliceTransitRoute } = require('../utils/transitSlicer');
 const { getWalkingRoute } = require('./walkingRouter');
@@ -49,13 +57,13 @@ async function resolveLocation(input) {
         }
 
         // Search in schools first
-        const school = await query.get(
-            `SELECT name, latitude, longitude, entrance_latitude, entrance_longitude 
-             FROM schools 
-             WHERE active = 1 AND (name LIKE ? OR aliases LIKE ?) 
-             LIMIT 1`,
-            [`%${trimmed}%`, `%${trimmed}%`]
-        );
+        const school = await School.findOne({
+            active: 1,
+            $or: [
+                { name: { $regex: trimmed, $options: 'i' } },
+                { aliases: { $regex: trimmed, $options: 'i' } }
+            ]
+        }).lean();
         if (school) {
             return {
                 lat: school.entrance_latitude || school.latitude,
@@ -65,25 +73,19 @@ async function resolveLocation(input) {
         }
 
         // Search in locations
-        const loc = await query.get(
-            `SELECT name, latitude, longitude 
-             FROM locations 
-             WHERE status = 'ACTIVE' AND (name LIKE ? OR search_keywords LIKE ?) 
-             LIMIT 1`,
-            [`%${trimmed}%`, `%${trimmed}%`]
-        );
+        const loc = await Location.findOne({
+            status: 'ACTIVE',
+            $or: [
+                { name: { $regex: trimmed, $options: 'i' } },
+                { search_keywords: { $regex: trimmed, $options: 'i' } }
+            ]
+        }).lean();
         if (loc) {
             return { lat: loc.latitude, lng: loc.longitude, name: loc.name };
         }
 
         // Search in landmarks
-        const lm = await query.get(
-            `SELECT name, latitude, longitude 
-             FROM landmarks 
-             WHERE name LIKE ? 
-             LIMIT 1`,
-            [`%${trimmed}%`]
-        );
+        const lm = await Landmark.findOne({ name: { $regex: trimmed, $options: 'i' } }).lean();
         if (lm) {
             return { lat: lm.latitude, lng: lm.longitude, name: lm.name };
         }
@@ -91,21 +93,17 @@ async function resolveLocation(input) {
         // Search by individual words if multi-word phrase
         const words = trimmed.split(/[\s,–-]+/).filter(w => w.length >= 3);
         if (words.length > 0) {
-            const locLike = await query.get(
-                `SELECT name, latitude, longitude FROM locations WHERE status = 'ACTIVE' AND (${words.map(() => 'name LIKE ?').join(' OR ')}) LIMIT 1`,
-                words.map(w => `%${w}%`)
-            );
+            const wordOr = words.map(w => ({ name: { $regex: w, $options: 'i' } }));
+            const locLike = await Location.findOne({ status: 'ACTIVE', $or: wordOr }).lean();
             if (locLike) {
                 return { lat: locLike.latitude, lng: locLike.longitude, name: locLike.name };
             }
-            const lmLike = await query.get(
-                `SELECT name, latitude, longitude FROM landmarks WHERE (${words.map(() => 'name LIKE ?').join(' OR ')}) LIMIT 1`,
-                words.map(w => `%${w}%`)
-            );
+            const lmLike = await Landmark.findOne({ $or: wordOr }).lean();
             if (lmLike) {
                 return { lat: lmLike.latitude, lng: lmLike.longitude, name: lmLike.name };
             }
         }
+
     }
 
     return null;
@@ -185,41 +183,53 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     }
 
     // Load active transport modes and routes
-    const routes = await query.all(`
-        SELECT 
-            r.id, r.route_name, r.transport_mode_id, tm.name as mode_name, tm.icon as mode_icon,
-            r.origin, r.destination, r.estimated_time, r.detour_time, r.minimum_fare, r.maximum_fare,
-            r.status, r.description,
-            COALESCE(CASE WHEN r.use_corrected_geometry = 1 THEN r.geometry_corrected END, r.geometry) AS geometry,
-            brd.waterway, brd.operating_status as boat_operating_status
-        FROM routes r
-        JOIN transport_modes tm ON r.transport_mode_id = tm.id
-        LEFT JOIN boat_route_details brd ON r.id = brd.route_id
-        WHERE r.status != 'INACTIVE'
-    `);
+    const rawRoutes = await Route.find({ status: { $ne: 'INACTIVE' } }).lean();
+    const modes = await TransportMode.find().lean();
+    const modeMap = new Map(modes.map(m => [m.id, m]));
+    const boatDetails = await BoatRouteDetail.find().lean();
+    const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
 
-    // Load stops for each route
-    for (const r of routes) {
-        r.stops = await query.all(
-            `SELECT id, stop_name, stop_order, latitude, longitude, is_transfer_point
-             FROM stops WHERE route_id = ? ORDER BY stop_order ASC`,
-            [r.id]
-        );
-        r.advisories = await query.all(
-            `SELECT a.id, a.title, a.affected_road, a.condition, a.description
-             FROM advisories a
-             JOIN advisory_routes ar ON a.id = ar.advisory_id
-             WHERE ar.route_id = ? AND a.status = 'ACTIVE'`,
-            [r.id]
-        );
+    const allStops = await Stop.find().sort({ stop_order: 1 }).lean();
+    const stopsByRoute = new Map();
+    for (const stop of allStops) {
+        if (!stopsByRoute.has(stop.route_id)) stopsByRoute.set(stop.route_id, []);
+        stopsByRoute.get(stop.route_id).push(stop);
+    }
 
-        // Parse geometry coordinates [lng, lat]
+    const activeAdvisories = await Advisory.find({ status: 'ACTIVE' }).lean();
+    const advMap = new Map(activeAdvisories.map(a => [a.id, a]));
+    const advisoryRoutes = await AdvisoryRoute.find().lean();
+    const advisoriesByRoute = new Map();
+    for (const ar of advisoryRoutes) {
+        if (advMap.has(ar.advisory_id)) {
+            if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
+            advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+        }
+    }
+
+    const routes = [];
+    for (const r of rawRoutes) {
+        const mode = modeMap.get(r.transport_mode_id) || {};
+        const boat = boatMap.get(r.id);
+        const geom = (r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+
         let coords = [];
         try {
-            const parsed = typeof r.geometry === 'string' ? JSON.parse(r.geometry) : r.geometry;
+            const parsed = typeof geom === 'string' ? JSON.parse(geom) : geom;
             if (parsed && parsed.coordinates) coords = parsed.coordinates;
         } catch (e) {}
-        r.parsedCoordinates = coords;
+
+        routes.push({
+            ...r,
+            mode_name: mode.name,
+            mode_icon: mode.icon,
+            waterway: boat ? boat.waterway : null,
+            boat_operating_status: boat ? boat.operating_status : null,
+            geometry: geom,
+            parsedCoordinates: coords,
+            stops: stopsByRoute.get(r.id) || [],
+            advisories: advisoriesByRoute.get(r.id) || []
+        });
     }
 
     const candidateItineraries = [];

@@ -1,11 +1,14 @@
 process.env.NODE_ENV = 'test';
 require('dotenv').config();
 const http = require('http');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const { connectDB, disconnectDB } = require('../server/db/connection');
 const app = require('../server/server');
 const { seed } = require('../server/db/seed');
 
 let server;
 let baseUrl;
+let mongod;
 
 function makeRequest(method, path, body = null, headers = {}) {
     return new Promise((resolve, reject) => {
@@ -47,6 +50,11 @@ async function runTests() {
     console.log('====================================================');
     console.log('  Starting InerTayo Comprehensive Automated Tests   ');
     console.log('====================================================');
+
+    mongod = await MongoMemoryServer.create();
+    const uri = mongod.getUri();
+    process.env.MONGODB_URI = uri;
+    await connectDB(uri);
 
     // Re-seed DB to clean slate
     await seed();
@@ -457,7 +465,7 @@ async function runTests() {
             process.env.NODE_ENV = '';  // activate rate limiter (skip returns false)
 
             // Bust the module cache so a fresh app (with its own rate-limit store) loads
-            Object.keys(require.cache).forEach(k => { delete require.cache[k]; });
+            Object.keys(require.cache).forEach(k => { if (!k.includes('node_modules')) delete require.cache[k]; });
             const rlApp = require('../server/server');
             const rlServer = rlApp.listen(0);
             const rlPort = rlServer.address().port;
@@ -497,7 +505,7 @@ async function runTests() {
             rlServer.close();
 
             // Restore main app via module cache rebuild
-            Object.keys(require.cache).forEach(k => { delete require.cache[k]; });
+            Object.keys(require.cache).forEach(k => { if (!k.includes('node_modules')) delete require.cache[k]; });
             process.env.NODE_ENV = savedEnv;
 
             assert(rateLimitHit, 'Rate limiter returns 429 Too Many Requests after 5 failed auth attempts in 60 seconds');
@@ -1094,6 +1102,10 @@ async function runTests() {
     } finally {
         if (server) {
             server.close();
+        }
+        await disconnectDB();
+        if (mongod) {
+            await mongod.stop();
         }
         console.log('\n====================================================');
         console.log(`  Tests Completed: ${passed} Passed, ${failed} Failed`);
