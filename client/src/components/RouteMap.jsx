@@ -43,6 +43,73 @@ function getRoutePolylineCoords(route) {
   return [];
 }
 
+const ROAD_SNAP_BATCH_LIMIT = 90;
+const ROAD_SNAP_CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+
+function createRoadSnapBatches(routes) {
+  const batches = [];
+  let batch = [];
+  let pointCount = 0;
+
+  routes.forEach(route => {
+    if (batch.length && pointCount + route.waypoints.length > ROAD_SNAP_BATCH_LIMIT) {
+      batches.push(batch);
+      batch = [];
+      pointCount = 0;
+    }
+    route.startIndex = pointCount;
+    batch.push(route);
+    pointCount += route.waypoints.length;
+  });
+
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+async function snapRoadBatch(batch) {
+  const waypoints = batch.flatMap(route => route.waypoints);
+  const coordinates = waypoints.map(([longitude, latitude]) => `${longitude},${latitude}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&steps=true&geometries=geojson`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`OSRM returned HTTP ${response.status}`);
+
+  const data = await response.json();
+  const legs = data.code === 'Ok' ? data.routes?.[0]?.legs : null;
+  if (!Array.isArray(legs) || legs.length !== waypoints.length - 1) {
+    throw new Error(`OSRM could not route this batch (${data.code || 'invalid response'})`);
+  }
+
+  const snappedRoutes = new Map();
+  batch.forEach(route => {
+    const snappedCoordinates = [];
+    const endIndex = route.startIndex + route.waypoints.length - 1;
+    for (let legIndex = route.startIndex; legIndex < endIndex; legIndex += 1) {
+      (legs[legIndex].steps || []).forEach(step => {
+        (step.geometry?.coordinates || []).forEach(point => {
+          const previous = snappedCoordinates[snappedCoordinates.length - 1];
+          if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) {
+            snappedCoordinates.push([point[1], point[0]]);
+          }
+        });
+      });
+    }
+    if (snappedCoordinates.length >= 2) {
+      snappedRoutes.set(route.id, snappedCoordinates);
+    }
+  });
+
+  return snappedRoutes;
+}
+
+function getRoadSnapCacheKey(route, waypoints) {
+  const source = JSON.stringify(waypoints);
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+  }
+  return `inertayo-road-snap-v1-${route.id}-${(hash >>> 0).toString(36)}`;
+}
+
 // ─── Route colour by mode ─────────────────────────────────────────────────
 function routeColor(mode = '') {
   const m = mode.toLowerCase();
@@ -189,6 +256,7 @@ function LayerManager({
   landmarks,
   showAdvisories,
   selectedJourney,
+  snappedRouteCoords,
   onSelect,
 }) {
   const map = useMap();
@@ -307,7 +375,7 @@ function LayerManager({
     });
 
     visible.forEach((route, routeIdx) => {
-      const coords = getRoutePolylineCoords(route);
+      const coords = snappedRouteCoords[route.id] || getRoutePolylineCoords(route);
       if (coords.length < 2) return;
 
       const mode = (route.mode_name || '').toLowerCase();
@@ -356,7 +424,7 @@ function LayerManager({
       refs.routeLines = {};
       map.off('click', clearHighlight);
     };
-  }, [map, routes, activeFilter, onSelect]);
+  }, [map, routes, activeFilter, snappedRouteCoords, onSelect]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // LAYER 3 — Clustered point markers (stops, schools, locations, landmarks)
@@ -644,6 +712,65 @@ export default function RouteMap({
   onSelect      = null,
 }) {
   const [landmarks, setLandmarks] = useState([]);
+  const [snappedRouteCoords, setSnappedRouteCoords] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const roadRoutes = routes
+      .filter(route => !(route.mode_name || '').toLowerCase().includes('boat'))
+      .map(route => {
+        const waypoints = getRoutePolylineCoords(route).map(([latitude, longitude]) => [longitude, latitude]);
+        return { id: route.id, waypoints, route };
+      })
+      .filter(route => route.waypoints.length >= 2);
+
+    const cachedCoords = {};
+    const routesToSnap = [];
+    roadRoutes.forEach(route => {
+      const cacheKey = getRoadSnapCacheKey(route.route, route.waypoints);
+      route.cacheKey = cacheKey;
+      try {
+        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        if (cached?.savedAt > Date.now() - ROAD_SNAP_CACHE_MAX_AGE && Array.isArray(cached.coordinates)) {
+          cachedCoords[route.id] = cached.coordinates;
+          return;
+        }
+      } catch (error) {
+        // Ignore unavailable or malformed local cache entries.
+      }
+      routesToSnap.push(route);
+    });
+    setSnappedRouteCoords(cachedCoords);
+
+    if (!routesToSnap.length) return () => { cancelled = true; };
+
+    const snapMissingRoutes = async () => {
+      for (const batch of createRoadSnapBatches(routesToSnap)) {
+        try {
+          const snapped = await snapRoadBatch(batch);
+          if (cancelled) return;
+
+          const nextCoords = {};
+          batch.forEach(route => {
+            const coordinates = snapped.get(route.id);
+            if (!coordinates) return;
+            nextCoords[route.id] = coordinates;
+            try {
+              localStorage.setItem(route.cacheKey, JSON.stringify({ savedAt: Date.now(), coordinates }));
+            } catch (error) {
+              // The map still uses the snapped geometry for this session.
+            }
+          });
+          setSnappedRouteCoords(previous => ({ ...previous, ...nextCoords }));
+        } catch (error) {
+          console.warn('Unable to road-snap transit routes; showing saved geometry instead:', error);
+        }
+      }
+    };
+
+    snapMissingRoutes();
+    return () => { cancelled = true; };
+  }, [routes]);
 
   // Fetch landmarks on demand
   useEffect(() => {
@@ -692,6 +819,7 @@ export default function RouteMap({
           landmarks={landmarks}
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
+          snappedRouteCoords={snappedRouteCoords}
           onSelect={onSelect}
         />
       </MapContainer>

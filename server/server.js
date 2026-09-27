@@ -31,7 +31,8 @@ const cspDirectives = {
         "https://*.tile.openstreetmap.org",
         "https://tile.openstreetmap.org",
         "https://*.basemaps.cartocdn.com",
-        "https://nominatim.openstreetmap.org"
+        "https://nominatim.openstreetmap.org",
+        "https://router.project-osrm.org"
     ],
     fontSrc: ["'self'", "https:", "data:"],
     objectSrc: ["'none'"]
