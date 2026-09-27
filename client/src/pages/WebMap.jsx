@@ -23,8 +23,8 @@ export default function WebMap() {
   const [schools, setSchools] = useState([]);
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL', 'Jeepney', 'Bus', 'Tricycle', 'Boat', 'FLOOD'
   const [showLandmarks, setShowLandmarks] = useState(false);
-  const [showLocations, setShowLocations] = useState(true);
-  const [showSchools, setShowSchools] = useState(true);
+  const [showLocations, setShowLocations] = useState(false); // routes-only default
+  const [showSchools, setShowSchools] = useState(false);     // routes-only default
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [legendOpen, setLegendOpen] = useState(false);
