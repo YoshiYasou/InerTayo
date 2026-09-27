@@ -12,41 +12,57 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ── Secure HTTP headers
+const isProduction = process.env.NODE_ENV === 'production';
+const cspDirectives = {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", "'unsafe-inline'"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+    imgSrc: [
+        "'self'", "data:", "blob:",
+        "https://*.tile.openstreetmap.org",
+        "https://tile.openstreetmap.org",
+        "https://*.basemaps.cartocdn.com",
+        "https://basemaps.cartocdn.com",
+        "https://unpkg.com",
+        "https://cdnjs.cloudflare.com"
+    ],
+    connectSrc: [
+        "'self'",
+        "https://*.tile.openstreetmap.org",
+        "https://tile.openstreetmap.org",
+        "https://*.basemaps.cartocdn.com",
+        "https://nominatim.openstreetmap.org"
+    ],
+    fontSrc: ["'self'", "https:", "data:"],
+    objectSrc: ["'none'"]
+};
+
+if (isProduction) {
+    cspDirectives.upgradeInsecureRequests = [];
+}
+
 app.use(helmet({
     contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https:"],
-            imgSrc: [
-                "'self'", "data:", "blob:",
-                "https://*.tile.openstreetmap.org",
-                "https://tile.openstreetmap.org",
-                "https://*.basemaps.cartocdn.com",
-                "https://basemaps.cartocdn.com",
-                "https://unpkg.com",
-                "https://cdnjs.cloudflare.com"
-            ],
-            connectSrc: [
-                "'self'",
-                "https://*.tile.openstreetmap.org",
-                "https://tile.openstreetmap.org",
-                "https://*.basemaps.cartocdn.com",
-                "https://nominatim.openstreetmap.org"
-            ],
-            fontSrc: ["'self'", "https:", "data:"],
-            objectSrc: ["'none'"],
-            upgradeInsecureRequests: [],
-        },
+        directives: cspDirectives,
     },
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     crossOriginEmbedderPolicy: false
 }));
 
 // ── CORS
-const allowedOrigin = process.env.ORIGIN || 'http://localhost:5173';
+const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173'];
+const allowedOrigins = process.env.ORIGIN
+    ? process.env.ORIGIN.split(',').map(o => o.trim()).filter(Boolean)
+    : defaultOrigins;
+
 app.use(cors({
-    origin: allowedOrigin,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error(`CORS policy blocked access from origin: ${origin}`));
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true

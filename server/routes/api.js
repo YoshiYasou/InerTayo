@@ -22,6 +22,9 @@ const BoatRouteDetail = require('../models/BoatRouteDetail');
 const RouteSegment = require('../models/RouteSegment');
 const School = require('../models/School');
 const PasswordReset = require('../models/PasswordReset');
+const TricycleFare = require('../models/TricycleFare');
+const RouteFare = require('../models/RouteFare');
+const BoatFare = require('../models/BoatFare');
 const { nextId } = require('../db/counter');
 
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
@@ -1181,6 +1184,55 @@ router.get('/advisories', async (req, res) => {
     }
 });
 
+// ── Authoritative Fare Matrix Read Endpoints (Tricycle, Route Fares, Boat Fares) ──
+
+// GET /api/fares/tricycles - Zone-based tricycle fares with optional barangay filter
+router.get('/fares/tricycles', async (req, res) => {
+    try {
+        const { barangay } = req.query;
+        const filter = {};
+        if (barangay && barangay.trim()) {
+            filter.barangay = new RegExp(barangay.trim(), 'i');
+        }
+        const fares = await TricycleFare.find(filter).sort({ zone: 1, barangay: 1 }).lean();
+        res.json(fares);
+    } catch (err) {
+        console.error('Error fetching tricycle fares:', err);
+        res.status(500).json({ error: 'Failed to retrieve tricycle fares.' });
+    }
+});
+
+// GET /api/fares/routes - Route fares for jeepneys, modern PUVs, UV express, and provincial buses
+router.get('/fares/routes', async (req, res) => {
+    try {
+        const { mode } = req.query;
+        const filter = {};
+        if (mode) {
+            const validModes = ['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'];
+            const normalized = mode.toLowerCase().trim();
+            if (validModes.includes(normalized)) {
+                filter.transport_mode = normalized;
+            }
+        }
+        const fares = await RouteFare.find(filter).sort({ transport_mode: 1, route_name: 1 }).lean();
+        res.json(fares);
+    } catch (err) {
+        console.error('Error fetching route fares:', err);
+        res.status(500).json({ error: 'Failed to retrieve route fares.' });
+    }
+});
+
+// GET /api/fares/boats - Water boat services and fare notes
+router.get('/fares/boats', async (req, res) => {
+    try {
+        const fares = await BoatFare.find().sort({ service_type: 1 }).lean();
+        res.json(fares);
+    } catch (err) {
+        console.error('Error fetching boat fares:', err);
+        res.status(500).json({ error: 'Failed to retrieve boat fares.' });
+    }
+});
+
 // POST /api/fare-calculator - Server-side fare calculation
 router.post('/fare-calculator', async (req, res) => {
     try {
@@ -1425,7 +1477,7 @@ router.post('/auth/login', async (req, res) => {
         const cleanInput = username.trim();
         const user = await User.findOne({
             $or: [{ username: cleanInput }, { email: cleanInput.toLowerCase() }]
-        });
+        }).select('+password_hash');
 
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials.' });

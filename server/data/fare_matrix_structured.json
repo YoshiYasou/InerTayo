@@ -1,0 +1,988 @@
+{
+  "tricycles": [
+    {
+      "zone": "Zone Category",
+      "barangay": "Barangay Name",
+      "landmarks": "Description & Key Landmarks",
+      "solo_fare": {
+        "raw": "Solo Passenger (Special Trip)"
+      },
+      "fare_per_2pax": {
+        "raw": "2 Passengers (Per Person)"
+      },
+      "fare_per_3pax_shared": {
+        "raw": "3 Passengers / Shared (Per Person)"
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Poblacion Oeste",
+      "landmarks": "AB Fernandez West, City Hall, City Plaza",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Perez Boulevard",
+      "landmarks": "Perez Blvd Commercial Strip, Market Square",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Herrero-Perez",
+      "landmarks": "Herrero St, Perez Extension",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Barangay IV",
+      "landmarks": "Downtown Commercial Center",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Barangay II (Real)",
+      "landmarks": "Real St, City Plaza Outer Ring",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 1: Downtown Core",
+      "barangay": "Barangay I (T. Bugallon)",
+      "landmarks": "Torres Bugallon St, Market Area",
+      "solo_fare": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 20.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Tapuac",
+      "landmarks": "McArthur Highway, Schools, Medical Center",
+      "solo_fare": {
+        "min": 35.0,
+        "max": 40.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Mayombo",
+      "landmarks": "Mayombo District, CSI Market Square Loop",
+      "solo_fare": {
+        "min": 35.0,
+        "max": 40.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Arellano Bani",
+      "landmarks": "Arellano St, Region 1 Medical Center (R1MC)",
+      "solo_fare": {
+        "min": 35.0,
+        "max": 40.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Malued",
+      "landmarks": "Malued Proper, Tapuac Bypass Road",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Lucao",
+      "landmarks": "Lucao Transit Terminal, CSI City Mall",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Caranglaan",
+      "landmarks": "Judge De Venecia Highway, East Bypass",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Lasip Chico",
+      "landmarks": "Lasip Bridge Corridor, De Venecia Ext.",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Lasip Grande",
+      "landmarks": "De Venecia Highway South",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Pantal",
+      "landmarks": "Pantalan, Fish Port, Dawel Bridge South",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Pogo Chico",
+      "landmarks": "Pogo Bridge, Magsaysay Link",
+      "solo_fare": {
+        "min": 35.0,
+        "max": 40.0
+      },
+      "fare_per_2pax": {
+        "min": 25.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 20.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 2: Inner City",
+      "barangay": "Pogo Grande",
+      "landmarks": "Old De Venecia, Pogo Riverbank",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 3: Bonuan Belt",
+      "barangay": "Bonuan Gueset",
+      "landmarks": "Dawel Bridge North, Gueset Plaza, Schools",
+      "solo_fare": {
+        "min": 50.0,
+        "max": 60.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 3: Bonuan Belt",
+      "barangay": "Bonuan Boquig",
+      "landmarks": "Longos Junction, Longos Elementary, Boquig Proper",
+      "solo_fare": {
+        "min": 60.0,
+        "max": 70.0
+      },
+      "fare_per_2pax": {
+        "min": 40.0,
+        "max": 40.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 3: Bonuan Belt",
+      "barangay": "Bonuan Binloc",
+      "landmarks": "Tondaligan Beach Park, Binloc Boundary, Shrine",
+      "solo_fare": {
+        "min": 70.0,
+        "max": 80.0
+      },
+      "fare_per_2pax": {
+        "min": 45.0,
+        "max": 45.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 35.0
+      }
+    },
+    {
+      "zone": "Zone 3: Bonuan Belt",
+      "barangay": "Mamalingling",
+      "landmarks": "Bonuan Interior Access Road",
+      "solo_fare": {
+        "min": 60.0,
+        "max": 70.0
+      },
+      "fare_per_2pax": {
+        "min": 40.0,
+        "max": 40.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Bolosan",
+      "landmarks": "Dawel-Bolosan Road, Bolosan Elementary",
+      "solo_fare": {
+        "min": 50.0,
+        "max": 60.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Mangin",
+      "landmarks": "Mangin Road, Mangin National High School",
+      "solo_fare": {
+        "min": 50.0,
+        "max": 65.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Tebeng",
+      "landmarks": "De Venecia East Bypass, Tebeng Proper",
+      "solo_fare": {
+        "min": 50.0,
+        "max": 65.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Salisay",
+      "landmarks": "Salisay Boundary, Agricultural Corridor",
+      "solo_fare": {
+        "min": 55.0,
+        "max": 70.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 40.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Bacayao Sur",
+      "landmarks": "Bacayao Road, Tapuac South Link",
+      "solo_fare": {
+        "min": 40.0,
+        "max": 50.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 30.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 4: Eastern & Agricultural",
+      "barangay": "Bacayao Norte",
+      "landmarks": "Bacayao Riverfront, Calasiao Link",
+      "solo_fare": {
+        "min": 45.0,
+        "max": 55.0
+      },
+      "fare_per_2pax": {
+        "min": 30.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 5: Island Barangays",
+      "barangay": "Calmay",
+      "landmarks": "Calmay River Island, Ferry Crossing / Pontoon",
+      "solo_fare": {
+        "min": 50.0,
+        "max": 60.0
+      },
+      "fare_per_2pax": {
+        "min": 35.0,
+        "max": 35.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 25.0,
+        "max": 25.0
+      }
+    },
+    {
+      "zone": "Zone 5: Island Barangays",
+      "barangay": "Carael",
+      "landmarks": "Carael Coastal, Fish Ponds",
+      "solo_fare": {
+        "min": 60.0,
+        "max": 75.0
+      },
+      "fare_per_2pax": {
+        "min": 40.0,
+        "max": 40.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 5: Island Barangays",
+      "barangay": "Lomboy",
+      "landmarks": "Lomboy Island Access",
+      "solo_fare": {
+        "min": 60.0,
+        "max": 75.0
+      },
+      "fare_per_2pax": {
+        "min": 40.0,
+        "max": 40.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 30.0
+      }
+    },
+    {
+      "zone": "Zone 5: Island Barangays",
+      "barangay": "Salapingao",
+      "landmarks": "Salapingao Island, Prawn Ponds",
+      "solo_fare": {
+        "min": 65.0,
+        "max": 80.0
+      },
+      "fare_per_2pax": {
+        "min": 45.0,
+        "max": 45.0
+      },
+      "fare_per_3pax_shared": {
+        "min": 30.0,
+        "max": 35.0
+      }
+    }
+  ],
+  "jeepneys": [
+    {
+      "route_name": "Route Name",
+      "terminal": "Origin / Main Terminal",
+      "waypoints": "Key Waypoints & Barangays Served",
+      "distance_km": "Est. Dist. (km)",
+      "regular_fare": {
+        "raw": "Regular Fare ()"
+      },
+      "discounted_fare_20pct": {
+        "raw": "Discounted Fare (20% Off)"
+      }
+    },
+    {
+      "route_name": "Downtown Loop",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Poblacion Oeste, Tapuac, Lucao, Mayombo, Herrero-Perez",
+      "distance_km": "1 – 4 km",
+      "regular_fare": {
+        "min": 14.0,
+        "max": 14.0
+      },
+      "discounted_fare_20pct": {
+        "min": 11.2,
+        "max": 11.2
+      }
+    },
+    {
+      "route_name": "Dagupan – Bonuan Gueset",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Dawel, Bonuan Gueset Plaza, Bonuan Binloc Park",
+      "distance_km": "5 – 7 km",
+      "regular_fare": {
+        "min": 16.0,
+        "max": 18.0
+      },
+      "discounted_fare_20pct": {
+        "min": 12.8,
+        "max": 14.4
+      }
+    },
+    {
+      "route_name": "Dagupan – Bonuan Boquig",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Longos, Bonuan Boquig, Mamalingling",
+      "distance_km": "6 – 8 km",
+      "regular_fare": {
+        "min": 18.0,
+        "max": 20.0
+      },
+      "discounted_fare_20pct": {
+        "min": 14.4,
+        "max": 16.0
+      }
+    },
+    {
+      "route_name": "Dagupan – Bonuan Binloc",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Dawel, Bonuan Boquig, Binloc Boundary, Shrine",
+      "distance_km": "8 – 9 km",
+      "regular_fare": {
+        "min": 20.0,
+        "max": 22.0
+      },
+      "discounted_fare_20pct": {
+        "min": 16.0,
+        "max": 17.6
+      }
+    },
+    {
+      "route_name": "Dagupan – Calasiao",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Mayombo, Tapuac, Malued, CSI Market Square, Calasiao",
+      "distance_km": "4 – 6 km",
+      "regular_fare": {
+        "min": 14.0,
+        "max": 16.0
+      },
+      "discounted_fare_20pct": {
+        "min": 11.2,
+        "max": 12.8
+      }
+    },
+    {
+      "route_name": "Dagupan – Binmaley",
+      "terminal": "Lucao Transit Terminal",
+      "waypoints": "Lucao, Binmaley Town Center",
+      "distance_km": "7 – 9 km",
+      "regular_fare": {
+        "min": 20.0,
+        "max": 22.0
+      },
+      "discounted_fare_20pct": {
+        "min": 16.0,
+        "max": 17.6
+      }
+    },
+    {
+      "route_name": "Dagupan – Lingayen (via Binmaley)",
+      "terminal": "Lucao Transit Terminal",
+      "waypoints": "Lucao, Binmaley Plaza, Lingayen Capitol Grounds",
+      "distance_km": "14 – 16 km",
+      "regular_fare": {
+        "min": 34.0,
+        "max": 38.0
+      },
+      "discounted_fare_20pct": {
+        "min": 27.2,
+        "max": 30.4
+      }
+    },
+    {
+      "route_name": "Dagupan – Mangaldan",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Dawel, Bolosan, Mangaldan Plaza",
+      "distance_km": "8 – 10 km",
+      "regular_fare": {
+        "min": 22.0,
+        "max": 26.0
+      },
+      "discounted_fare_20pct": {
+        "min": 17.6,
+        "max": 20.8
+      }
+    },
+    {
+      "route_name": "Dagupan – San Carlos City",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Mayombo, Caranglaan Bypass, San Carlos Center",
+      "distance_km": "18 – 20 km",
+      "regular_fare": {
+        "min": 42.0,
+        "max": 46.0
+      },
+      "discounted_fare_20pct": {
+        "min": 33.6,
+        "max": 36.8
+      }
+    },
+    {
+      "route_name": "Dagupan – Manaoag",
+      "terminal": "Central Terminal / Magsaysay",
+      "waypoints": "Bolosan, Mangaldan Proper, Manaoag Church",
+      "distance_km": "18 – 22 km",
+      "regular_fare": {
+        "min": 42.0,
+        "max": 50.0
+      },
+      "discounted_fare_20pct": {
+        "min": 33.6,
+        "max": 40.0
+      }
+    },
+    {
+      "route_name": "Dagupan – Bayambang",
+      "terminal": "Central Terminal",
+      "waypoints": "Calasiao, Malasiqui, Bayambang Center",
+      "distance_km": "28 – 32 km",
+      "regular_fare": {
+        "min": 62.0,
+        "max": 70.0
+      },
+      "discounted_fare_20pct": {
+        "min": 49.6,
+        "max": 56.0
+      }
+    }
+  ],
+  "modern_puv": [
+    {
+      "route_name": "Route Name",
+      "terminal": "Origin / Main Terminal",
+      "waypoints": "Key Waypoints & Barangays Served",
+      "distance_km": "Est. Dist. (km)",
+      "regular_fare": {
+        "raw": "Regular Fare ()"
+      },
+      "discounted_fare_20pct": {
+        "raw": "Discounted Fare (20% Off)"
+      }
+    },
+    {
+      "route_name": "Downtown Loop (Aircon)",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Poblacion Oeste, Tapuac, Lucao, Mayombo, Herrero-Perez",
+      "distance_km": "1 – 4 km",
+      "regular_fare": {
+        "min": 17.0,
+        "max": 17.0
+      },
+      "discounted_fare_20pct": {
+        "min": 13.6,
+        "max": 13.6
+      }
+    },
+    {
+      "route_name": "Dagupan – Bonuan Gueset (Aircon)",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Dawel, Bonuan Gueset, Tondaligan Park",
+      "distance_km": "5 – 7 km",
+      "regular_fare": {
+        "min": 19.3,
+        "max": 21.7
+      },
+      "discounted_fare_20pct": {
+        "min": 15.4,
+        "max": 17.3
+      }
+    },
+    {
+      "route_name": "Dagupan – Bonuan Boquig / Binloc (Aircon)",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Longos, Bonuan Boquig, Binloc Boundary",
+      "distance_km": "6 – 9 km",
+      "regular_fare": {
+        "min": 21.7,
+        "max": 26.5
+      },
+      "discounted_fare_20pct": {
+        "min": 17.3,
+        "max": 21.2
+      }
+    },
+    {
+      "route_name": "Dagupan – Calasiao (Aircon)",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Mayombo, Tapuac, Malued, CSI Market Square, Calasiao",
+      "distance_km": "4 – 6 km",
+      "regular_fare": {
+        "min": 17.0,
+        "max": 19.3
+      },
+      "discounted_fare_20pct": {
+        "min": 13.6,
+        "max": 15.4
+      }
+    },
+    {
+      "route_name": "Dagupan – Binmaley (Aircon)",
+      "terminal": "Lucao Transit Terminal",
+      "waypoints": "Lucao Highway, Binmaley Center",
+      "distance_km": "7 – 9 km",
+      "regular_fare": {
+        "min": 24.1,
+        "max": 26.5
+      },
+      "discounted_fare_20pct": {
+        "min": 19.2,
+        "max": 21.2
+      }
+    },
+    {
+      "route_name": "Dagupan – Lingayen (Aircon)",
+      "terminal": "Lucao Transit Terminal",
+      "waypoints": "Lucao, Binmaley Plaza, Lingayen Capitol",
+      "distance_km": "14 – 16 km",
+      "regular_fare": {
+        "min": 40.9,
+        "max": 45.7
+      },
+      "discounted_fare_20pct": {
+        "min": 32.7,
+        "max": 36.5
+      }
+    },
+    {
+      "route_name": "Dagupan – Mangaldan (Aircon)",
+      "terminal": "Magsaysay Market Terminal",
+      "waypoints": "Pantal, Dawel, Bolosan, Mangaldan Plaza",
+      "distance_km": "8 – 10 km",
+      "regular_fare": {
+        "min": 26.5,
+        "max": 31.3
+      },
+      "discounted_fare_20pct": {
+        "min": 21.2,
+        "max": 25.0
+      }
+    },
+    {
+      "route_name": "Dagupan – San Carlos City (Aircon)",
+      "terminal": "Perez Blvd Terminal",
+      "waypoints": "Caranglaan Bypass, San Carlos Proper",
+      "distance_km": "18 – 20 km",
+      "regular_fare": {
+        "min": 50.5,
+        "max": 55.3
+      },
+      "discounted_fare_20pct": {
+        "min": 40.4,
+        "max": 44.2
+      }
+    }
+  ],
+  "uv_express": [
+    {
+      "route_name": "Route Name",
+      "terminal": "Terminal Location",
+      "vehicle_or_service_type": "Vehicle Type",
+      "regular_fare": {
+        "raw": "Regular Fare ()"
+      },
+      "discounted_fare_20pct": {
+        "raw": "Discounted Fare (20% Off)"
+      }
+    },
+    {
+      "route_name": "Dagupan – Alaminos City",
+      "terminal": "Lucao Bus & Van Terminal",
+      "vehicle_or_service_type": "UV Express Aircon Van",
+      "regular_fare": {
+        "min": 110.0,
+        "max": 120.0
+      },
+      "discounted_fare_20pct": {
+        "min": 88.0,
+        "max": 96.0
+      }
+    },
+    {
+      "route_name": "Dagupan – Urdaneta City",
+      "terminal": "Perez Blvd Van Terminal",
+      "vehicle_or_service_type": "UV Express Aircon Van",
+      "regular_fare": {
+        "min": 68.0,
+        "max": 68.0
+      },
+      "discounted_fare_20pct": {
+        "min": 54.4,
+        "max": 54.4
+      }
+    },
+    {
+      "route_name": "Dagupan – Tayug / San Quintin",
+      "terminal": "Lucao Bus & Van Terminal",
+      "vehicle_or_service_type": "UV Express Aircon Van",
+      "regular_fare": {
+        "min": 120.0,
+        "max": 140.0
+      },
+      "discounted_fare_20pct": {
+        "min": 96.0,
+        "max": 112.0
+      }
+    }
+  ],
+  "provincial_buses": [
+    {
+      "route_name": "Route Name",
+      "terminal": "Bus Company & Terminal",
+      "vehicle_or_service_type": "Service Type",
+      "regular_fare": {
+        "raw": "Regular Fare ()"
+      },
+      "discounted_fare_20pct": {
+        "raw": "Discounted Fare (20% Off)"
+      }
+    },
+    {
+      "route_name": "Dagupan – Baguio City",
+      "terminal": "Solid North / Victory Liner (Perez / Lucao)",
+      "vehicle_or_service_type": "Aircon Bus",
+      "regular_fare": {
+        "min": 162.0,
+        "max": 162.0
+      },
+      "discounted_fare_20pct": {
+        "min": 129.6,
+        "max": 129.6
+      }
+    },
+    {
+      "route_name": "Dagupan – Alaminos City",
+      "terminal": "Lucao Bus Terminal",
+      "vehicle_or_service_type": "Ordinary / Non-Aircon Bus",
+      "regular_fare": {
+        "min": 90.0,
+        "max": 90.0
+      },
+      "discounted_fare_20pct": {
+        "min": 72.0,
+        "max": 72.0
+      }
+    },
+    {
+      "route_name": "Dagupan – Bolinao",
+      "terminal": "Lucao Bus Terminal",
+      "vehicle_or_service_type": "Aircon / Non-Aircon Bus",
+      "regular_fare": {
+        "min": 150.0,
+        "max": 180.0
+      },
+      "discounted_fare_20pct": {
+        "min": 120.0,
+        "max": 144.0
+      }
+    },
+    {
+      "route_name": "Dagupan – Manila (Cubao/Pasay)",
+      "terminal": "Victory Liner / Solid North Terminal",
+      "vehicle_or_service_type": "Aircon / Deluxe Bus",
+      "regular_fare": {
+        "min": 450.0,
+        "max": 550.0
+      },
+      "discounted_fare_20pct": {
+        "min": 360.0,
+        "max": 440.0
+      }
+    }
+  ],
+  "water_boats": [
+    {
+      "service_type": "Service Type",
+      "dock_location": "Dock Location",
+      "destinations": "Destinations Covered",
+      "fare_rate_note": "Fare / Rate Range"
+    },
+    {
+      "service_type": "Commuter Ferry (Bangka)",
+      "dock_location": "Pantal Fish Port / Docks",
+      "destinations": "Calmay, Carael, Lomboy, Salapingao",
+      "fare_rate_note": "₱10.00 – ₱20.00 / passenger"
+    },
+    {
+      "service_type": "Short River Crossing",
+      "dock_location": "Pantal Riverbank",
+      "destinations": "Direct Point-to-Point Crossing",
+      "fare_rate_note": "₱10.00 – ₱15.00 / passenger"
+    },
+    {
+      "service_type": "Special Charter (Pakyaw)",
+      "dock_location": "Pantal / Dawel Docks",
+      "destinations": "Custom Coastal or River Route",
+      "fare_rate_note": "₱300.00 – ₱500.00 / boat"
+    },
+    {
+      "service_type": "River Cruise Tour",
+      "dock_location": "Dawel River Cruise Dock",
+      "destinations": "Dawel – Pantal – Mamalingling Circuit",
+      "fare_rate_note": "₱50.00 / passenger"
+    }
+  ]
+}

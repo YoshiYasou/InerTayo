@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bookmark, CarFront, Bus, Bike, AlertTriangle } from 'lucide-react';
+import { Bookmark, CarFront, Bus, Bike, AlertTriangle, Search, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useRouter } from '../context/RouterContext';
 
@@ -7,6 +7,7 @@ export default function SavedRoutes() {
   const { user, isCommuter, token } = useAuth();
   const { navigate } = useRouter();
   const [routes, setRoutes] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -52,6 +53,16 @@ export default function SavedRoutes() {
     return <Bike className="w-4 h-4 text-cyan-600" />;
   };
 
+  const filteredRoutes = routes.filter(route => {
+    if (!searchTerm.trim()) return true;
+    const q = searchTerm.toLowerCase().trim();
+    return (
+      (route.route_name && route.route_name.toLowerCase().includes(q)) ||
+      (route.origin && route.origin.toLowerCase().includes(q)) ||
+      (route.destination && route.destination.toLowerCase().includes(q))
+    );
+  });
+
   if (!user || !isCommuter) {
     return (
       <div className="min-h-screen bg-slate-50 py-20 px-4">
@@ -74,10 +85,47 @@ export default function SavedRoutes() {
           <Bookmark className="w-6 h-6 text-emerald-600 fill-emerald-100" />
           <h1 className="text-3xl font-extrabold text-slate-900">Saved Routes</h1>
         </div>
-        <p className="text-sm text-slate-500 mb-8">Your bookmarked Dagupan transit routes.</p>
+        <p className="text-sm text-slate-500 mb-6">Your bookmarked Dagupan transit routes.</p>
+
+        {/* Search input directly under heading */}
+        {!loading && !error && routes.length > 0 && (
+          <div className="mb-8">
+            <div className="bg-slate-50/70 border border-slate-200 rounded-xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:bg-white transition-all flex items-center gap-2.5 max-w-xl">
+              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <label htmlFor="search-saved-routes" className="sr-only">Search saved routes</label>
+              <input
+                id="search-saved-routes"
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by route name, origin, or destination..."
+                className="w-full bg-transparent text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
+                aria-label="Search saved routes by name, origin, or destination"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200/50 transition-colors"
+                  title="Clear search"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {searchTerm.trim() && (
+              <p className="text-xs text-slate-400 mt-2">
+                Showing {filteredRoutes.length} of {routes.length} saved route{routes.length === 1 ? '' : 's'}
+              </p>
+            )}
+          </div>
+        )}
 
         {loading && <div className="text-sm text-slate-500">Loading saved routes...</div>}
         {error && <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700">{error}</div>}
+        
+        {/* Initial empty state when user has never saved any routes */}
         {!loading && !error && routes.length === 0 && (
           <div className="bg-white rounded-2xl p-10 text-center border border-slate-200">
             <Bookmark className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -85,29 +133,51 @@ export default function SavedRoutes() {
             <p className="text-sm text-slate-500 mt-1">Open a route and select Save Route to add it here.</p>
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {routes.map(route => (
-            <article key={route.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <button onClick={() => navigate(`/routes/${route.id}`)} className="text-left">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                    {modeIcon(route.mode_name)} {route.mode_name}
-                  </div>
-                  <h2 className="mt-2 text-lg font-bold text-slate-900 hover:text-emerald-700">{route.route_name}</h2>
-                </button>
-                <button onClick={() => removeRoute(route.id)} className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50" aria-label={`Remove ${route.route_name} from saved routes`}>
-                  <Bookmark className="w-5 h-5 fill-emerald-600" />
-                </button>
-              </div>
-              <p className="text-sm text-slate-500 mt-3">{route.origin} → {route.destination}</p>
-              <div className="flex items-center gap-3 mt-4 text-xs font-semibold text-slate-600">
-                <span>{route.estimated_time} mins</span>
-                <span>₱{Math.round(route.minimum_fare)} – ₱{Math.round(route.maximum_fare)}</span>
-                {route.status !== 'CLEAR' && <span className="inline-flex items-center gap-1 text-amber-700"><AlertTriangle className="w-3.5 h-3.5" />{route.status.replace('_', ' ')}</span>}
-              </div>
-            </article>
-          ))}
-        </div>
+
+        {/* Filter no-results state when search query matches nothing */}
+        {!loading && !error && routes.length > 0 && filteredRoutes.length === 0 && (
+          <div className="bg-white rounded-2xl p-10 text-center border border-slate-200">
+            <Search className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <h2 className="font-bold text-slate-800">No matching saved routes</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              No saved routes match &ldquo;{searchTerm}&rdquo;.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="mt-4 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+
+        {/* Filtered routes grid */}
+        {!loading && !error && filteredRoutes.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {filteredRoutes.map(route => (
+              <article key={route.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <button onClick={() => navigate(`/routes/${route.id}`)} className="text-left">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                      {modeIcon(route.mode_name)} {route.mode_name}
+                    </div>
+                    <h2 className="mt-2 text-lg font-bold text-slate-900 hover:text-emerald-700">{route.route_name}</h2>
+                  </button>
+                  <button onClick={() => removeRoute(route.id)} className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50" aria-label={`Remove ${route.route_name} from saved routes`}>
+                    <Bookmark className="w-5 h-5 fill-emerald-600" />
+                  </button>
+                </div>
+                <p className="text-sm text-slate-500 mt-3">{route.origin} → {route.destination}</p>
+                <div className="flex items-center gap-3 mt-4 text-xs font-semibold text-slate-600">
+                  <span>{route.estimated_time} mins</span>
+                  <span>₱{Math.round(route.minimum_fare)} – ₱{Math.round(route.maximum_fare)}</span>
+                  {route.status !== 'CLEAR' && <span className="inline-flex items-center gap-1 text-amber-700"><AlertTriangle className="w-3.5 h-3.5" />{route.status.replace('_', ' ')}</span>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
