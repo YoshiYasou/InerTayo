@@ -147,8 +147,8 @@ export default function WebMap() {
             </p>
           </div>
 
-          {/* Filter Pills and Layer Toggles */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Filter Pills and Layer Toggles (Horizontally scrollable on mobile per Step 9) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full md:flex-wrap no-scrollbar">
             {[
               { key: 'ALL', label: 'All Modes' },
               { key: 'Jeepney', label: 'Jeepneys' },
@@ -160,7 +160,7 @@ export default function WebMap() {
               <button
                 key={tab.key}
                 onClick={() => setActiveFilter(tab.key)}
-                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-all ${
                   activeFilter === tab.key
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -211,11 +211,26 @@ export default function WebMap() {
         </div>
       </div>
 
-      {/* Main Split-View Content Area */}
-      <div className="relative flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
+      {/* Main Split-View Content Area: Map fills full viewport; Planner is collapsible bottom-sheet on <768px (Step 9) */}
+      <div className="relative flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
         
-        {/* Left Side: Journey Planner Panel (Matching UX reference Screenshot 2) */}
-        <div className={`w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 h-full overflow-hidden z-20 ${mobileView === 'planner' ? 'block' : 'hidden lg:block'}`}>
+        {/* Journey Planner Panel (Desktop side panel; Mobile collapsible bottom sheet) */}
+        <div className={`
+          fixed inset-x-0 bottom-0 z-40 max-h-[82vh] overflow-y-auto bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 transition-transform duration-300 ease-in-out
+          md:relative md:inset-auto md:max-h-none md:overflow-hidden md:rounded-none md:shadow-lg md:border-t-0 md:border-r md:w-[380px] xl:w-[420px] md:flex-shrink-0 md:h-full md:transform-none
+          ${mobileView === 'planner' ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}
+        `}>
+          {/* Mobile bottom sheet drag handle / collapse button */}
+          <div className="md:hidden flex items-center justify-between px-4 pt-3 pb-1 border-b border-slate-100 sticky top-0 bg-white/95 backdrop-blur-xs z-10">
+            <div className="w-10 h-1 rounded-full bg-slate-300 mx-auto"></div>
+            <button
+              onClick={() => setMobileView('map')}
+              className="text-xs font-bold text-slate-500 hover:text-slate-900 px-2 py-1 rounded-lg bg-slate-100"
+            >
+              Minimize ✕
+            </button>
+          </div>
+
           <JourneyPlanner
             origin={origin}
             setOrigin={setOrigin}
@@ -224,17 +239,17 @@ export default function WebMap() {
             selectedJourney={selectedJourney}
             onSelectJourney={(journey) => {
               setSelectedJourney(journey);
-              // On mobile, switch to map view to inspect the route
-              if (window.innerWidth < 1024) {
+              // On mobile, collapse bottom sheet to map view to inspect the route
+              if (window.innerWidth < 768) {
                 setMobileView('map');
               }
             }}
-            className="h-full shadow-lg"
+            className="h-full"
           />
         </div>
 
-        {/* Right Side: Interactive Leaflet Map */}
-        <div className={`flex-1 relative overflow-hidden min-h-[60vh] lg:min-h-0 ${mobileView === 'map' ? 'block' : 'hidden lg:block'}`}>
+        {/* Right Side: Interactive Leaflet Map (Fills full viewport height) */}
+        <div className="flex-1 relative overflow-hidden w-full min-h-[60vh]">
           {loading ? (
             <div className="w-full h-full flex items-center justify-center bg-slate-100">
               <div className="text-center">

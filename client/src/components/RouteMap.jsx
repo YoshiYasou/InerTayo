@@ -405,10 +405,11 @@ function LayerManager({
     const geo  = geoDataRef.current;
 
     if (refs.stopCluster) { refs.stopCluster.remove(); refs.stopCluster = null; }
-    if (!geo.stops?.features?.length) return;
+    const isTouch = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const clusterRadius = isTouch ? 75 : 60;
 
     const cluster = L.markerClusterGroup({
-      maxClusterRadius: 60,
+      maxClusterRadius: clusterRadius,
       disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
@@ -462,8 +463,11 @@ function LayerManager({
     const zoom = currentZoom.current;
     if (zoom < ZOOM_TIER2_MIN) return;
 
+    const isTouch = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const clusterRadius = isTouch ? 75 : 60;
+
     const cluster = L.markerClusterGroup({
-      maxClusterRadius: 60,
+      maxClusterRadius: clusterRadius,
       disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
@@ -494,8 +498,11 @@ function LayerManager({
     const zoom = currentZoom.current;
     if (zoom < ZOOM_TIER3_MIN) return; // landmarks only at ≥16
 
+    const isTouch = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const clusterRadius = isTouch ? 75 : 60;
+
     const cluster = L.markerClusterGroup({
-      maxClusterRadius: 60,
+      maxClusterRadius: clusterRadius,
       disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,

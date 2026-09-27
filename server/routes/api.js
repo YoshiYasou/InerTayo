@@ -26,6 +26,7 @@ const TricycleFare = require('../models/TricycleFare');
 const RouteFare = require('../models/RouteFare');
 const BoatFare = require('../models/BoatFare');
 const { nextId } = require('../db/counter');
+const { getCache, setCache, invalidateMapCache } = require('../cache/mapLayerCache');
 
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
@@ -2500,6 +2501,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             });
         }
 
+        invalidateMapCache();
         res.status(201).json({
             message: 'Route created successfully.',
             routeId
@@ -2595,6 +2597,7 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
         }
 
         await Route.updateOne({ id: routeId }, updateData);
+        invalidateMapCache();
         res.json({ message: 'Route updated successfully.' });
     } catch (err) {
         console.error('Error updating route:', err);
@@ -2624,6 +2627,7 @@ router.delete('/api/admin/routes/:id', authenticateToken, requireAdmin, async (r
         await SavedRoute.deleteMany({ route_id: routeId });
         await AdvisoryRoute.deleteMany({ route_id: routeId });
 
+        invalidateMapCache();
         res.json({ message: 'Route deleted successfully.' });
     } catch (err) {
         console.error('Error deleting route:', err);
@@ -2653,6 +2657,7 @@ router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, 
         await SavedRoute.deleteMany({ route_id: routeId });
         await AdvisoryRoute.deleteMany({ route_id: routeId });
 
+        invalidateMapCache();
         res.json({ message: 'Route deleted successfully.' });
     } catch (err) {
         console.error('Error deleting route:', err);
@@ -3169,4 +3174,267 @@ router.delete('/admin/feedback/:id', authenticateToken, requireAdmin, async (req
     }
 });
 
+// ============================================================================
+// MAP LAYER ENDPOINTS — Precomputed GeoJSON FeatureCollections (Step 1)
+// ============================================================================
+
+const LAYER_MODE_COLORS = {
+    jeepney:  '#ec4899',
+    bus:      '#10b981',
+    tricycle: '#06b6d4',
+    boat:     '#2563eb',
+    default:  '#64748b'
+};
+
+function layerModeColor(modeName) {
+    if (!modeName) return LAYER_MODE_COLORS.default;
+    const m = modeName.toLowerCase();
+    if (m.includes('jeep'))     return LAYER_MODE_COLORS.jeepney;
+    if (m.includes('bus'))      return LAYER_MODE_COLORS.bus;
+    if (m.includes('tricycle')) return LAYER_MODE_COLORS.tricycle;
+    if (m.includes('boat'))     return LAYER_MODE_COLORS.boat;
+    return LAYER_MODE_COLORS.default;
+}
+
+async function buildMapDataset() {
+    const allRoutes = await Route.find().lean();
+    const allModes  = await TransportMode.find().lean();
+    const modeMap   = new Map(allModes.map(m => [m.id, m]));
+    const allStops  = await Stop.find().sort({ route_id: 1, stop_order: 1 }).lean();
+    const stopsByRoute = new Map();
+    for (const s of allStops) {
+        if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
+        stopsByRoute.get(s.route_id).push(s);
+    }
+    return { allRoutes, modeMap, stopsByRoute };
+}
+
+async function handleRouteLayer(req, res, modeKeyword) {
+    const cacheKey = `layer:${modeKeyword}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const { allRoutes, modeMap, stopsByRoute } = await buildMapDataset();
+        const features = [];
+
+        for (const route of allRoutes) {
+            const m = modeMap.get(route.transport_mode_id) || {};
+            const modeName = m.name || '';
+            if (!modeName.toLowerCase().includes(modeKeyword)) continue;
+
+            let geomObj = null;
+            if (route.geometry) {
+                try {
+                    geomObj = typeof route.geometry === 'string' ? JSON.parse(route.geometry) : route.geometry;
+                } catch (e) {}
+            }
+            if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) {
+                const stops = (stopsByRoute.get(route.id) || []).filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number');
+                if (stops.length >= 2) {
+                    geomObj = { type: 'LineString', coordinates: stops.map(s => [s.longitude, s.latitude]) };
+                } else {
+                    continue;
+                }
+            }
+
+            const color     = layerModeColor(modeName);
+            const isDetour  = route.status === 'DETOUR_ACTIVE';
+            const isUnavail = route.status === 'UNAVAILABLE';
+
+            features.push({
+                type: 'Feature',
+                geometry: geomObj,
+                properties: {
+                    id:             route.id,
+                    route_name:     route.route_name,
+                    mode:           modeName,
+                    status:         route.status,
+                    origin:         route.origin,
+                    destination:    route.destination,
+                    minimum_fare:   route.minimum_fare,
+                    maximum_fare:   route.maximum_fare,
+                    estimated_time: route.estimated_time,
+                    style: {
+                        color:     isUnavail ? '#94a3b8' : color,
+                        weight:    2,
+                        opacity:   0.5,
+                        dashArray: isDetour ? '8 6' : null,
+                        lineCap:   'round'
+                    }
+                }
+            });
+        }
+
+        const fc = { type: 'FeatureCollection', features };
+        setCache(cacheKey, fc);
+        res.json(fc);
+    } catch (err) {
+        console.error(`Map layer error (${modeKeyword}):`, err);
+        res.status(500).json({ error: 'Failed to build map layer.' });
+    }
+}
+
+router.get('/map/layers/jeepneys',  (req, res) => handleRouteLayer(req, res, 'jeep'));
+router.get('/map/layers/buses',     (req, res) => handleRouteLayer(req, res, 'bus'));
+router.get('/map/layers/tricycles', (req, res) => handleRouteLayer(req, res, 'tricycle'));
+router.get('/map/layers/boats',     (req, res) => handleRouteLayer(req, res, 'boat'));
+
+// GET /api/map/layers/stops
+router.get('/map/layers/stops', async (req, res) => {
+    const cacheKey = 'layer:stops';
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const { allRoutes, modeMap, stopsByRoute } = await buildMapDataset();
+        const features = [];
+
+        for (const route of allRoutes) {
+            const m = modeMap.get(route.transport_mode_id) || {};
+            const modeName = m.name || '';
+            const color = layerModeColor(modeName);
+            const stops = stopsByRoute.get(route.id) || [];
+
+            stops.forEach((stop, idx) => {
+                if (typeof stop.latitude !== 'number' || typeof stop.longitude !== 'number') return;
+                const isOrigin   = idx === 0;
+                const isTerm     = idx === stops.length - 1;
+                const isTransfer = !!stop.is_transfer_point;
+
+                let label = String(stop.stop_order ?? '');
+                if (isOrigin)   label = 'A';
+                if (isTerm)     label = 'B';
+                if (isTransfer) label = 'T';
+
+                features.push({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [stop.longitude, stop.latitude] },
+                    properties: {
+                        id:          stop.id,
+                        stop_name:   stop.stop_name,
+                        stop_order:  stop.stop_order,
+                        route_id:    route.id,
+                        route_name:  route.route_name,
+                        mode:        modeName,
+                        color,
+                        label,
+                        is_origin:   isOrigin,
+                        is_terminus: isTerm,
+                        is_transfer: isTransfer
+                    }
+                });
+            });
+        }
+
+        const fc = { type: 'FeatureCollection', features };
+        setCache(cacheKey, fc);
+        res.json(fc);
+    } catch (err) {
+        console.error('Map layer error (stops):', err);
+        res.status(500).json({ error: 'Failed to build stops layer.' });
+    }
+});
+
+// GET /api/map/layers/schools
+router.get('/map/layers/schools', async (req, res) => {
+    const cacheKey = 'layer:schools';
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const schools = await School.find({ active: 1 }).lean();
+        const features = schools
+            .filter(s => typeof (s.entrance_latitude ?? s.latitude) === 'number' && typeof (s.entrance_longitude ?? s.longitude) === 'number')
+            .map(s => {
+                let stops = [];
+                try { stops = typeof s.nearby_stops === 'string' ? JSON.parse(s.nearby_stops) : (s.nearby_stops || []); } catch (e) {}
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [s.entrance_longitude ?? s.longitude, s.entrance_latitude ?? s.latitude]
+                    },
+                    properties: {
+                        id:       s.id,
+                        name:     s.name,
+                        type:     s.type,
+                        barangay: s.barangay,
+                        aliases:  s.aliases,
+                        nearby_stops: stops,
+                        entrance_latitude:  s.entrance_latitude ?? s.latitude,
+                        entrance_longitude: s.entrance_longitude ?? s.longitude,
+                        campus_latitude:    s.latitude,
+                        campus_longitude:   s.longitude
+                    }
+                };
+            });
+
+        const fc = { type: 'FeatureCollection', features };
+        setCache(cacheKey, fc);
+        res.json(fc);
+    } catch (err) {
+        console.error('Map layer error (schools):', err);
+        res.status(500).json({ error: 'Failed to build schools layer.' });
+    }
+});
+
+// GET /api/map/layers/landmarks
+router.get('/map/layers/landmarks', async (req, res) => {
+    const cacheKey = 'layer:landmarks';
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    try {
+        const landmarks = await Landmark.find({ type: { $ne: 'GEOCODED' } }).lean();
+        const features = landmarks
+            .filter(l => typeof l.latitude === 'number' && typeof l.longitude === 'number')
+            .map(l => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [l.longitude, l.latitude] },
+                properties: { id: l.id, name: l.name, type: l.type }
+            }));
+
+        const fc = { type: 'FeatureCollection', features };
+        setCache(cacheKey, fc);
+        res.json(fc);
+    } catch (err) {
+        console.error('Map layer error (landmarks):', err);
+        res.status(500).json({ error: 'Failed to build landmarks layer.' });
+    }
+});
+
+// GET /api/map/layers/flood-zones
+router.get('/map/layers/flood-zones', (req, res) => {
+    res.json({
+        type: 'FeatureCollection',
+        features: [
+            {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [120.3345, 16.0420],
+                        [120.3380, 16.0440],
+                        [120.3420, 16.0460]
+                    ]
+                },
+                properties: {
+                    id:          'flood-ab-fernandez',
+                    name:        'AB Fernandez Avenue',
+                    description: 'High tide overflow. Routes 3, 4, 5 reflect active detour bypass.',
+                    type:        'FLOOD_ZONE',
+                    style: {
+                        color:   '#f59e0b',
+                        weight:  10,
+                        opacity: 0.70,
+                        lineCap: 'round'
+                    }
+                }
+            }
+        ]
+    });
+});
+
 module.exports = router;
+
