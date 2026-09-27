@@ -270,7 +270,7 @@ export default function RouteDetails() {
               </div>
 
               {/* Interactive Route Map Preview per Addendum */}
-              <div className="relative h-60 sm:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
+              <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
                 <RouteMap
                   routes={[route]}
                   interactive={true}

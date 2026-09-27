@@ -52,9 +52,21 @@ function MapResizerAndBounds({ routes, activeFilter, selectedJourney }) {
     const t1 = setTimeout(() => map.invalidateSize(), 150);
     const t2 = setTimeout(() => map.invalidateSize(), 500);
 
+    // ResizeObserver: re-invalidate whenever the container is resized
+    // (covers orientation changes, panel toggle, split-view changes)
+    let ro;
+    const container = map.getContainer();
+    if (container && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      ro.observe(container);
+    }
+
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      if (ro) ro.disconnect();
     };
   }, [map]);
 
@@ -322,7 +334,7 @@ export default function RouteMap({
   return (
     <div
       className={`overflow-hidden bg-slate-100 ${className}`}
-      style={{ width: '100%', height: '100%', minHeight: '400px', ...style }}
+      style={{ width: '100%', height: '100%', ...style }}
     >
       <MapContainer
         center={dagupanCenter}
@@ -331,7 +343,8 @@ export default function RouteMap({
         dragging={interactive}
         zoomControl={interactive}
         doubleClickZoom={interactive}
-        style={{ width: '100%', height: '100%', minHeight: '400px' }}
+        style={{ width: '100%', height: '100%', minHeight: '300px' }}
+        className="sm:min-h-[400px]"
         attributionControl={true}
       >
         {/* OpenStreetMap Raster Tile Layer (Official OSM tile URL per Tile Usage Policy) */}

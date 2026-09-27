@@ -66,7 +66,7 @@ export default function About() {
             Our Story
           </div>
 
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight">
             About InerTayo
           </h1>
           <p className="text-base sm:text-lg text-slate-600 mt-6 leading-relaxed max-w-2xl mx-auto">

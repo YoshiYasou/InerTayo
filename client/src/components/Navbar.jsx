@@ -137,7 +137,7 @@ export default function Navbar() {
                 )}
                 <button
                   onClick={requestLogout}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors rounded-lg hover:bg-slate-100"
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 transition-colors rounded-lg hover:bg-slate-100"
                   title="Sign Out"
                 >
                   <LogOut className="w-4 h-4" />
@@ -165,14 +165,14 @@ export default function Navbar() {
           <div className="flex md:hidden items-center gap-2">
             <button
               onClick={() => handleNav('/map')}
-              className="p-2 rounded-lg text-slate-700 hover:bg-slate-100"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
               title="Launch Web Map"
             >
               <Compass className="w-5 h-5 text-emerald-600" />
             </button>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-slate-700 hover:bg-slate-100 focus:outline-none"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus:outline-none"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>

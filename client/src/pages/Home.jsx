@@ -174,7 +174,7 @@ export default function Home() {
 
             {/* Right Hero Card: Map Graphic & Flood-Aware Narrative */}
             <div className="lg:col-span-7">
-              <div className="h-full rounded-3xl bg-slate-900 text-white p-8 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col justify-between border border-slate-800">
+              <div className="h-full min-h-[260px] rounded-3xl bg-slate-900 text-white p-6 sm:p-8 lg:p-10 shadow-2xl relative overflow-hidden flex flex-col justify-between border border-slate-800">
                 
                 {/* Visual Map Graphic Background */}
                 <div className="absolute inset-0 opacity-20 pointer-events-none">

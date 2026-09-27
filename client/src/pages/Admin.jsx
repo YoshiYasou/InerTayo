@@ -541,7 +541,7 @@ export default function Admin() {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 mb-6 space-x-2 overflow-x-auto">
+        <div className="flex border-b border-slate-200 mb-6 space-x-2 overflow-x-auto pb-px [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {[
             { key: 'routes', label: 'Routes & Travel Times', icon: Route },
             { key: 'advisories', label: 'Flood Advisories & Detours', icon: AlertTriangle },
@@ -587,8 +587,8 @@ export default function Admin() {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-600">
+            <div className="overflow-x-auto -mx-6 px-6">
+              <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
                 <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                   <tr>
                     <th className="py-3 px-4">Route Name</th>
@@ -625,21 +625,21 @@ export default function Admin() {
                       <td className="py-3.5 px-4 text-right space-x-2">
                         <button
                           onClick={() => navigate(`/routes/${r.id}`)}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                          className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
                           title="View Public Page"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => openEditRouteModal(r)}
-                          className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-lg hover:bg-slate-100"
+                          className="p-2 text-slate-400 hover:text-emerald-600 rounded-lg hover:bg-slate-100"
                           title="Edit Route"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteRoute(r.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100"
+                          className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100"
                           title="Delete Route"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -819,8 +819,8 @@ export default function Admin() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-600">
+          <div className="overflow-x-auto -mx-6 px-6">
+            <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">Name</th>
@@ -858,10 +858,10 @@ export default function Admin() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button onClick={() => openEditLocationModal(loc)} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg" title="Edit">
+                          <button onClick={() => openEditLocationModal(loc)} className="p-2 text-slate-400 hover:text-emerald-700 rounded-lg hover:bg-slate-100" title="Edit">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDeleteLocation(loc.id)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg" title="Delete">
+                          <button onClick={() => handleDeleteLocation(loc.id)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>

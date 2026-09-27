@@ -234,7 +234,7 @@ export default function WebMap() {
         </div>
 
         {/* Right Side: Interactive Leaflet Map */}
-        <div className={`flex-1 relative overflow-hidden ${mobileView === 'map' ? 'block' : 'hidden lg:block'}`}>
+        <div className={`flex-1 relative overflow-hidden min-h-[60vh] lg:min-h-0 ${mobileView === 'map' ? 'block' : 'hidden lg:block'}`}>
           {loading ? (
             <div className="w-full h-full flex items-center justify-center bg-slate-100">
               <div className="text-center">
@@ -268,7 +268,7 @@ export default function WebMap() {
                 </span>
                 <button
                   onClick={() => setSelectedItem(null)}
-                  className="text-xs text-slate-400 hover:text-slate-700 font-bold p-1"
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-slate-700 font-bold rounded-lg hover:bg-slate-100"
                 >
                   ✕
                 </button>
@@ -474,11 +474,11 @@ export default function WebMap() {
         </div>
 
         {/* Mobile View Bottom Floating Navigation Pill */}
-        <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 backdrop-blur-md text-white rounded-full p-1 shadow-2xl flex items-center gap-1 border border-slate-700">
+        <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 backdrop-blur-md text-white rounded-full p-1 shadow-2xl flex items-center gap-1 border border-slate-700" style={{ bottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
           <button
             type="button"
             onClick={() => setMobileView('planner')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+            className={`min-h-[44px] px-4 rounded-full text-xs font-bold transition-all ${
               mobileView === 'planner' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -487,7 +487,7 @@ export default function WebMap() {
           <button
             type="button"
             onClick={() => setMobileView('map')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
+            className={`min-h-[44px] px-4 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
               mobileView === 'map' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
             }`}
           >
