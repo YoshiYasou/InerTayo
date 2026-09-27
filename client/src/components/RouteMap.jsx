@@ -1,3 +1,19 @@
+/**
+ * RouteMap.jsx — InerTayo Web Map Component
+ *
+ * Architecture (Steps 1–8):
+ *  • Step 1  – Consumes precomputed GeoJSON from /api/map/layers/*
+ *  • Step 2  – preferCanvas: true on MapContainer
+ *  • Step 3  – 3-tier zoom LOD (11-13 / 14-15 / 16+) via zoomend
+ *  • Step 4  – leaflet.markercluster for stops, schools, landmarks
+ *  • Step 5  – One variable per visual channel:
+ *               color → mode, dash → status, weight/opacity → selection
+ *  • Step 7  – Z-order: flood → routes → stops/markers → journey overlay
+ *  • Step 8  – Interaction-driven focus: routes-only default,
+ *               mode-toggle dims others, click highlights + shows stops,
+ *               journey fitBounds + hides unrelated layers
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -6,702 +22,617 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import 'leaflet.markercluster';
 
-// Fix Leaflet default icon paths under Vite bundler
+// Fix Leaflet default icon paths under Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerIcon   from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
 delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
+L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
-// ─── Zoom thresholds ────────────────────────────────────────────────────────
-const ZOOM_SHOW_MARKERS = 14; // individual stop / school / landmark markers
-const CLUSTER_MAX_ZOOM  = 15; // cluster collapses below this zoom
-
-// ─── GeoJSON → Leaflet [lat, lng] array ─────────────────────────────────────
-function getRoutePolylineCoords(route) {
-  if (!route) return [];
-  if (route.geometry) {
-    try {
-      const geom = typeof route.geometry === 'string'
-        ? JSON.parse(route.geometry)
-        : route.geometry;
-      if (geom?.type === 'LineString' && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
-        return geom.coordinates.map(c => [c[1], c[0]]);
-      }
-    } catch (e) { /* fall through */ }
-  }
-  if (Array.isArray(route.stops) && route.stops.length >= 2) {
-    return route.stops
-      .filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number')
-      .map(s => [s.latitude, s.longitude]);
-  }
-  return [];
+// ─── Visual encoding constants (Step 5) ────────────────────────────────────
+const MODE_COLORS = {
+  jeepney:  '#ec4899',
+  bus:      '#10b981',
+  tricycle: '#06b6d4',
+  boat:     '#2563eb',
+  default:  '#64748b',
+};
+function modeColor(modeName = '') {
+  const m = modeName.toLowerCase();
+  if (m.includes('jeep'))     return MODE_COLORS.jeepney;
+  if (m.includes('bus'))      return MODE_COLORS.bus;
+  if (m.includes('tricycle')) return MODE_COLORS.tricycle;
+  if (m.includes('boat'))     return MODE_COLORS.boat;
+  return MODE_COLORS.default;
 }
 
-const ROAD_SNAP_BATCH_LIMIT = 90;
-const ROAD_SNAP_CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+// Default / dim / selected polyline styles
+const STYLE_DEFAULT  = { weight: 2, opacity: 0.5 };
+const STYLE_DIMMED   = { weight: 2, opacity: 0.12 };
+const STYLE_SELECTED = { weight: 5, opacity: 1.0 };
 
-function createRoadSnapBatches(routes) {
-  const batches = [];
-  let batch = [];
-  let pointCount = 0;
+// ─── Zoom LOD thresholds (Step 3) ──────────────────────────────────────────
+const ZOOM_TIER1_MAX      = 13; // ≤13: routes only
+const ZOOM_TIER2_MIN      = 14; // 14-15: stops cluster appear
+const ZOOM_TIER3_MIN      = 16; // ≥16: stops unclustered + landmarks
+const CLUSTER_MAX_ZOOM    = 15; // clustering disabled above this zoom
 
-  routes.forEach(route => {
-    if (batch.length && pointCount + route.waypoints.length > ROAD_SNAP_BATCH_LIMIT) {
-      batches.push(batch);
-      batch = [];
-      pointCount = 0;
-    }
-    route.startIndex = pointCount;
-    batch.push(route);
-    pointCount += route.waypoints.length;
-  });
-
-  if (batch.length) batches.push(batch);
-  return batches;
-}
-
-async function snapRoadBatch(batch) {
-  const waypoints = batch.flatMap(route => route.waypoints);
-  const coordinates = waypoints.map(([longitude, latitude]) => `${longitude},${latitude}`).join(';');
-  const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&steps=true&geometries=geojson`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`OSRM returned HTTP ${response.status}`);
-
-  const data = await response.json();
-  const legs = data.code === 'Ok' ? data.routes?.[0]?.legs : null;
-  if (!Array.isArray(legs) || legs.length !== waypoints.length - 1) {
-    throw new Error(`OSRM could not route this batch (${data.code || 'invalid response'})`);
-  }
-
-  const snappedRoutes = new Map();
-  batch.forEach(route => {
-    const snappedCoordinates = [];
-    const endIndex = route.startIndex + route.waypoints.length - 1;
-    for (let legIndex = route.startIndex; legIndex < endIndex; legIndex += 1) {
-      (legs[legIndex].steps || []).forEach(step => {
-        (step.geometry?.coordinates || []).forEach(point => {
-          const previous = snappedCoordinates[snappedCoordinates.length - 1];
-          if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) {
-            snappedCoordinates.push([point[1], point[0]]);
-          }
-        });
-      });
-    }
-    if (snappedCoordinates.length >= 2) {
-      snappedRoutes.set(route.id, snappedCoordinates);
-    }
-  });
-
-  return snappedRoutes;
-}
-
-function getRoadSnapCacheKey(route, waypoints) {
-  const source = JSON.stringify(waypoints);
-  let hash = 2166136261;
-  for (let index = 0; index < source.length; index += 1) {
-    hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
-  }
-  return `inertayo-road-snap-v1-${route.id}-${(hash >>> 0).toString(36)}`;
-}
-
-// ─── Route colour by mode ─────────────────────────────────────────────────
-function routeColor(mode = '') {
-  const m = mode.toLowerCase();
-  if (m.includes('boat'))   return '#2563eb'; // blue
-  if (m.includes('jeep'))   return '#ec4899'; // pink
-  if (m.includes('bus'))    return '#10b981'; // green
-  return '#06b6d4';                           // cyan = tricycle / default
-}
-
-// ─── DivIcon factories ────────────────────────────────────────────────────
-function createStopIcon(stop, isOrigin, isDest, color) {
-  let bg   = color;
-  let size = 16;
-  let label = stop.stop_order ?? '';
-  if (isOrigin)              { bg = '#059669'; size = 20; label = 'A'; }
-  else if (isDest)           { bg = '#e11d48'; size = 20; label = 'B'; }
-  else if (stop.is_transfer_point) { bg = '#0f172a'; size = 18; label = 'T'; }
-
+// ─── DivIcon factories ─────────────────────────────────────────────────────
+function stopDivIcon(color, label, size = 16) {
   return L.divIcon({
-    className: 'custom-stop-div-icon',
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};
-      border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);display:flex;
-      align-items:center;justify-content:center;color:#fff;
-      font-family:system-ui,sans-serif;font-size:${size > 16 ? '10px' : '9px'};
-      font-weight:800;line-height:1;">${label}</div>`,
-    iconSize:    [size, size],
-    iconAnchor:  [size / 2, size / 2],
-    popupAnchor: [0, -size / 2],
+    className: '',
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+      background:${color};border:2.5px solid #fff;
+      box-shadow:0 1px 4px rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-family:system-ui,sans-serif;
+      font-size:${size > 16 ? '10px' : '9px'};font-weight:800;">${label}</div>`,
+    iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2],
   });
 }
 
-function createLandmarkIcon() {
+function schoolDivIcon() {
   return L.divIcon({
-    className: 'custom-landmark-div-icon',
+    className: '',
+    html: `<div style="width:24px;height:24px;border-radius:50%;background:#4f46e5;
+      border:2.5px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.4);
+      display:flex;align-items:center;justify-content:center;font-size:13px;">🎓</div>`,
+    iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12],
+  });
+}
+
+function landmarkDivIcon() {
+  return L.divIcon({
+    className: '',
     html: `<div style="width:14px;height:14px;border-radius:3px;background:#6366f1;
-      border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.35);display:flex;
-      align-items:center;justify-content:center;color:#fff;font-size:8px;font-weight:bold;">★</div>`,
+      border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-size:8px;font-weight:bold;">★</div>`,
     iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -7],
   });
 }
 
-function createLocationIcon(loc) {
-  const type = (loc.type || '').toUpperCase();
-  const map = {
-    RIVER_STOP:    { bg: '#0284c7', sym: '⚓', sz: 22 },
-    STREET:        { bg: '#475569', sym: '≡',  sz: 16 },
-    TERMINAL:      { bg: '#ea580c', sym: 'T',  sz: 18 },
-    ESTABLISHMENT: { bg: '#8b5cf6', sym: 'E',  sz: 16 },
-    BARANGAY:      { bg: '#0d9488', sym: 'B',  sz: 16 },
-    INTERSECTION:  { bg: '#64748b', sym: '+',  sz: 14 },
-    STOP:          { bg: '#10b981', sym: '●',  sz: 14 },
+function clusterIcon(color) {
+  return (cluster) => {
+    const n = cluster.getChildCount();
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:34px;height:34px;border-radius:50%;background:${color};
+        border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
+        display:flex;align-items:center;justify-content:center;
+        color:#fff;font-size:12px;font-weight:800;">${n}</div>`,
+      iconSize: [34, 34], iconAnchor: [17, 17],
+    });
   };
-  const { bg = '#6366f1', sym = '★', sz = 18 } = map[type] || {};
-  return L.divIcon({
-    className: 'custom-loc-div-icon',
-    html: `<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${bg};
-      border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);display:flex;
-      align-items:center;justify-content:center;color:#fff;
-      font-size:${sz >= 18 ? '10px' : '9px'};font-weight:800;">${sym}</div>`,
-    iconSize:    [sz, sz],
-    iconAnchor:  [sz / 2, sz / 2],
-    popupAnchor: [0, -sz / 2],
-  });
 }
 
-function createSchoolIcon() {
+function journeyStopIcon(label, bg) {
   return L.divIcon({
-    className: 'custom-school-div-icon',
-    html: `<div style="width:22px;height:22px;border-radius:50%;background:#4f46e5;
-      border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);display:flex;
-      align-items:center;justify-content:center;color:#fff;font-size:11px;">🎓</div>`,
+    className: '',
+    html: `<div style="width:22px;height:22px;border-radius:50%;background:${bg};
+      border:2.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-size:11px;font-weight:800;">${label}</div>`,
     iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -11],
   });
 }
 
-// ─── Popup HTML helpers ───────────────────────────────────────────────────
-function stopPopupHtml(stop, route, color) {
-  const isOrigin = stop._isOrigin, isDest = stop._isDest;
-  return `<div style="font-family:sans-serif;min-width:160px">
-    <div style="font-size:10px;font-weight:bold;color:${color}">
-      STOP #${stop.stop_order} ${isOrigin ? '(START)' : isDest ? '(TERMINUS)' : stop.is_transfer_point ? '(TRANSFER)' : ''}
+// ─── Popup HTML helpers ────────────────────────────────────────────────────
+function routePopupHtml(props) {
+  const detour  = props.status === 'DETOUR_ACTIVE';
+  const unavail = props.status === 'UNAVAILABLE';
+  return `<div style="font-family:sans-serif;min-width:185px">
+    <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:2px">${props.mode}</div>
+    <div style="font-size:13px;font-weight:bold;color:#0f172a;margin-bottom:4px">${props.route_name}</div>
+    <div style="font-size:11px;color:#475569">
+      Fare: ₱${Math.round(props.minimum_fare)} – ₱${Math.round(props.maximum_fare)}<br/>
+      Travel: ${props.estimated_time} mins
     </div>
-    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${stop.stop_name}</div>
-    <div style="font-size:11px;color:#64748b">${route.route_name}</div>
+    ${unavail ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#dc2626;background:#fee2e2;padding:2px 6px;border-radius:4px">🚫 Suspended</span>` : ''}
+    ${detour  ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#b45309;background:#fef3c7;padding:2px 6px;border-radius:4px">⚠️ Detour</span>` : ''}
   </div>`;
 }
 
-function routePopupHtml(route, color) {
-  const isUnavail = route.status === 'UNAVAILABLE';
-  const isDetour  = route.status === 'DETOUR_ACTIVE';
-  return `<div style="font-family:sans-serif;min-width:180px">
-    <span style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b">${route.mode_name}</span>
-    <h4 style="margin:2px 0 6px;font-size:13px;font-weight:bold;color:#0f172a">${route.route_name}</h4>
-    <p style="margin:0;font-size:11px;color:#475569">
-      Fare: ₱${Math.round(route.minimum_fare)} – ₱${Math.round(route.maximum_fare)}<br/>
-      Travel Time: ${route.active_travel_time || route.estimated_time} mins
-    </p>
-    ${isUnavail ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#dc2626;background:#fee2e2;padding:2px 6px;border-radius:4px">🚫 Service Suspended</span>` : ''}
-    ${isDetour  ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#b45309;background:#fef3c7;padding:2px 6px;border-radius:4px">⚠️ Detour Active</span>` : ''}
+function stopPopupHtml(props) {
+  const tag = props.is_origin ? '(Start)' : props.is_terminus ? '(Terminus)' : props.is_transfer ? '(Transfer)' : `#${props.stop_order}`;
+  return `<div style="font-family:sans-serif;min-width:160px">
+    <div style="font-size:10px;font-weight:bold;color:${props.color}">${props.mode} STOP ${tag}</div>
+    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${props.stop_name}</div>
+    <div style="font-size:11px;color:#64748b">${props.route_name}</div>
   </div>`;
 }
 
-function schoolPopupHtml(sch, onSelect) {
-  let nearbyStops = [];
-  if (Array.isArray(sch.nearby_stops)) nearbyStops = sch.nearby_stops;
-  else if (typeof sch.nearby_stops === 'string') {
-    try { nearbyStops = JSON.parse(sch.nearby_stops); } catch (e) {}
-  }
-  const nearby = nearbyStops.slice(0, 2)
-    .map(st => `<div style="font-size:10px;color:#334155">• ${st.stop_name} (${st.mode}) ~${st.distance_meters}m</div>`)
+function schoolPopupHtml(props, onSelect) {
+  const nearby = (props.nearby_stops || []).slice(0, 2)
+    .map(s => `<div style="font-size:10px;color:#334155">• ${s.stop_name} (${s.mode}) ~${s.distance_meters}m</div>`)
     .join('');
   return `<div style="font-family:sans-serif;min-width:190px">
     <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
-      <span style="font-size:9px;font-weight:bold;color:#4f46e5;text-transform:uppercase">🎓 ${sch.type}</span>
-      <span style="font-size:9px;font-weight:bold;color:#059669;background:#ecfdf5;padding:1px 5px;border-radius:4px">Verified Dagupan</span>
+      <span style="font-size:9px;font-weight:bold;color:#4f46e5;text-transform:uppercase">🎓 ${props.type}</span>
+      <span style="font-size:9px;font-weight:bold;color:#059669;background:#ecfdf5;padding:1px 5px;border-radius:4px">Verified</span>
     </div>
-    <div style="font-size:13px;font-weight:bold;color:#0f172a;margin:2px 0">${sch.name}</div>
-    ${sch.barangay ? `<div style="font-size:11px;color:#475569;margin-bottom:4px">Brgy. ${sch.barangay}</div>` : ''}
-    ${nearbyStops.length > 0 ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0">
-      <div style="font-size:10px;font-weight:bold;color:#64748b;margin-bottom:2px">Nearby Transit:</div>
-      ${nearby}
-    </div>` : ''}
+    <div style="font-size:13px;font-weight:bold;color:#0f172a;margin:2px 0">${props.name}</div>
+    ${props.barangay ? `<div style="font-size:11px;color:#475569;margin-bottom:4px">Brgy. ${props.barangay}</div>` : ''}
+    ${nearby ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0">
+      <div style="font-size:10px;font-weight:bold;color:#64748b;margin-bottom:2px">Nearby Transit:</div>${nearby}</div>` : ''}
   </div>`;
 }
 
-function locationPopupHtml(loc) {
-  return `<div style="font-family:sans-serif;min-width:160px">
-    <div style="font-size:9px;font-weight:bold;color:#0284c7;text-transform:uppercase">${loc.type}</div>
-    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${loc.name}</div>
-    ${loc.address ? `<div style="font-size:10px;color:#64748b">${loc.address}</div>` : ''}
-    ${loc.description ? `<div style="font-size:10px;color:#475569;margin-top:4px">${loc.description}</div>` : ''}
-  </div>`;
-}
-
-// ─── Core imperative layer manager ─────────────────────────────────────────
+// ─── Core layer manager (runs inside MapContainer context) ─────────────────
 function LayerManager({
-  routes,
   activeFilter,
   showLandmarks,
   showLocations,
   showSchools,
-  schools,
-  locations,
-  landmarks,
   showAdvisories,
   selectedJourney,
-  snappedRouteCoords,
   onSelect,
+  selectedRouteId,
+  setSelectedRouteId,
 }) {
   const map = useMap();
 
-  // Stable refs so effects can clean up previous layers
-  const layerRefs = useRef({
-    flood:      null,  // L.polyline (flood advisory)
-    routeLines: {},    // { routeId: L.polyline }
-    stopCluster: null, // L.markerClusterGroup
-    schoolCluster: null,
-    locationCluster: null,
-    landmarkCluster: null,
-    journeyGroup: null,
+  // GeoJSON data fetched from server
+  const geoDataRef = useRef({
+    jeepneys: null, buses: null, tricycles: null, boats: null,
+    stops: null, schools: null, landmarks: null, flood: null,
   });
 
-  // ── Resize / bounds helper ──────────────────────────────────────────────
+  // Leaflet layer references — we manage all layers imperatively
+  const layersRef = useRef({
+    floodLayer:   null,            // L.geoJSON flood zone
+    routeLayers:  {},              // { 'jeepneys': L.geoJSON, ... }
+    stopCluster:  null,            // L.markerClusterGroup
+    schoolCluster: null,
+    landmarkCluster: null,
+    journeyGroup: null,
+    // Per-feature lookup for highlight/dim
+    routeFeatureLayers: {},        // { routeId: L.layer }
+  });
+
+  const currentZoom = useRef(map.getZoom());
+
+  // ── Resize + invalidate ──────────────────────────────────────────────────
   useEffect(() => {
     map.invalidateSize();
     const t1 = setTimeout(() => map.invalidateSize(), 150);
     const t2 = setTimeout(() => map.invalidateSize(), 500);
     let ro;
-    const container = map.getContainer();
-    if (container && typeof ResizeObserver !== 'undefined') {
+    const c = map.getContainer();
+    if (c && typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(() => map.invalidateSize());
-      ro.observe(container);
+      ro.observe(c);
     }
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      if (ro) ro.disconnect();
-    };
+    return () => { clearTimeout(t1); clearTimeout(t2); if (ro) ro.disconnect(); };
   }, [map]);
 
-  // ── Fit bounds to selected journey ──────────────────────────────────────
+  // ── Fetch all GeoJSON data once ─────────────────────────────────────────
   useEffect(() => {
-    if (!selectedJourney?.legs?.length) return;
-    const pts = [];
-    selectedJourney.legs.forEach(leg => {
-      (leg.coordinates || leg.geometry?.coordinates || []).forEach(c => {
-        if (Array.isArray(c) && c.length >= 2) pts.push([c[1], c[0]]);
-      });
-    });
-    if (pts.length > 0) map.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
-  }, [selectedJourney, map]);
+    const layers = ['jeepneys', 'buses', 'tricycles', 'boats', 'stops', 'schools', 'landmarks', 'flood-zones'];
+    const keys   = ['jeepneys', 'buses', 'tricycles', 'boats', 'stops', 'schools', 'landmarks', 'flood'];
 
-  // ── Fit bounds when filter changes (but no journey active) ───────────────
+    Promise.all(
+      layers.map(l => fetch(`/api/map/layers/${l}`).then(r => r.ok ? r.json() : null).catch(() => null))
+    ).then(results => {
+      keys.forEach((key, i) => { geoDataRef.current[key] = results[i]; });
+      buildAllLayers();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Re-apply layers when filter/toggle/zoom changes ─────────────────────
   useEffect(() => {
-    if (selectedJourney || !routes.length) return;
-    if (activeFilter !== 'ALL' && activeFilter !== 'FLOOD') {
-      const filtered = routes.filter(r =>
-        (r.mode_name || '').toLowerCase().includes(activeFilter.toLowerCase())
-      );
+    buildAllLayers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories]);
+
+  // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
+  useEffect(() => {
+    const onZoomEnd = () => {
+      currentZoom.current = map.getZoom();
+      syncZoomLOD();
+    };
+    map.on('zoomend', onZoomEnd);
+    return () => map.off('zoomend', onZoomEnd);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]);
+
+  // ── Journey bounds + hide ───────────────────────────────────────────────
+  useEffect(() => {
+    if (selectedJourney?.legs?.length) {
       const pts = [];
-      filtered.forEach(r => getRoutePolylineCoords(r).forEach(p => pts.push(p)));
-      if (pts.length > 0) map.fitBounds(pts, { padding: [35, 35] });
-    } else if (activeFilter === 'FLOOD') {
-      map.setView([16.0440, 120.3380], 14);
+      selectedJourney.legs.forEach(leg => {
+        (leg.coordinates || leg.geometry?.coordinates || []).forEach(c => {
+          if (Array.isArray(c) && c.length >= 2) pts.push([c[1], c[0]]);
+        });
+      });
+      if (pts.length > 0) map.fitBounds(pts, { padding: [50, 50], maxZoom: 16 });
     }
-  }, [activeFilter, routes, selectedJourney, map]);
+    buildAllLayers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedJourney]);
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // LAYER 1 — Flood advisory (always bottom: drawn first)
-  // ══════════════════════════════════════════════════════════════════════════
+  // ── selectedRouteId highlight ───────────────────────────────────────────
   useEffect(() => {
-    const refs = layerRefs.current;
-    if (refs.flood) { refs.flood.remove(); refs.flood = null; }
+    applySelectionStyles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId]);
 
-    const showFlood = showAdvisories && (activeFilter === 'ALL' || activeFilter === 'FLOOD');
-    if (!showFlood) return;
+  // ════════════════════════════════════════════════════════════════════════
+  function buildAllLayers() {
+    const refs = layersRef.current;
+    const geo  = geoDataRef.current;
 
-    refs.flood = L.polyline(
-      [[16.0420, 120.3345], [16.0440, 120.3380], [16.0460, 120.3420]],
-      {
-        color: '#f59e0b',
-        weight: activeFilter === 'FLOOD' ? 14 : 9,
-        opacity: 0.75,
-        lineCap: 'round',
-        // pane: 'overlayPane' — default, keeps it beneath markers automatically
-      }
-    )
-      .bindPopup(`<div style="font-family:sans-serif;min-width:180px">
-        <div style="color:#b45309;font-weight:bold;font-size:11px;margin-bottom:4px">⚠️ ACTIVE FLOOD ADVISORY</div>
-        <div style="font-size:12px;font-weight:bold;color:#0f172a">AB Fernandez Avenue</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px">Water level elevated during high tide.
-        Routes 3, 4, and 5 reflect detour bypass.</div>
-      </div>`)
-      .on('click', () => onSelect?.('advisory', {
-        title: 'AB Fernandez Ave Flooding',
-        description: 'High tide overflow has created standing water on the lower roadway. Commuter routes reflect active detours.'
-      }))
-      .addTo(map);
+    // 1. FLOOD ZONE (always bottom — add first)
+    if (refs.floodLayer) { refs.floodLayer.remove(); refs.floodLayer = null; }
+    if (showAdvisories && geo.flood && (activeFilter === 'ALL' || activeFilter === 'FLOOD')) {
+      refs.floodLayer = L.geoJSON(geo.flood, {
+        style: f => ({
+          ...(f.properties.style || {}),
+          weight: activeFilter === 'FLOOD' ? 14 : 10,
+        }),
+        onEachFeature(f, layer) {
+          layer.bindPopup(`<div style="font-family:sans-serif;min-width:180px">
+            <div style="color:#b45309;font-weight:bold;font-size:11px;margin-bottom:4px">⚠️ ACTIVE FLOOD ADVISORY</div>
+            <div style="font-size:12px;font-weight:bold;color:#0f172a">${f.properties.name}</div>
+            <div style="font-size:11px;color:#475569;margin-top:2px">${f.properties.description}</div>
+          </div>`);
+          layer.on('click', () => onSelect?.('advisory', {
+            title: `${f.properties.name} Flooding`,
+            description: f.properties.description,
+          }));
+        },
+      }).addTo(map);
+    }
 
-    return () => { refs.flood?.remove(); refs.flood = null; };
-  }, [map, showAdvisories, activeFilter, onSelect]);
+    // 2. ROUTE POLYLINES per mode group (Step 7: after flood)
+    Object.values(refs.routeLayers).forEach(lg => lg.remove());
+    refs.routeLayers = {};
+    refs.routeFeatureLayers = {};
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // LAYER 2 — Route polylines (recede at rest; boost on hover)
-  //   - Default: weight 3, opacity 0.50 — the tangle recedes visually
-  //   - Hover / selected: weight 6, opacity 0.95 — brought to front
-  //   - Genuine mode filtering: only matching mode is added to map
-  // ══════════════════════════════════════════════════════════════════════════
-  useEffect(() => {
-    const refs = layerRefs.current;
+    const modeKeys = ['jeepneys', 'buses', 'tricycles', 'boats'];
+    const modeKeywords = {
+      jeepneys: 'jeep', buses: 'bus', tricycles: 'tricycle', boats: 'boat',
+    };
 
-    // Remove all previous route polylines
-    Object.values(refs.routeLines).forEach(pl => pl.remove());
-    refs.routeLines = {};
+    // During an active journey, only show route lines of modes involved
+    const journeyModes = selectedJourney?.legs
+      ? new Set(selectedJourney.legs.map(l => (l.mode || '').toLowerCase()))
+      : null;
 
-    if (!routes.length) return;
+    for (const key of modeKeys) {
+      const data = geo[key];
+      if (!data?.features?.length) continue;
 
-    // Determine which routes to show
-    const visible = routes.filter(route => {
-      const mode = (route.mode_name || '').toLowerCase();
-      if (activeFilter === 'ALL' || activeFilter === 'FLOOD') return true;
-      return mode.includes(activeFilter.toLowerCase());
-    });
-
-    visible.forEach((route, routeIdx) => {
-      const coords = snappedRouteCoords[route.id] || getRoutePolylineCoords(route);
-      if (coords.length < 2) return;
-
-      const mode = (route.mode_name || '').toLowerCase();
-      const isBoat     = mode.includes('boat');
-      const isDetour   = route.status === 'DETOUR_ACTIVE';
-      const isUnavail  = route.status === 'UNAVAILABLE';
-      const color = isUnavail ? '#94a3b8' : isDetour ? '#f59e0b' : routeColor(mode);
-
-      const pl = L.polyline(coords, {
-        color,
-        weight:    3,
-        opacity:   0.50,
-        dashArray: isBoat ? '8, 8' : isDetour ? '8, 8' : undefined,
-        lineCap:   'round',
-      });
-
-      // Hover: boost → bring-to-front, dim others
-      pl.on('mouseover', () => {
-        pl.setStyle({ weight: 6, opacity: 0.95 });
-        pl.bringToFront();
-      });
-      pl.on('mouseout', () => {
-        pl.setStyle({ weight: 3, opacity: 0.50 });
-      });
-      pl.on('click', () => {
-        onSelect?.('route', route);
-        // Persistent highlight until another route is clicked or map click clears
-        pl.setStyle({ weight: 6, opacity: 0.95 });
-        pl.bringToFront();
-      });
-
-      pl.bindPopup(routePopupHtml(route, color));
-      pl.addTo(map);
-      refs.routeLines[route.id] = pl;
-    });
-
-    // Clear persistent highlights on map background click
-    const clearHighlight = () => {
-      Object.values(refs.routeLines).forEach(pl =>
-        pl.setStyle({ weight: 3, opacity: 0.50 })
+      // Filter by active mode toggle
+      const matchesFilter = (
+        activeFilter === 'ALL' ||
+        activeFilter === 'FLOOD' ||
+        (activeFilter === 'Jeepney'  && key === 'jeepneys') ||
+        (activeFilter === 'Bus'      && key === 'buses') ||
+        (activeFilter === 'Tricycle' && key === 'tricycles') ||
+        (activeFilter === 'Boat'     && key === 'boats')
       );
-    };
-    map.on('click', clearHighlight);
-    return () => {
-      Object.values(refs.routeLines).forEach(pl => pl.remove());
-      refs.routeLines = {};
-      map.off('click', clearHighlight);
-    };
-  }, [map, routes, activeFilter, snappedRouteCoords, onSelect]);
+      if (!matchesFilter) continue;
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // LAYER 3 — Clustered point markers (stops, schools, locations, landmarks)
-  //   - Each category gets its own MarkerClusterGroup
-  //   - Entire cluster group is added/removed based on zoom (≥ ZOOM_SHOW_MARKERS)
-  //     AND the appropriate toggle flag
-  //   - Flood zone markers stay outside clustering
-  // ══════════════════════════════════════════════════════════════════════════
+      const layerGroup = L.geoJSON(data, {
+        renderer: L.canvas(), // Step 2 – canvas per layer
+        style(f) {
+          const props = f.properties;
+          const base = props.style || {};
+          return {
+            color:     base.color    || modeColor(props.mode),
+            weight:    STYLE_DEFAULT.weight,
+            opacity:   STYLE_DEFAULT.opacity,
+            dashArray: base.dashArray || undefined,
+            lineCap:   'round',
+          };
+        },
+        onEachFeature(f, layer) {
+          const id = f.properties.id;
+          refs.routeFeatureLayers[id] = layer;
 
-  // Helper: create or recreate a cluster group
-  function makeClusterGroup(color = '#64748b') {
-    return L.markerClusterGroup({
-      maxClusterRadius: 40,
+          layer.bindPopup(routePopupHtml(f.properties));
+
+          // Hover: boost this, don't dim others on hover (only on click)
+          layer.on('mouseover', () => {
+            if (selectedRouteId !== id) {
+              layer.setStyle({ weight: 4, opacity: 0.85 });
+              layer.bringToFront();
+            }
+          });
+          layer.on('mouseout', () => {
+            if (selectedRouteId !== id) {
+              layer.setStyle(STYLE_DEFAULT);
+            }
+          });
+          layer.on('click', () => {
+            setSelectedRouteId(id === selectedRouteId ? null : id);
+            onSelect?.('route', f.properties);
+          });
+        },
+      }).addTo(map);
+
+      refs.routeLayers[key] = layerGroup;
+    }
+
+    // Apply current selection highlight
+    applySelectionStyles();
+
+    // 3. STOPS, SCHOOLS, LANDMARKS — clusters (Step 7: after route lines)
+    rebuildStopCluster();
+    rebuildSchoolCluster();
+    rebuildLandmarkCluster();
+
+    // 4. JOURNEY OVERLAY (always top)
+    buildJourneyOverlay();
+
+    // 5. Sync LOD based on current zoom
+    syncZoomLOD();
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  function applySelectionStyles() {
+    const refs = layersRef.current;
+    const flayers = refs.routeFeatureLayers;
+    if (!Object.keys(flayers).length) return;
+
+    if (!selectedRouteId) {
+      // No selection: restore all to default
+      Object.values(flayers).forEach(l => { try { l.setStyle(STYLE_DEFAULT); } catch {} });
+      return;
+    }
+
+    // Dim everything, then highlight the selected one
+    Object.entries(flayers).forEach(([id, l]) => {
+      try {
+        if (parseInt(id) === selectedRouteId) {
+          l.setStyle(STYLE_SELECTED);
+          l.bringToFront();
+        } else {
+          l.setStyle(STYLE_DIMMED);
+        }
+      } catch {}
+    });
+
+    // If a route is selected, show its stops even below ZOOM_TIER2_MIN (Step 8)
+    rebuildStopCluster(selectedRouteId);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  function rebuildStopCluster(forceRouteId = null) {
+    const refs = layersRef.current;
+    const geo  = geoDataRef.current;
+
+    if (refs.stopCluster) { refs.stopCluster.remove(); refs.stopCluster = null; }
+    if (!geo.stops?.features?.length) return;
+
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: 60,
       disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
-      iconCreateFunction(cluster) {
-        const count = cluster.getChildCount();
-        return L.divIcon({
-          className: 'custom-cluster-icon',
-          html: `<div style="
-            width:32px;height:32px;border-radius:50%;background:${color};
-            border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
-            display:flex;align-items:center;justify-content:center;
-            color:#fff;font-size:11px;font-weight:800;line-height:1;">${count}</div>`,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        });
-      },
-    });
-  }
-
-  // ── Stop markers cluster ──────────────────────────────────────────────────
-  useEffect(() => {
-    const refs = layerRefs.current;
-    if (refs.stopCluster) { refs.stopCluster.remove(); refs.stopCluster = null; }
-
-    const cluster = makeClusterGroup('#64748b');
-
-    const visible = routes.filter(route => {
-      const mode = (route.mode_name || '').toLowerCase();
-      if (activeFilter === 'ALL' || activeFilter === 'FLOOD') return true;
-      return mode.includes(activeFilter.toLowerCase());
+      iconCreateFunction: clusterIcon('#64748b'),
     });
 
-    visible.forEach(route => {
-      const color = routeColor(route.mode_name || '');
-      (route.stops || []).forEach((stop, idx) => {
-        if (typeof stop.latitude !== 'number' || typeof stop.longitude !== 'number') return;
-        const isOrigin = idx === 0;
-        const isDest   = idx === route.stops.length - 1;
-        const marker = L.marker(
-          [stop.latitude, stop.longitude],
-          { icon: createStopIcon({ ...stop, _isOrigin: isOrigin, _isDest: isDest }, isOrigin, isDest, color) }
-        );
-        marker.bindPopup(stopPopupHtml({ ...stop, _isOrigin: isOrigin, _isDest: isDest }, route, color));
-        marker.on('click', () => onSelect?.('stop', { ...stop, routeName: route.route_name }));
-        cluster.addLayer(marker);
+    const zoom = currentZoom.current;
+    const showAll = zoom >= ZOOM_TIER2_MIN || forceRouteId !== null;
+    if (!showAll) return; // don't even build below LOD threshold
+
+    geo.stops.features.forEach(f => {
+      const props = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+
+      // If a route is selected, only show stops from that route
+      if (forceRouteId && props.route_id !== forceRouteId) return;
+
+      // Filter by active mode
+      if (activeFilter !== 'ALL' && activeFilter !== 'FLOOD') {
+        const keyword = activeFilter.toLowerCase().replace('jeepney', 'jeep').replace('bus', 'bus').replace('tricycle', 'tricycle').replace('boat', 'boat');
+        if (!props.mode.toLowerCase().includes(keyword)) return;
+      }
+
+      const size = (props.is_origin || props.is_terminus) ? 20 : props.is_transfer ? 18 : 16;
+      const bg   = props.is_origin   ? '#059669'
+                 : props.is_terminus ? '#e11d48'
+                 : props.is_transfer ? '#0f172a'
+                 : props.color;
+
+      const marker = L.marker([lat, lng], {
+        icon: stopDivIcon(bg, props.label, size),
+        zIndexOffset: 100,
       });
+      marker.bindPopup(stopPopupHtml(props));
+      marker.on('click', () => onSelect?.('stop', { ...props, routeName: props.route_name }));
+      cluster.addLayer(marker);
     });
 
     refs.stopCluster = cluster;
+    cluster.addTo(map);
+  }
 
-    // Add/remove based on zoom
-    function syncStopCluster() {
-      const z = map.getZoom();
-      if (z >= ZOOM_SHOW_MARKERS) {
-        if (!map.hasLayer(cluster)) cluster.addTo(map);
-      } else {
-        if (map.hasLayer(cluster)) cluster.remove();
-      }
-    }
+  // ════════════════════════════════════════════════════════════════════════
+  function rebuildSchoolCluster() {
+    const refs = layersRef.current;
+    const geo  = geoDataRef.current;
 
-    map.on('zoomend', syncStopCluster);
-    syncStopCluster(); // run immediately on mount
-
-    return () => {
-      map.off('zoomend', syncStopCluster);
-      cluster.remove();
-      refs.stopCluster = null;
-    };
-  }, [map, routes, activeFilter, onSelect]);
-
-  // ── School markers cluster ────────────────────────────────────────────────
-  useEffect(() => {
-    const refs = layerRefs.current;
     if (refs.schoolCluster) { refs.schoolCluster.remove(); refs.schoolCluster = null; }
-    if (!showSchools || !schools.length) return;
+    if (!showSchools || !geo.schools?.features?.length) return;
 
-    const cluster = makeClusterGroup('#4f46e5');
+    const zoom = currentZoom.current;
+    if (zoom < ZOOM_TIER2_MIN) return;
 
-    schools.forEach(sch => {
-      const lat = sch.entrance_latitude ?? sch.latitude;
-      const lng = sch.entrance_longitude ?? sch.longitude;
-      if (typeof lat !== 'number' || typeof lng !== 'number') return;
-      const marker = L.marker([lat, lng], { icon: createSchoolIcon() });
-      marker.bindPopup(schoolPopupHtml(sch, onSelect));
-      marker.on('click', () => onSelect?.('school', sch));
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: clusterIcon('#4f46e5'),
+    });
+
+    geo.schools.features.forEach(f => {
+      const props = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+      const marker = L.marker([lat, lng], { icon: schoolDivIcon(), zIndexOffset: 200 });
+      marker.bindPopup(schoolPopupHtml(props, onSelect));
+      marker.on('click', () => onSelect?.('school', props));
       cluster.addLayer(marker);
     });
 
     refs.schoolCluster = cluster;
+    cluster.addTo(map);
+  }
 
-    function syncSchoolCluster() {
-      const z = map.getZoom();
-      if (z >= ZOOM_SHOW_MARKERS) {
-        if (!map.hasLayer(cluster)) cluster.addTo(map);
-      } else {
-        if (map.hasLayer(cluster)) cluster.remove();
-      }
-    }
+  // ════════════════════════════════════════════════════════════════════════
+  function rebuildLandmarkCluster() {
+    const refs = layersRef.current;
+    const geo  = geoDataRef.current;
 
-    map.on('zoomend', syncSchoolCluster);
-    syncSchoolCluster();
+    if (refs.landmarkCluster) { refs.landmarkCluster.remove(); refs.landmarkCluster = null; }
+    if (!showLandmarks || !geo.landmarks?.features?.length) return;
 
-    return () => {
-      map.off('zoomend', syncSchoolCluster);
-      cluster.remove();
-      refs.schoolCluster = null;
-    };
-  }, [map, schools, showSchools, onSelect]);
+    const zoom = currentZoom.current;
+    if (zoom < ZOOM_TIER3_MIN) return; // landmarks only at ≥16
 
-  // ── Location markers cluster ──────────────────────────────────────────────
-  useEffect(() => {
-    const refs = layerRefs.current;
-    if (refs.locationCluster) { refs.locationCluster.remove(); refs.locationCluster = null; }
-    if (!showLocations || !locations.length) return;
-
-    const cluster = makeClusterGroup('#0284c7');
-
-    locations.forEach(loc => {
-      if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') return;
-      const marker = L.marker([loc.latitude, loc.longitude], { icon: createLocationIcon(loc) });
-      marker.bindPopup(locationPopupHtml(loc));
-      marker.on('click', () => onSelect?.('location', loc));
-      cluster.addLayer(marker);
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: clusterIcon('#6366f1'),
     });
 
-    refs.locationCluster = cluster;
-
-    function syncLocCluster() {
-      const z = map.getZoom();
-      if (z >= ZOOM_SHOW_MARKERS) {
-        if (!map.hasLayer(cluster)) cluster.addTo(map);
-      } else {
-        if (map.hasLayer(cluster)) cluster.remove();
-      }
-    }
-
-    map.on('zoomend', syncLocCluster);
-    syncLocCluster();
-
-    return () => {
-      map.off('zoomend', syncLocCluster);
-      cluster.remove();
-      refs.locationCluster = null;
-    };
-  }, [map, locations, showLocations, onSelect]);
-
-  // ── Landmark markers cluster ──────────────────────────────────────────────
-  useEffect(() => {
-    const refs = layerRefs.current;
-    if (refs.landmarkCluster) { refs.landmarkCluster.remove(); refs.landmarkCluster = null; }
-    if (!showLandmarks || !landmarks.length) return;
-
-    const cluster = makeClusterGroup('#6366f1');
-
-    landmarks.forEach(lm => {
-      if (typeof lm.latitude !== 'number' || typeof lm.longitude !== 'number') return;
-      const marker = L.marker([lm.latitude, lm.longitude], { icon: createLandmarkIcon() });
+    geo.landmarks.features.forEach(f => {
+      const props = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+      const marker = L.marker([lat, lng], { icon: landmarkDivIcon(), zIndexOffset: 150 });
       marker.bindPopup(`<div style="font-family:sans-serif;min-width:150px">
-        <div style="font-size:9px;font-weight:bold;color:#6366f1;text-transform:uppercase">${lm.type} LANDMARK</div>
-        <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${lm.name}</div>
+        <div style="font-size:9px;font-weight:bold;color:#6366f1;text-transform:uppercase">${props.type} LANDMARK</div>
+        <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${props.name}</div>
       </div>`);
-      marker.on('click', () => onSelect?.('landmark', lm));
+      marker.on('click', () => onSelect?.('landmark', props));
       cluster.addLayer(marker);
     });
 
     refs.landmarkCluster = cluster;
+    cluster.addTo(map);
+  }
 
-    function syncLmCluster() {
-      const z = map.getZoom();
-      if (z >= ZOOM_SHOW_MARKERS) {
-        if (!map.hasLayer(cluster)) cluster.addTo(map);
-      } else {
-        if (map.hasLayer(cluster)) cluster.remove();
+  // ════════════════════════════════════════════════════════════════════════
+  // Step 3: LOD — add/remove cluster layers based on zoom
+  function syncZoomLOD() {
+    const refs = layersRef.current;
+    const zoom = currentZoom.current;
+
+    // Stops
+    if (zoom < ZOOM_TIER2_MIN) {
+      if (refs.stopCluster && map.hasLayer(refs.stopCluster)) {
+        refs.stopCluster.remove();
+      }
+    } else {
+      if (refs.stopCluster && !map.hasLayer(refs.stopCluster)) {
+        refs.stopCluster.addTo(map);
+      } else if (!refs.stopCluster) {
+        rebuildStopCluster(selectedRouteId || null);
       }
     }
 
-    map.on('zoomend', syncLmCluster);
-    syncLmCluster();
+    // Schools
+    if (zoom < ZOOM_TIER2_MIN) {
+      if (refs.schoolCluster && map.hasLayer(refs.schoolCluster)) refs.schoolCluster.remove();
+    } else {
+      if (refs.schoolCluster && !map.hasLayer(refs.schoolCluster)) refs.schoolCluster.addTo(map);
+      else if (!refs.schoolCluster && showSchools) rebuildSchoolCluster();
+    }
 
-    return () => {
-      map.off('zoomend', syncLmCluster);
-      cluster.remove();
-      refs.landmarkCluster = null;
-    };
-  }, [map, landmarks, showLandmarks, onSelect]);
+    // Landmarks only at TIER3
+    if (zoom < ZOOM_TIER3_MIN) {
+      if (refs.landmarkCluster && map.hasLayer(refs.landmarkCluster)) refs.landmarkCluster.remove();
+    } else {
+      if (refs.landmarkCluster && !map.hasLayer(refs.landmarkCluster)) refs.landmarkCluster.addTo(map);
+      else if (!refs.landmarkCluster && showLandmarks) rebuildLandmarkCluster();
+    }
+  }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // LAYER 4 — Selected journey overlay (always on top)
-  // ══════════════════════════════════════════════════════════════════════════
-  useEffect(() => {
-    const refs = layerRefs.current;
+  // ════════════════════════════════════════════════════════════════════════
+  // Step 8: Journey overlay (on top of everything)
+  function buildJourneyOverlay() {
+    const refs = layersRef.current;
     if (refs.journeyGroup) { refs.journeyGroup.remove(); refs.journeyGroup = null; }
     if (!selectedJourney?.legs?.length) return;
 
     const group = L.layerGroup();
 
-    selectedJourney.legs.forEach((leg, lIdx) => {
+    selectedJourney.legs.forEach((leg, i) => {
       const coords = (leg.coordinates || leg.geometry?.coordinates || []).map(c => [c[1], c[0]]);
       if (coords.length < 2) return;
 
       const isWalk = leg.type === 'WALK';
-      const mode   = (leg.mode || '').toLowerCase();
-      let color = '#2563eb';
-      if (mode.includes('jeep'))     color = '#ec4899';
-      else if (mode.includes('bus')) color = '#10b981';
-      else if (mode.includes('tri')) color = '#06b6d4';
-      else if (mode.includes('boat'))color = '#2563eb';
-      else if (isWalk)               color = '#3b82f6';
+      const color  = modeColor(leg.mode || '');
 
-      const pl = L.polyline(coords, {
-        color,
-        weight:    isWalk ? 5 : 8,
-        opacity:   0.95,
-        dashArray: isWalk ? '6, 8' : undefined,
-        lineCap:   'round',
-      }).bindPopup(`<div style="font-family:sans-serif;min-width:150px">
-        <div style="font-size:10px;font-weight:bold;color:${color};text-transform:uppercase">
-          ${leg.mode} (${leg.durationFormatted})</div>
-        <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${leg.instruction}</div>
-        <div style="font-size:10px;color:#64748b">Distance: ${leg.distanceMeters}m</div>
-      </div>`);
-      group.addLayer(pl);
+      L.polyline(coords, {
+        renderer: L.canvas(),
+        color:    isWalk ? '#3b82f6' : color,
+        weight:   isWalk ? 5 : 8,
+        opacity:  0.95,
+        dashArray: isWalk ? '6 8' : undefined,
+        lineCap:  'round',
+      })
+        .bindPopup(`<div style="font-family:sans-serif;min-width:150px">
+          <div style="font-size:10px;font-weight:bold;color:${color};text-transform:uppercase">
+            ${leg.mode} (${leg.durationFormatted})</div>
+          <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${leg.instruction}</div>
+          <div style="font-size:10px;color:#64748b">~${leg.distanceMeters}m</div>
+        </div>`)
+        .addTo(group);
     });
 
     // Origin pin
-    const firstLeg  = selectedJourney.legs[0];
-    const firstCoord = firstLeg?.coordinates?.[0];
+    const firstCoord = selectedJourney.legs[0]?.coordinates?.[0];
     if (firstCoord) {
-      group.addLayer(
-        L.marker([firstCoord[1], firstCoord[0]], {
-          icon: createStopIcon({ stop_order: 'A' }, true, false, '#059669'),
-        }).bindPopup('<div style="font-family:sans-serif"><span style="font-size:10px;font-weight:bold;color:#059669">TRIP ORIGIN (A)</span></div>')
-      );
+      L.marker([firstCoord[1], firstCoord[0]], { icon: journeyStopIcon('A', '#059669'), zIndexOffset: 1000 })
+        .bindPopup('<div style="font-family:sans-serif"><b style="color:#059669;font-size:10px">TRIP ORIGIN (A)</b></div>')
+        .addTo(group);
     }
 
     // Destination pin
-    const lastLeg = selectedJourney.legs[selectedJourney.legs.length - 1];
+    const lastLeg    = selectedJourney.legs[selectedJourney.legs.length - 1];
     const lastCoords = lastLeg?.coordinates || lastLeg?.geometry?.coordinates;
     if (lastCoords?.length) {
       const end = lastCoords[lastCoords.length - 1];
-      group.addLayer(
-        L.marker([end[1], end[0]], {
-          icon: createStopIcon({ stop_order: 'B' }, false, true, '#e11d48'),
-        }).bindPopup('<div style="font-family:sans-serif"><span style="font-size:10px;font-weight:bold;color:#e11d48">DESTINATION (B)</span></div>')
-      );
+      L.marker([end[1], end[0]], { icon: journeyStopIcon('B', '#e11d48'), zIndexOffset: 1000 })
+        .bindPopup('<div style="font-family:sans-serif"><b style="color:#e11d48;font-size:10px">DESTINATION (B)</b></div>')
+        .addTo(group);
     }
 
     group.addTo(map);
     group.eachLayer(l => { if (l.bringToFront) l.bringToFront(); });
     refs.journeyGroup = group;
+  }
 
-    return () => { group.remove(); refs.journeyGroup = null; };
-  }, [map, selectedJourney]);
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const refs = layersRef.current;
+      if (refs.floodLayer)     refs.floodLayer.remove();
+      Object.values(refs.routeLayers).forEach(lg => lg.remove());
+      if (refs.stopCluster)    refs.stopCluster.remove();
+      if (refs.schoolCluster)  refs.schoolCluster.remove();
+      if (refs.landmarkCluster) refs.landmarkCluster.remove();
+      if (refs.journeyGroup)   refs.journeyGroup.remove();
+    };
+  }, []);
 
   return null;
 }
 
-// ─── Public RouteMap component ────────────────────────────────────────────
+// ─── Public RouteMap component ─────────────────────────────────────────────
 export default function RouteMap({
-  routes       = [],
-  activeFilter = 'ALL',
+  routes        = [],     // still accepted for compat (metadata, bounds)
+  activeFilter  = 'ALL',
   showLandmarks = false,
   showLocations = false,
-  showSchools   = true,
+  showSchools   = false,
   schools       = [],
   selectedJourney = null,
   locations     = [],
@@ -711,76 +642,8 @@ export default function RouteMap({
   style         = {},
   onSelect      = null,
 }) {
-  const [landmarks, setLandmarks] = useState([]);
-  const [snappedRouteCoords, setSnappedRouteCoords] = useState({});
-
-  useEffect(() => {
-    let cancelled = false;
-    const roadRoutes = routes
-      .filter(route => !(route.mode_name || '').toLowerCase().includes('boat'))
-      .map(route => {
-        const waypoints = getRoutePolylineCoords(route).map(([latitude, longitude]) => [longitude, latitude]);
-        return { id: route.id, waypoints, route };
-      })
-      .filter(route => route.waypoints.length >= 2);
-
-    const cachedCoords = {};
-    const routesToSnap = [];
-    roadRoutes.forEach(route => {
-      const cacheKey = getRoadSnapCacheKey(route.route, route.waypoints);
-      route.cacheKey = cacheKey;
-      try {
-        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-        if (cached?.savedAt > Date.now() - ROAD_SNAP_CACHE_MAX_AGE && Array.isArray(cached.coordinates)) {
-          cachedCoords[route.id] = cached.coordinates;
-          return;
-        }
-      } catch (error) {
-        // Ignore unavailable or malformed local cache entries.
-      }
-      routesToSnap.push(route);
-    });
-    setSnappedRouteCoords(cachedCoords);
-
-    if (!routesToSnap.length) return () => { cancelled = true; };
-
-    const snapMissingRoutes = async () => {
-      for (const batch of createRoadSnapBatches(routesToSnap)) {
-        try {
-          const snapped = await snapRoadBatch(batch);
-          if (cancelled) return;
-
-          const nextCoords = {};
-          batch.forEach(route => {
-            const coordinates = snapped.get(route.id);
-            if (!coordinates) return;
-            nextCoords[route.id] = coordinates;
-            try {
-              localStorage.setItem(route.cacheKey, JSON.stringify({ savedAt: Date.now(), coordinates }));
-            } catch (error) {
-              // The map still uses the snapped geometry for this session.
-            }
-          });
-          setSnappedRouteCoords(previous => ({ ...previous, ...nextCoords }));
-        } catch (error) {
-          console.warn('Unable to road-snap transit routes; showing saved geometry instead:', error);
-        }
-      }
-    };
-
-    snapMissingRoutes();
-    return () => { cancelled = true; };
-  }, [routes]);
-
-  // Fetch landmarks on demand
-  useEffect(() => {
-    if (showLandmarks && landmarks.length === 0) {
-      fetch('/api/landmarks')
-        .then(r => r.json())
-        .then(data => { if (Array.isArray(data)) setLandmarks(data); })
-        .catch(err => console.error('Failed to load landmarks:', err));
-    }
-  }, [showLandmarks, landmarks.length]);
+  // selectedRouteId is owned here so LayerManager + parent can both react
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
 
   const dagupanCenter = [16.0433, 120.3333];
 
@@ -792,6 +655,7 @@ export default function RouteMap({
       <MapContainer
         center={dagupanCenter}
         zoom={13}
+        preferCanvas={true}          // Step 2 – canvas renderer
         scrollWheelZoom={false}
         dragging={interactive}
         zoomControl={interactive}
@@ -800,27 +664,22 @@ export default function RouteMap({
         className="sm:min-h-[400px]"
         attributionControl={true}
       >
-        {/* Base tile layer — OpenStreetMap */}
         <TileLayer
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
           maxZoom={19}
         />
 
-        {/* All imperative layer logic lives here, inside MapContainer context */}
         <LayerManager
-          routes={routes}
           activeFilter={activeFilter}
           showLandmarks={showLandmarks}
           showLocations={showLocations}
           showSchools={showSchools}
-          schools={schools}
-          locations={locations}
-          landmarks={landmarks}
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
-          snappedRouteCoords={snappedRouteCoords}
           onSelect={onSelect}
+          selectedRouteId={selectedRouteId}
+          setSelectedRouteId={setSelectedRouteId}
         />
       </MapContainer>
     </div>
