@@ -59,7 +59,9 @@ export default function SavedRoutes() {
     return (
       (route.route_name && route.route_name.toLowerCase().includes(q)) ||
       (route.origin && route.origin.toLowerCase().includes(q)) ||
-      (route.destination && route.destination.toLowerCase().includes(q))
+      (route.destination && route.destination.toLowerCase().includes(q)) ||
+      (route.mode_name && route.mode_name.toLowerCase().includes(q)) ||
+      (route.description && route.description.toLowerCase().includes(q))
     );
   });
 
@@ -138,7 +140,7 @@ export default function SavedRoutes() {
         {!loading && !error && routes.length > 0 && filteredRoutes.length === 0 && (
           <div className="bg-white rounded-2xl p-10 text-center border border-slate-200">
             <Search className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <h2 className="font-bold text-slate-800">No matching saved routes</h2>
+            <h2 className="font-bold text-slate-800">No saved pages found.</h2>
             <p className="text-sm text-slate-500 mt-1">
               No saved routes match &ldquo;{searchTerm}&rdquo;.
             </p>
