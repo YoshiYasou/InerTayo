@@ -51,6 +51,8 @@ npm install
 npm --prefix client install
 ```
 
+On Windows PowerShell, if `npm` is blocked by the script execution policy, use `npm.cmd` in place of `npm` for these commands.
+
 ---
 
 ### 2. Configure Environment Variables (`.env`)
@@ -76,7 +78,7 @@ PORT=5000
 
 # Optional — CORS frontend origins (defaults to http://localhost:3000,http://localhost:5173)
 # The local server origin (PORT, default 5000) is also allowed.
-ORIGIN=http://localhost:5173
+ORIGIN=http://localhost:3000
 ```
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
@@ -129,14 +131,14 @@ For active development with hot-module replacement, run the backend and frontend
 ```bash
 npm run server
 ```
-Runs the Express API server on `http://localhost:5000`.
+Runs the Express API server on `http://localhost:5000`. MongoDB must be available and configured in `.env`.
 
 **Terminal 2 (Frontend Client):**
 ```bash
 npm run client
 ```
-Runs the Vite development server on `http://localhost:5173` (proxies `/api` requests to port 5000).  
-Visit **`http://localhost:5173`** in your browser.
+Runs the Vite development server on `http://localhost:3000` (proxies `/api` requests to port 5000).
+Visit **`http://localhost:3000`** in your browser.
 
 ---
 
@@ -151,7 +153,7 @@ npm test
 Expected output:
 ```text
 ====================================================
-  Tests Completed: 118 Passed, 0 Failed
+   Tests Completed: 119 Passed, 0 Failed
 ====================================================
 ```
 
@@ -193,7 +195,36 @@ Expected output:
     - "Fully Localized Routes" and "Built for Dagupan".
 
 11. **Informational Transit Web Map (§15):**
-    - Leaflet.js interactive map centered on Dagupan City showing route corridors, stop markers, transfer points, and high-tide flood hazard zones.
+---
+
+## Data Configuration & System Architecture
+
+### 1. MongoDB Atlas Collections & Counts
+The authoritative Dagupan City transit dataset contains verified collections:
+- `routes`: 23 transit routes (traditional jeepneys, modern PUVs, buses, river ferry)
+- `stops`: 100 georeferenced transit stops with verified coordinates
+- `locations`: 82 unified landmarks, barangays, and transit hubs
+- `schools`: 5 verified higher-education institutions (PHINMA UPang, UL, DDC, Lyceum, PIMSAT)
+- `tricyclefares`: 31 barangay-level tricycle fare matrices across 4 zones
+- `routefares`: 26 PUV/jeepney/bus route fare matrices with distance & 20% discount rates
+- `boatfares`: 4 river boat services with dock locations and charter/passenger rates
+- `advisories`: Flood hazard and road closure advisories
+
+### 2. Dagupan City Geographic Bounding Envelope
+All coordinates undergo strict sanity validation against the Dagupan City bounding box:
+- Latitude: `[15.98, 16.12]` North
+- Longitude: `[120.28, 120.40]` East
+- Centroid: `[16.0433, 120.3333]`
+
+### 3. Key Backend Endpoints & Data Contracts
+- `GET /api/routes`: Returns list of transit routes with GeoJSON geometries, stops, and fare ranges.
+- `GET /api/routes/:id`: Returns single detailed route with stops, waypoints, and directions.
+- `GET /api/search/suggestions?q=`: Unified search across routes, stops, locations, and schools.
+- `POST /api/journey/plan`: Multimodal flood-aware journey planner (`origin`, `destination`, `options`).
+- `GET /api/fares/tricycles`: 31 barangay tricycle fare matrices with zone and passenger tier rates.
+- `GET /api/fares/routes?mode=`: 26 jeepney/modern PUV/bus route fare matrices.
+- `GET /api/fares/boats`: 4 river boat service fare matrices.
+- `GET /api/advisories`: Active transit advisories and high-tide flood zones.
 
 ---
 
