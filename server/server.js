@@ -52,9 +52,14 @@ app.use(helmet({
 
 // ── CORS
 const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173'];
-const allowedOrigins = process.env.ORIGIN
+const frontendOrigins = process.env.ORIGIN
     ? process.env.ORIGIN.split(',').map(o => o.trim()).filter(Boolean)
     : defaultOrigins;
+const allowedOrigins = [...new Set([
+    ...frontendOrigins,
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`
+])];
 
 app.use(cors({
     origin: (origin, callback) => {

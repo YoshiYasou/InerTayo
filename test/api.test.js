@@ -88,6 +88,13 @@ async function runTests() {
         const health = await makeRequest('GET', '/api/health');
         assert(health.status === 200 && health.data.status === 'OK', 'Health check returns 200 OK');
 
+        const localOrigin = `http://localhost:${process.env.PORT || 5000}`;
+        const localOriginRes = await makeRequest('GET', '/api/health', null, { Origin: localOrigin });
+        assert(
+            localOriginRes.status === 200 && localOriginRes.headers['access-control-allow-origin'] === localOrigin,
+            'CORS allows requests from the local server origin'
+        );
+
         // Transport Modes
         const modesRes = await makeRequest('GET', '/api/transport-modes');
         assert(modesRes.status === 200 && modesRes.data.length >= 3, 'Fetches transport modes (Jeepney, Bus, Tricycle)');

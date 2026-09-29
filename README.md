@@ -74,7 +74,8 @@ MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/inert
 # Optional — Server Port (defaults to 5000)
 PORT=5000
 
-# Optional — CORS Origin (defaults to http://localhost:5173 for local dev)
+# Optional — CORS frontend origins (defaults to http://localhost:3000,http://localhost:5173)
+# The local server origin (PORT, default 5000) is also allowed.
 ORIGIN=http://localhost:5173
 ```
 
