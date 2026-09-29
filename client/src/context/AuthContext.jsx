@@ -108,6 +108,39 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const requestChangePasswordCode = async () => {
+    if (!token) throw new Error('You must be signed in to change your password.');
+    const res = await fetch('/api/auth/change-password/request-code', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to request verification code.');
+    }
+    return data;
+  };
+
+  const confirmChangePassword = async (code, newPassword) => {
+    if (!token) throw new Error('You must be signed in to change your password.');
+    const res = await fetch('/api/auth/change-password/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ code, newPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update password.');
+    }
+    return data;
+  };
+
   const logout = () => {
     localStorage.removeItem('inertayo_token');
     setToken(null);
@@ -165,6 +198,8 @@ export function AuthProvider({ children }) {
         register,
         forgotPassword,
         resetPassword,
+        requestChangePasswordCode,
+        confirmChangePassword,
         logout,
         toggleSaveRoute,
         isSaved,

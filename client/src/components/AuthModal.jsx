@@ -18,6 +18,7 @@ import {
 
 export default function AuthModal() {
   const { 
+    user,
     authModalOpen, 
     authModalMode, 
     closeAuth, 
@@ -25,7 +26,9 @@ export default function AuthModal() {
     login, 
     register,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    requestChangePasswordCode,
+    confirmChangePassword
   } = useAuth();
   
   const [username, setUsername] = useState('');
@@ -39,6 +42,11 @@ export default function AuthModal() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Change Password flow state
+  const [codeCooldown, setCodeCooldown] = useState(0);
+  const [codeRequestLoading, setCodeRequestLoading] = useState(false);
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState(false);
   
   // Security & Rate limiting state
   const [failedAttempts, setFailedAttempts] = useState(0);
@@ -60,6 +68,17 @@ export default function AuthModal() {
     }
     return () => clearInterval(interval);
   }, [lockoutTimer]);
+
+  // Countdown timer for verification code resend
+  useEffect(() => {
+    let timer = null;
+    if (codeCooldown > 0) {
+      timer = setInterval(() => {
+        setCodeCooldown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [codeCooldown]);
 
   // Real-time password criteria evaluation
   const passwordCriteria = useMemo(() => {
@@ -107,6 +126,22 @@ export default function AuthModal() {
     setShowConfirmPassword(false);
     setError('');
     setSuccessMsg('');
+    setChangePasswordSuccess(false);
+  };
+
+  const handleSendChangePasswordCode = async () => {
+    setError('');
+    setSuccessMsg('');
+    setCodeRequestLoading(true);
+    try {
+      const res = await requestChangePasswordCode();
+      setSuccessMsg(res.message || `Verification code sent to ${user?.email}.`);
+      setCodeCooldown(60);
+    } catch (err) {
+      setError(err.message || 'Failed to send verification code.');
+    } finally {
+      setCodeRequestLoading(false);
+    }
   };
 
   const handleSwitchMode = (mode) => {
@@ -233,7 +268,28 @@ export default function AuthModal() {
       return;
     }
 
-    // 4. LOGIN MODE
+    // 4. CHANGE PASSWORD MODE (AUTHENTICATED)
+    if (authModalMode === 'change_password') {
+      if (!resetCode.trim()) {
+        setError('Please enter the 6-digit verification code.');
+        return;
+      }
+      if (!validatePasswordRules()) return;
+
+      setLoading(true);
+      try {
+        const res = await confirmChangePassword(resetCode.trim(), password);
+        setChangePasswordSuccess(true);
+        setSuccessMsg(res.message || 'Password changed successfully!');
+      } catch (err) {
+        setError(err.message || 'Failed to update password.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 5. LOGIN MODE
     setLoading(true);
     try {
       await login(username.trim(), password);
@@ -307,6 +363,7 @@ export default function AuthModal() {
             {authModalMode === 'register' && 'Create Commuter Account'}
             {authModalMode === 'forgot_request' && 'Reset Your Password'}
             {authModalMode === 'forgot_reset' && 'Set New Password'}
+            {authModalMode === 'change_password' && 'Change Account Password'}
           </h3>
 
           <p className="text-sm text-slate-500 mt-1">
@@ -314,6 +371,7 @@ export default function AuthModal() {
             {authModalMode === 'register' && 'Join fellow Dagupan commuters to save daily routes.'}
             {authModalMode === 'forgot_request' && 'Enter your registered email to receive a 6-digit verification code.'}
             {authModalMode === 'forgot_reset' && 'Enter the 6-digit code and choose a new secure password.'}
+            {authModalMode === 'change_password' && 'Verify your email to securely update your account password.'}
           </p>
         </div>
 
@@ -341,8 +399,32 @@ export default function AuthModal() {
           </div>
         )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Success Card for Change Password */}
+        {changePasswordSuccess && authModalMode === 'change_password' ? (
+          <div className="text-center py-6 space-y-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle2 className="w-10 h-10" />
+            </div>
+            <div>
+              <h4 className="text-lg font-bold text-slate-900">Password Changed Successfully!</h4>
+              <p className="text-xs text-slate-500 mt-1.5 max-w-xs mx-auto leading-relaxed">
+                Your password has been securely updated. Please remember to use your new password next time you sign in.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                resetFormState();
+                closeAuth();
+              }}
+              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-emerald-600 text-white font-semibold rounded-xl text-xs transition-colors shadow"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          /* Form */
+          <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* USERNAME / IDENTIFIER FIELD */}
           {(authModalMode === 'login' || authModalMode === 'register' || authModalMode === 'forgot_request') && (
@@ -427,12 +509,74 @@ export default function AuthModal() {
             </div>
           )}
 
-          {/* PASSWORD FIELD (LOGIN, REGISTER, FORGOT_RESET) */}
-          {(authModalMode === 'login' || authModalMode === 'register' || authModalMode === 'forgot_reset') && (
+          {/* 6-DIGIT RESET CODE (FORGOT_RESET ONLY) */}
+          {authModalMode === 'forgot_reset' && (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                6-Digit Verification Code
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* VERIFICATION CODE SECTION (CHANGE PASSWORD ONLY) */}
+          {authModalMode === 'change_password' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">Account Email:</span>
+                  <span className="font-mono text-emerald-700 font-bold">{user?.email || 'Authenticated User'}</span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
+                  <span className="text-[11px] text-slate-500">Need a verification code?</span>
+                  <button
+                    type="button"
+                    onClick={handleSendChangePasswordCode}
+                    disabled={codeRequestLoading || codeCooldown > 0}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    {codeRequestLoading ? 'Sending...' : codeCooldown > 0 ? `Resend in ${codeCooldown}s` : 'Send Code'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  6-Digit Verification Code *
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PASSWORD FIELD (LOGIN, REGISTER, FORGOT_RESET, CHANGE_PASSWORD) */}
+          {(authModalMode === 'login' || authModalMode === 'register' || authModalMode === 'forgot_reset' || authModalMode === 'change_password') && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  {authModalMode === 'forgot_reset' ? 'New Password' : 'Password'}
+                  {(authModalMode === 'forgot_reset' || authModalMode === 'change_password') ? 'New Password' : 'Password'}
                 </label>
                 {authModalMode === 'login' && (
                   <button
@@ -465,8 +609,8 @@ export default function AuthModal() {
                 </button>
               </div>
 
-              {/* PASSWORD STRENGTH & REQUIREMENTS (REGISTER & RESET) */}
-              {(authModalMode === 'register' || authModalMode === 'forgot_reset') && password.length > 0 && (
+              {/* PASSWORD STRENGTH & REQUIREMENTS (REGISTER, RESET, CHANGE_PASSWORD) */}
+              {(authModalMode === 'register' || authModalMode === 'forgot_reset' || authModalMode === 'change_password') && password.length > 0 && (
                 <div className="mt-2.5 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="text-[11px] font-semibold text-slate-500">Password Strength:</span>
@@ -506,11 +650,11 @@ export default function AuthModal() {
             </div>
           )}
 
-          {/* CONFIRM PASSWORD (REGISTER & RESET) */}
-          {(authModalMode === 'register' || authModalMode === 'forgot_reset') && (
+          {/* CONFIRM PASSWORD (REGISTER, RESET, CHANGE_PASSWORD) */}
+          {(authModalMode === 'register' || authModalMode === 'forgot_reset' || authModalMode === 'change_password') && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                {authModalMode === 'forgot_reset' ? 'Confirm New Password' : 'Confirm Password'}
+                {(authModalMode === 'forgot_reset' || authModalMode === 'change_password') ? 'Confirm New Password' : 'Confirm Password'}
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -568,11 +712,24 @@ export default function AuthModal() {
               'Create Account'
             ) : authModalMode === 'forgot_request' ? (
               'Send Reset Code'
+            ) : authModalMode === 'change_password' ? (
+              'Update Password'
             ) : (
               'Reset Password & Sign In'
             )}
           </button>
+
+          {authModalMode === 'change_password' && (
+            <button
+              type="button"
+              onClick={closeAuth}
+              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors"
+            >
+              Cancel
+            </button>
+          )}
         </form>
+        )}
 
         {/* QUICK CREDENTIALS FOR DEMO/TESTING (LOGIN ONLY!) */}
         {authModalMode === 'login' && (

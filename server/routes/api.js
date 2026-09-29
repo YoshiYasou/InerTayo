@@ -25,6 +25,7 @@ const PasswordReset = require('../models/PasswordReset');
 const TricycleFare = require('../models/TricycleFare');
 const RouteFare = require('../models/RouteFare');
 const BoatFare = require('../models/BoatFare');
+const ChangePasswordCode = require('../models/ChangePasswordCode');
 const { nextId } = require('../db/counter');
 const { getCache, setCache, invalidateMapCache } = require('../cache/mapLayerCache');
 
@@ -1637,6 +1638,221 @@ router.post('/auth/reset-password', async (req, res) => {
         res.status(500).json({ error: 'Failed to reset password.' });
     }
 });
+
+// ── Secure Self-Service Change Password Flow (Email Verification Code) ──
+
+// Helper: validate standard password policy
+function validatePasswordPolicy(password) {
+    if (!password || typeof password !== 'string') {
+        return 'Password is required.';
+    }
+    if (password.length < 8) {
+        return 'Password must be at least 8 characters long.';
+    }
+    if (!/[A-Z]/.test(password)) {
+        return 'Password must contain at least one uppercase letter (A-Z).';
+    }
+    if (!/[a-z]/.test(password)) {
+        return 'Password must contain at least one lowercase letter (a-z).';
+    }
+    if (!/[0-9]/.test(password)) {
+        return 'Password must contain at least one number (0-9).';
+    }
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+        return 'Password must contain at least one special character (e.g. !@#$%).';
+    }
+    return null;
+}
+
+// POST /api/auth/change-password/request-code - Send 6-digit verification code to authenticated user's email
+router.post('/auth/change-password/request-code', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findOne({ id: userId });
+        if (!user) {
+            return res.status(404).json({ error: 'User account not found.' });
+        }
+
+        // Rate limiting cooldown: 60 seconds between code requests
+        const recent = await ChangePasswordCode.findOne({
+            user_id: user.id,
+            created_at: { $gt: new Date(Date.now() - 60 * 1000) }
+        });
+        if (recent) {
+            return res.status(429).json({
+                error: 'Please wait at least 60 seconds before requesting a new verification code.'
+            });
+        }
+
+        // Invalidate any existing unused codes for this user
+        await ChangePasswordCode.updateMany(
+            { user_id: user.id, used: 0 },
+            { $set: { used: 1 } }
+        );
+
+        // Generate cryptographically secure 6-digit verification code
+        const verificationCode = crypto.randomInt(100000, 1000000).toString();
+        const codeHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+        const codeId = await nextId('ChangePasswordCode');
+
+        await ChangePasswordCode.create({
+            id: codeId,
+            user_id: user.id,
+            email: user.email,
+            code_hash: codeHash,
+            expires_at: expiresAt,
+            attempts: 0,
+            max_attempts: 5,
+            used: 0
+        });
+
+        // Email dispatch in non-test environments
+        if (process.env.NODE_ENV !== 'test') {
+            if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+                const transporter = nodemailer.createTransport({
+                    host: 'smtp.gmail.com',
+                    port: 465,
+                    secure: true,
+                    auth: {
+                        user: process.env.GMAIL_USER,
+                        pass: process.env.GMAIL_APP_PASSWORD
+                    }
+                });
+
+                await transporter.sendMail({
+                    from: `InerTayo <${process.env.GMAIL_USER}>`,
+                    to: user.email,
+                    subject: 'InerTayo Password Change Verification Code',
+                    text: `Hello ${user.username},\n\nYour 6-digit verification code to change your InerTayo password is:\n\n${verificationCode}\n\nThis code will expire in 10 minutes and can only be used once.\nIf you did not request this password change, please secure your account immediately.\n\n— InerTayo Dagupan City Commute Guide`
+                });
+            }
+        }
+
+        const response = {
+            message: `A 6-digit verification code has been sent to ${user.email}.`,
+            email: user.email,
+            sent: true
+        };
+        if (process.env.NODE_ENV === 'test') {
+            response.devCode = verificationCode;
+        }
+        res.json(response);
+    } catch (err) {
+        console.error('Change password request-code error:', err);
+        res.status(500).json({ error: 'Failed to generate verification code.' });
+    }
+});
+
+// POST /api/auth/change-password/verify-code - Verify code validity and attempt limiting
+router.post('/auth/change-password/verify-code', authenticateToken, async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code || !code.toString().trim()) {
+            return res.status(400).json({ error: 'Verification code is required.' });
+        }
+
+        const cleanCode = code.toString().trim();
+        const record = await ChangePasswordCode.findOne({
+            user_id: req.user.id,
+            used: 0
+        }).sort({ created_at: -1 });
+
+        if (!record) {
+            return res.status(400).json({ error: 'No active verification code found. Please request a new code.' });
+        }
+
+        if (record.expires_at < new Date()) {
+            return res.status(400).json({ error: 'Verification code has expired. Please request a new code.' });
+        }
+
+        if (record.attempts >= record.max_attempts) {
+            await ChangePasswordCode.updateOne({ _id: record._id }, { used: 1 });
+            return res.status(400).json({ error: 'Maximum attempts exceeded. This verification code has been invalidated. Please request a new code.' });
+        }
+
+        const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+        if (inputHash !== record.code_hash) {
+            await ChangePasswordCode.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
+            const remaining = record.max_attempts - (record.attempts + 1);
+            return res.status(400).json({
+                error: `Invalid verification code.${remaining > 0 ? ` ${remaining} attempt(s) remaining.` : ' Code invalidated.'}`
+            });
+        }
+
+        res.json({ valid: true, message: 'Verification code verified successfully.' });
+    } catch (err) {
+        console.error('Verify change password code error:', err);
+        res.status(500).json({ error: 'Failed to verify code.' });
+    }
+});
+
+// POST /api/auth/change-password/confirm (and /api/auth/change-password) - Verify code and safely update password
+const handleChangePasswordConfirm = async (req, res) => {
+    try {
+        const { code, newPassword } = req.body;
+
+        if (!code || !code.toString().trim()) {
+            return res.status(400).json({ error: 'Verification code is required.' });
+        }
+        if (!newPassword) {
+            return res.status(400).json({ error: 'New password is required.' });
+        }
+
+        // Validate password policy
+        const policyErr = validatePasswordPolicy(newPassword);
+        if (policyErr) {
+            return res.status(400).json({ error: policyErr });
+        }
+
+        const cleanCode = code.toString().trim();
+        const record = await ChangePasswordCode.findOne({
+            user_id: req.user.id,
+            used: 0
+        }).sort({ created_at: -1 });
+
+        if (!record) {
+            return res.status(400).json({ error: 'No active verification code found. Please request a new code.' });
+        }
+
+        if (record.expires_at < new Date()) {
+            return res.status(400).json({ error: 'Verification code has expired. Please request a new code.' });
+        }
+
+        if (record.attempts >= record.max_attempts) {
+            await ChangePasswordCode.updateOne({ _id: record._id }, { used: 1 });
+            return res.status(400).json({ error: 'Maximum attempts exceeded. This verification code has been invalidated. Please request a new code.' });
+        }
+
+        const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+        if (inputHash !== record.code_hash) {
+            await ChangePasswordCode.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
+            const remaining = record.max_attempts - (record.attempts + 1);
+            return res.status(400).json({
+                error: `Invalid verification code.${remaining > 0 ? ` ${remaining} attempt(s) remaining.` : ' Code invalidated.'}`
+            });
+        }
+
+        // Hash new password using bcrypt
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+
+        // Update user's password in database
+        await User.updateOne({ id: req.user.id }, { password_hash: passwordHash });
+
+        // Invalidate verification code (single use)
+        await ChangePasswordCode.updateOne({ _id: record._id }, { used: 1 });
+
+        res.json({
+            message: 'Your password has been changed successfully! Please use your new password next time you sign in.'
+        });
+    } catch (err) {
+        console.error('Change password confirm error:', err);
+        res.status(500).json({ error: 'Failed to update password.' });
+    }
+};
+
+router.post('/auth/change-password/confirm', authenticateToken, handleChangePasswordConfirm);
+router.post('/auth/change-password', authenticateToken, handleChangePasswordConfirm);
 
 // GET /api/auth/me - Current profile & saved routes
 router.get('/auth/me', authenticateToken, async (req, res) => {

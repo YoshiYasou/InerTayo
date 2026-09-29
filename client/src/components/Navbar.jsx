@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
-import { Menu, X, ShieldCheck, LogOut, Compass, User, Bookmark } from 'lucide-react';
+import { Menu, X, ShieldCheck, LogOut, Compass, User, Bookmark, KeyRound } from 'lucide-react';
 import ConfirmDialog from './ConfirmDialog';
 
 export default function Navbar() {
@@ -136,6 +136,14 @@ export default function Navbar() {
                   </button>
                 )}
                 <button
+                  onClick={() => openAuth('change_password')}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                  title="Change Password"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="hidden xl:inline">Password</span>
+                </button>
+                <button
                   onClick={requestLogout}
                   className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-rose-600 transition-colors rounded-lg hover:bg-slate-100"
                   title="Sign Out"
@@ -216,15 +224,24 @@ export default function Navbar() {
           
           <div className="pt-3 border-t border-slate-100">
             {user ? (
-              <div className="flex items-center justify-between px-3 py-2">
-                <span className="text-sm font-semibold text-slate-700">
-                  Signed in as {user.username} ({user.role})
-                </span>
+              <div>
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-sm font-semibold text-slate-700">
+                    Signed in as {user.username} ({user.role})
+                  </span>
+                  <button
+                    onClick={requestLogout}
+                    className="text-xs text-rose-600 font-semibold hover:underline"
+                  >
+                    Sign Out
+                  </button>
+                </div>
                 <button
-                  onClick={requestLogout}
-                  className="text-xs text-rose-600 font-semibold hover:underline"
+                  onClick={() => { openAuth('change_password'); setMobileMenuOpen(false); }}
+                  className="mt-1 w-full text-left px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 flex items-center gap-2 border border-slate-200"
                 >
-                  Sign Out
+                  <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                  Change Password
                 </button>
               </div>
             ) : (

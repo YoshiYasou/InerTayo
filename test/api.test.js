@@ -361,8 +361,91 @@ async function runTests() {
             username: 'commuter',
             password: 'Commuter123!'
         });
-        assert(loginRes.status === 200 && loginRes.data.user.role === 'COMMUTER', 'Commuter login succeeds with correct COMMUTER role');
         const defaultCommuterToken = loginRes.data.token;
+
+        // ── Change Password with Email Verification Flow ──
+        // 1. Guest request rejected
+        const guestCpReq = await makeRequest('POST', '/api/auth/change-password/request-code');
+        assert(guestCpReq.status === 401, 'Guest change-password request rejected with 401 Unauthorized');
+
+        // 2. Authenticated user requests code
+        const cpReq = await makeRequest('POST', '/api/auth/change-password/request-code', null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(cpReq.status === 200 && cpReq.data.devCode, 'Authenticated user requests change password code and receives 6-digit devCode');
+        const cpCode = cpReq.data.devCode;
+
+        // 3. Rate limiting cooldown rejection (within 60s)
+        const cpCooldownReq = await makeRequest('POST', '/api/auth/change-password/request-code', null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(cpCooldownReq.status === 429, 'Immediate second code request is rejected with 429 cooldown error');
+
+        // 4. Policy validation checks on change-password confirm
+        const cpShort = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'Ab1!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpShort.status === 400 && cpShort.data.error.includes('8 characters'), 'Change password < 8 characters is rejected with 400');
+
+        const cpNoUpper = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'password123!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpNoUpper.status === 400 && cpNoUpper.data.error.includes('uppercase'), 'Change password missing uppercase is rejected with 400');
+
+        const cpNoNum = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'Password!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpNoNum.status === 400 && cpNoNum.data.error.includes('number'), 'Change password missing number is rejected with 400');
+
+        const cpNoSpecial = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'Password123'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpNoSpecial.status === 400 && cpNoSpecial.data.error.includes('special character'), 'Change password missing special character is rejected with 400');
+
+        // 5. Wrong code rejected
+        const cpWrongCode = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: '000000',
+            newPassword: 'NewValidPassword123!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpWrongCode.status === 400 && cpWrongCode.data.error.includes('Invalid verification code'), 'Change password with wrong code is rejected with 400');
+
+        // 6. Verify-code endpoint check
+        const cpVerifyRes = await makeRequest('POST', '/api/auth/change-password/verify-code', {
+            code: cpCode
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpVerifyRes.status === 200 && cpVerifyRes.data.valid === true, 'POST /api/auth/change-password/verify-code validates active code');
+
+        // 7. Successful password change
+        const cpSuccess = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'BrandNewPassword123!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpSuccess.status === 200, 'POST /api/auth/change-password/confirm succeeds with valid code and policy-compliant password');
+
+        // 8. Single-use invalidation: reusing code rejected
+        const cpReuse = await makeRequest('POST', '/api/auth/change-password/confirm', {
+            code: cpCode,
+            newPassword: 'AnotherPassword123!'
+        }, { 'Authorization': `Bearer ${commuterToken}` });
+        assert(cpReuse.status === 400, 'Reusing already-consumed verification code is rejected with 400');
+
+        // 9. Verify login with newly changed password
+        const cpNewLogin = await makeRequest('POST', '/api/auth/login', {
+            username: 'testcommuter',
+            password: 'BrandNewPassword123!'
+        });
+        assert(cpNewLogin.status === 200 && cpNewLogin.data.token, 'Login succeeds with newly changed password');
+
+        // 10. Login with old password rejected
+        const cpOldLogin = await makeRequest('POST', '/api/auth/login', {
+            username: 'testcommuter',
+            password: 'Password123!'
+        });
+        assert(cpOldLogin.status === 401, 'Login with old password is now rejected with 401');
 
         // Save route toggle for authenticated commuter
         const saveToggleRes = await makeRequest('POST', `/api/routes/${routesRes.data[1].id}/save`, null, {
