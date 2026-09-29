@@ -47,6 +47,8 @@ export default function AuthModal() {
   const [codeCooldown, setCodeCooldown] = useState(0);
   const [codeRequestLoading, setCodeRequestLoading] = useState(false);
   const [changePasswordSuccess, setChangePasswordSuccess] = useState(false);
+  // devCode is returned by the server when no SMTP is configured (dev/no-email mode)
+  const [devCode, setDevCode] = useState('');
   
   // Security & Rate limiting state
   const [failedAttempts, setFailedAttempts] = useState(0);
@@ -122,6 +124,7 @@ export default function AuthModal() {
     setPassword('');
     setConfirmPassword('');
     setResetCode('');
+    setDevCode('');
     setShowPassword(false);
     setShowConfirmPassword(false);
     setError('');
@@ -136,6 +139,10 @@ export default function AuthModal() {
     try {
       const res = await requestChangePasswordCode();
       setSuccessMsg(res.message || `Verification code sent to ${user?.email}.`);
+      if (res.devCode) {
+        setDevCode(res.devCode);
+        setResetCode(res.devCode);
+      }
       setCodeCooldown(60);
     } catch (err) {
       setError(err.message || 'Failed to send verification code.');
@@ -237,6 +244,10 @@ export default function AuthModal() {
         }
 
         setSuccessMsg(res.message || 'Reset code generated. Please check your email.');
+        if (res.devCode) {
+          setDevCode(res.devCode);
+          setResetCode(res.devCode);
+        }
         setAuthModalMode('forgot_reset');
       } catch (err) {
         setError(err.message || 'Failed to request password reset code.');
@@ -490,42 +501,34 @@ export default function AuthModal() {
 
           {/* 6-DIGIT RESET CODE (FORGOT_RESET ONLY) */}
           {authModalMode === 'forgot_reset' && (
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                6-Digit Verification Code
-              </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  value={resetCode}
-                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* 6-DIGIT RESET CODE (FORGOT_RESET ONLY) */}
-          {authModalMode === 'forgot_reset' && (
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                6-Digit Verification Code
-              </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  value={resetCode}
-                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
-                />
+            <div className="space-y-2">
+              {devCode && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-emerald-900">
+                      Verification Code: <span className="font-mono text-sm tracking-wider font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-300 ml-1">{devCode}</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-600 mt-1">Code has been generated and pre-filled below.</p>
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  6-Digit Verification Code
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -550,6 +553,18 @@ export default function AuthModal() {
                   </button>
                 </div>
               </div>
+
+              {devCode && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-emerald-900">
+                      Verification Code: <span className="font-mono text-sm tracking-wider font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-300 ml-1">{devCode}</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-600 mt-1">Code has been generated and pre-filled below.</p>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
