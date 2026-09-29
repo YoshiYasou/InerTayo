@@ -26,7 +26,10 @@ const RouteFareSchema = new mongoose.Schema({
 RouteFareSchema.index({ transport_mode: 1, route_name: 1 }, { unique: true });
 
 RouteFareSchema.set('toJSON', {
-    transform: (doc, ret) => { delete ret._id; return ret; }
+    transform: (doc, ret) => {
+        if (ret._id) ret.id = ret._id.toString();
+        return ret;
+    }
 });
 
 module.exports = mongoose.models.RouteFare || mongoose.model('RouteFare', RouteFareSchema);

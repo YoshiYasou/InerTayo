@@ -18,7 +18,10 @@ const TricycleFareSchema = new mongoose.Schema({
 }, { versionKey: false });
 
 TricycleFareSchema.set('toJSON', {
-    transform: (doc, ret) => { delete ret._id; return ret; }
+    transform: (doc, ret) => {
+        if (ret._id) ret.id = ret._id.toString();
+        return ret;
+    }
 });
 
 module.exports = mongoose.models.TricycleFare || mongoose.model('TricycleFare', TricycleFareSchema);

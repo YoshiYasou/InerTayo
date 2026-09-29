@@ -43,6 +43,35 @@ export default function Admin() {
   const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'uv_express', 'provincial_bus', 'boat'
   const [fareSearch, setFareSearch] = useState('');
 
+  // Authoritative Fare Modal States
+  const [fareModalOpen, setFareModalOpen] = useState(false);
+  const [editingFare, setEditingFare] = useState(null);
+  const [fareModalCategory, setFareModalCategory] = useState('tricycle');
+  const [fareFormData, setFareFormData] = useState({
+    zone: 'Zone 1',
+    barangay: '',
+    landmarks: '',
+    solo_fare_min: 40,
+    solo_fare_max: 50,
+    fare_per_2pax_min: 20,
+    fare_per_2pax_max: 25,
+    fare_per_3pax_min: 15,
+    fare_per_3pax_max: 20,
+    transport_mode: 'jeepney',
+    route_name: '',
+    terminal: '',
+    waypoints: '',
+    distance_km: '',
+    regular_fare_min: 15,
+    regular_fare_max: 20,
+    discounted_fare_min: 12,
+    discounted_fare_max: 16,
+    service_type: '',
+    dock_location: '',
+    destinations: '',
+    fare_rate_note: ''
+  });
+
   // Form Modal States
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState(null);
@@ -463,6 +492,104 @@ export default function Admin() {
       alert('Failed to update transport mode status.');
     }
   };
+
+  // ── Fare Matrix Handlers ────────────────────────────────────────────────────
+  const openNewFareModal = (category) => {
+    setEditingFare(null);
+    setFareModalCategory(category);
+    if (category === 'tricycle') {
+      setFareFormData({ zone: 'Zone 1', barangay: '', landmarks: '', solo_fare_min: 40, solo_fare_max: 50, fare_per_2pax_min: 20, fare_per_2pax_max: 25, fare_per_3pax_min: 15, fare_per_3pax_max: 20, transport_mode: '', route_name: '', terminal: '', waypoints: '', distance_km: '', regular_fare_min: 15, regular_fare_max: 20, discounted_fare_min: 12, discounted_fare_max: 16, service_type: '', dock_location: '', destinations: '', fare_rate_note: '' });
+    } else if (category === 'boat') {
+      setFareFormData({ zone: '', barangay: '', landmarks: '', solo_fare_min: 0, solo_fare_max: 0, fare_per_2pax_min: 0, fare_per_2pax_max: 0, fare_per_3pax_min: 0, fare_per_3pax_max: 0, transport_mode: '', route_name: '', terminal: '', waypoints: '', distance_km: '', regular_fare_min: 0, regular_fare_max: 0, discounted_fare_min: 0, discounted_fare_max: 0, service_type: '', dock_location: '', destinations: '', fare_rate_note: '' });
+    } else {
+      setFareFormData({ zone: '', barangay: '', landmarks: '', solo_fare_min: 0, solo_fare_max: 0, fare_per_2pax_min: 0, fare_per_2pax_max: 0, fare_per_3pax_min: 0, fare_per_3pax_max: 0, transport_mode: category, route_name: '', terminal: '', waypoints: '', distance_km: '', regular_fare_min: 15, regular_fare_max: 20, discounted_fare_min: 12, discounted_fare_max: 16, service_type: '', dock_location: '', destinations: '', fare_rate_note: '' });
+    }
+    setFareModalOpen(true);
+  };
+
+  const openEditFareModal = (fare, category) => {
+    setEditingFare(fare);
+    setFareModalCategory(category);
+    if (category === 'tricycle') {
+      setFareFormData({ zone: fare.zone || 'Zone 1', barangay: fare.barangay || '', landmarks: fare.landmarks || '', solo_fare_min: fare.solo_fare?.min ?? 40, solo_fare_max: fare.solo_fare?.max ?? 50, fare_per_2pax_min: fare.fare_per_2pax?.min ?? 20, fare_per_2pax_max: fare.fare_per_2pax?.max ?? 25, fare_per_3pax_min: fare.fare_per_3pax_shared?.min ?? 15, fare_per_3pax_max: fare.fare_per_3pax_shared?.max ?? 20, transport_mode: '', route_name: '', terminal: '', waypoints: '', distance_km: '', regular_fare_min: 0, regular_fare_max: 0, discounted_fare_min: 0, discounted_fare_max: 0, service_type: '', dock_location: '', destinations: '', fare_rate_note: '' });
+    } else if (category === 'boat') {
+      setFareFormData({ zone: '', barangay: '', landmarks: '', solo_fare_min: 0, solo_fare_max: 0, fare_per_2pax_min: 0, fare_per_2pax_max: 0, fare_per_3pax_min: 0, fare_per_3pax_max: 0, transport_mode: '', route_name: '', terminal: '', waypoints: '', distance_km: '', regular_fare_min: 0, regular_fare_max: 0, discounted_fare_min: 0, discounted_fare_max: 0, service_type: fare.service_type || '', dock_location: fare.dock_location || '', destinations: fare.destinations || '', fare_rate_note: fare.fare_rate_note || '' });
+    } else {
+      setFareFormData({ zone: '', barangay: '', landmarks: '', solo_fare_min: 0, solo_fare_max: 0, fare_per_2pax_min: 0, fare_per_2pax_max: 0, fare_per_3pax_min: 0, fare_per_3pax_max: 0, transport_mode: fare.transport_mode || category, route_name: fare.route_name || '', terminal: fare.terminal || '', waypoints: fare.waypoints || '', distance_km: fare.distance_km || '', regular_fare_min: fare.regular_fare?.min ?? 15, regular_fare_max: fare.regular_fare?.max ?? 20, discounted_fare_min: fare.discounted_fare_20pct?.min ?? 12, discounted_fare_max: fare.discounted_fare_20pct?.max ?? 16, service_type: '', dock_location: '', destinations: '', fare_rate_note: '' });
+    }
+    setFareModalOpen(true);
+  };
+
+  const handleSaveFare = async (e) => {
+    e.preventDefault();
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    try {
+      if (fareModalCategory === 'tricycle') {
+        const body = {
+          zone: fareFormData.zone,
+          barangay: fareFormData.barangay,
+          landmarks: fareFormData.landmarks,
+          solo_fare: { min: Number(fareFormData.solo_fare_min), max: Number(fareFormData.solo_fare_max) },
+          fare_per_2pax: { min: Number(fareFormData.fare_per_2pax_min), max: Number(fareFormData.fare_per_2pax_max) },
+          fare_per_3pax_shared: { min: Number(fareFormData.fare_per_3pax_min), max: Number(fareFormData.fare_per_3pax_max) }
+        };
+        if (editingFare) {
+          await fetch(`/api/admin/fares/tricycles/${editingFare.id || editingFare._id || editingFare.barangay}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        } else {
+          await fetch('/api/admin/fares/tricycles', { method: 'POST', headers, body: JSON.stringify(body) });
+        }
+      } else if (fareModalCategory === 'boat') {
+        const body = {
+          service_type: fareFormData.service_type,
+          dock_location: fareFormData.dock_location,
+          destinations: fareFormData.destinations,
+          fare_rate_note: fareFormData.fare_rate_note
+        };
+        if (editingFare) {
+          await fetch(`/api/admin/fares/boats/${editingFare.id || editingFare._id || editingFare.service_type}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        } else {
+          await fetch('/api/admin/fares/boats', { method: 'POST', headers, body: JSON.stringify(body) });
+        }
+      } else {
+        const body = {
+          transport_mode: fareModalCategory,
+          route_name: fareFormData.route_name,
+          terminal: fareFormData.terminal,
+          waypoints: fareFormData.waypoints,
+          distance_km: fareFormData.distance_km,
+          regular_fare: { min: Number(fareFormData.regular_fare_min), max: Number(fareFormData.regular_fare_max) },
+          discounted_fare_20pct: { min: Number(fareFormData.discounted_fare_min), max: Number(fareFormData.discounted_fare_max) }
+        };
+        if (editingFare) {
+          await fetch(`/api/admin/fares/routes/${editingFare.id || editingFare._id || editingFare.route_name}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        } else {
+          await fetch('/api/admin/fares/routes', { method: 'POST', headers, body: JSON.stringify(body) });
+        }
+      }
+      setFareModalOpen(false);
+      loadAdminData();
+    } catch (err) {
+      alert('Failed to save fare record: ' + err.message);
+    }
+  };
+
+  const handleDeleteFareRecord = async (fare, category) => {
+    if (!window.confirm('Delete this fare record? This cannot be undone.')) return;
+    const headers = { 'Authorization': `Bearer ${token}` };
+    try {
+      if (category === 'tricycle') {
+        await fetch(`/api/admin/fares/tricycles/${fare.id || fare._id || fare.barangay}`, { method: 'DELETE', headers });
+      } else if (category === 'boat') {
+        await fetch(`/api/admin/fares/boats/${fare.id || fare._id || fare.service_type}`, { method: 'DELETE', headers });
+      } else {
+        await fetch(`/api/admin/fares/routes/${fare.id || fare._id || fare.route_name}`, { method: 'DELETE', headers });
+      }
+      loadAdminData();
+    } catch (err) {
+      alert('Failed to delete fare record.');
+    }
+  };
+  // ── End Fare Matrix Handlers ────────────────────────────────────────────────
 
   if (!user || !isAdmin) {
     return (
@@ -1006,20 +1133,20 @@ export default function Admin() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-bold text-slate-900">Authoritative Fare Matrix</h3>
-                  <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider border border-slate-200">
-                    View-Only Reference
-                  </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Official Dagupan City benchmark transit fares across road corridors and river crossings.
                 </p>
               </div>
 
-              {/* Source Badge */}
-              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-3.5 py-2 rounded-xl text-xs font-semibold self-start lg:self-auto">
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Source: <strong className="font-bold">Fare Matrix for InerTayo.xlsx</strong> (InerTayo configured fare reference)</span>
-              </div>
+              {/* Add Fare Button */}
+              <button
+                onClick={() => openNewFareModal(fareCategory)}
+                className="py-2 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all self-start lg:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                Add {fareCategory === 'tricycle' ? 'Tricycle' : fareCategory === 'boat' ? 'Boat' : 'Route'} Fare
+              </button>
             </div>
 
             {/* Sub-tabs / Mode Selector & Search Filter */}
@@ -1067,7 +1194,7 @@ export default function Admin() {
             <div className="overflow-x-auto -mx-6 px-6">
               {/* 1. MOTORIZED TRICYCLES */}
               {fareCategory === 'tricycle' && (
-                <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+                <table className="min-w-[860px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Zone Category</th>
@@ -1076,12 +1203,13 @@ export default function Admin() {
                       <th className="py-3 px-4">Solo Passenger (Special Trip)</th>
                       <th className="py-3 px-4">2 Passengers (Per Person)</th>
                       <th className="py-3 px-4">3 Passengers / Shared</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredTricycles.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="text-center text-slate-400 py-8">
+                        <td colSpan="7" className="text-center text-slate-400 py-8">
                           No tricycle fare records found matching your search.
                         </td>
                       </tr>
@@ -1098,6 +1226,10 @@ export default function Admin() {
                           <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(t.solo_fare)}</td>
                           <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">{formatFare(t.fare_per_2pax)}</td>
                           <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">{formatFare(t.fare_per_3pax_shared)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                            <button onClick={() => openEditFareModal(t, 'tricycle')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFareRecord(t, 'tricycle')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1107,7 +1239,7 @@ export default function Admin() {
 
               {/* 2. TRADITIONAL JEEPNEYS & 3. MODERN PUVS */}
               {(fareCategory === 'jeepney' || fareCategory === 'modern_puv') && (
-                <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+                <table className="min-w-[860px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Route Name</th>
@@ -1116,12 +1248,13 @@ export default function Admin() {
                       <th className="py-3 px-4">Est. Distance</th>
                       <th className="py-3 px-4">Regular Fare</th>
                       <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredRoutes.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="text-center text-slate-400 py-8">
+                        <td colSpan="7" className="text-center text-slate-400 py-8">
                           No {fareCategory === 'jeepney' ? 'traditional jeepney' : 'modern PUV'} fare records found matching your search.
                         </td>
                       </tr>
@@ -1134,6 +1267,10 @@ export default function Admin() {
                           <td className="py-3 px-4 text-slate-600 whitespace-nowrap">{r.distance_km || '—'}</td>
                           <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
                           <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                            <button onClick={() => openEditFareModal(r, fareCategory)} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFareRecord(r, fareCategory)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1143,7 +1280,7 @@ export default function Admin() {
 
               {/* 4. UV EXPRESS VANS */}
               {fareCategory === 'uv_express' && (
-                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Route Name</th>
@@ -1151,12 +1288,13 @@ export default function Admin() {
                       <th className="py-3 px-4">Vehicle Type</th>
                       <th className="py-3 px-4">Regular Fare</th>
                       <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredRoutes.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="text-center text-slate-400 py-8">
+                        <td colSpan="6" className="text-center text-slate-400 py-8">
                           No UV Express fare records found matching your search.
                         </td>
                       </tr>
@@ -1168,6 +1306,10 @@ export default function Admin() {
                           <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'UV Express Aircon Van'}</td>
                           <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
                           <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                            <button onClick={() => openEditFareModal(r, 'uv_express')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFareRecord(r, 'uv_express')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1177,7 +1319,7 @@ export default function Admin() {
 
               {/* 5. PROVINCIAL BUSES */}
               {fareCategory === 'provincial_bus' && (
-                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Route Name</th>
@@ -1185,12 +1327,13 @@ export default function Admin() {
                       <th className="py-3 px-4">Service Type</th>
                       <th className="py-3 px-4">Regular Fare</th>
                       <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredRoutes.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="text-center text-slate-400 py-8">
+                        <td colSpan="6" className="text-center text-slate-400 py-8">
                           No provincial bus fare records found matching your search.
                         </td>
                       </tr>
@@ -1202,6 +1345,10 @@ export default function Admin() {
                           <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'Bus'}</td>
                           <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
                           <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                            <button onClick={() => openEditFareModal(r, 'provincial_bus')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFareRecord(r, 'provincial_bus')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1211,19 +1358,20 @@ export default function Admin() {
 
               {/* 6. WATER BOATS */}
               {fareCategory === 'boat' && (
-                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Service Type</th>
                       <th className="py-3 px-4">Dock Location</th>
                       <th className="py-3 px-4">Destinations Covered</th>
                       <th className="py-3 px-4">Fare / Rate Range</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredBoats.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="text-center text-slate-400 py-8">
+                        <td colSpan="5" className="text-center text-slate-400 py-8">
                           No water boat fare records found matching your search.
                         </td>
                       </tr>
@@ -1234,6 +1382,10 @@ export default function Admin() {
                           <td className="py-3 px-4 text-slate-600">{b.dock_location || '—'}</td>
                           <td className="py-3 px-4 text-slate-600 max-w-[260px]">{b.destinations || '—'}</td>
                           <td className="py-3 px-4 font-bold text-cyan-700 whitespace-nowrap">{formatFare(b.fare_rate_note)}</td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                            <button onClick={() => openEditFareModal(b, 'boat')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteFareRecord(b, 'boat')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1710,6 +1862,185 @@ export default function Admin() {
                   className="py-2.5 px-6 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow"
                 >
                   Save Advisory
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* FARE ADD/EDIT MODAL */}
+      {/* ========================================================================= */}
+      {fareModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setFareModalOpen(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-bold text-slate-900 mb-1">
+              {editingFare ? 'Edit Fare Record' : 'Add Fare Record'}
+            </h3>
+            <p className="text-xs text-slate-500 mb-5 capitalize">
+              Category: <strong>{fareModalCategory.replace('_', ' ')}</strong>
+            </p>
+
+            <form onSubmit={handleSaveFare} className="space-y-4">
+
+              {/* ── TRICYCLE FIELDS ── */}
+              {fareModalCategory === 'tricycle' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Zone Category</label>
+                    <select
+                      value={fareFormData.zone}
+                      onChange={(e) => setFareFormData(p => ({ ...p, zone: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                      required
+                    >
+                      <option value="Zone 1">Zone 1</option>
+                      <option value="Zone 2">Zone 2</option>
+                      <option value="Zone 3">Zone 3</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Barangay <span className="text-rose-500">*</span></label>
+                    <input type="text" value={fareFormData.barangay} onChange={(e) => setFareFormData(p => ({ ...p, barangay: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Description & Key Landmarks</label>
+                    <textarea rows={2} value={fareFormData.landmarks} onChange={(e) => setFareFormData(p => ({ ...p, landmarks: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 resize-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Solo Fare — Min (₱)</label>
+                      <input type="number" min="0" value={fareFormData.solo_fare_min} onChange={(e) => setFareFormData(p => ({ ...p, solo_fare_min: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Solo Fare — Max (₱)</label>
+                      <input type="number" min="0" value={fareFormData.solo_fare_max} onChange={(e) => setFareFormData(p => ({ ...p, solo_fare_max: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">2-Pax Fare — Min (₱)</label>
+                      <input type="number" min="0" value={fareFormData.fare_per_2pax_min} onChange={(e) => setFareFormData(p => ({ ...p, fare_per_2pax_min: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">2-Pax Fare — Max (₱)</label>
+                      <input type="number" min="0" value={fareFormData.fare_per_2pax_max} onChange={(e) => setFareFormData(p => ({ ...p, fare_per_2pax_max: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">3-Pax Shared — Min (₱)</label>
+                      <input type="number" min="0" value={fareFormData.fare_per_3pax_min} onChange={(e) => setFareFormData(p => ({ ...p, fare_per_3pax_min: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">3-Pax Shared — Max (₱)</label>
+                      <input type="number" min="0" value={fareFormData.fare_per_3pax_max} onChange={(e) => setFareFormData(p => ({ ...p, fare_per_3pax_max: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ── BOAT FIELDS ── */}
+              {fareModalCategory === 'boat' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Service Type <span className="text-rose-500">*</span></label>
+                    <input type="text" value={fareFormData.service_type} onChange={(e) => setFareFormData(p => ({ ...p, service_type: e.target.value }))}
+                      placeholder="e.g. Motorized Banca Ferry" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Dock Location</label>
+                    <input type="text" value={fareFormData.dock_location} onChange={(e) => setFareFormData(p => ({ ...p, dock_location: e.target.value }))}
+                      placeholder="e.g. Pantal River Ferry Terminal" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Destinations Covered</label>
+                    <textarea rows={2} value={fareFormData.destinations} onChange={(e) => setFareFormData(p => ({ ...p, destinations: e.target.value }))}
+                      placeholder="e.g. Bonuan Gueset, Pantal Bridge area" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Fare / Rate Range Note</label>
+                    <input type="text" value={fareFormData.fare_rate_note} onChange={(e) => setFareFormData(p => ({ ...p, fare_rate_note: e.target.value }))}
+                      placeholder="e.g. ₱10 – ₱20 per person" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" />
+                  </div>
+                </>
+              )}
+
+              {/* ── ROUTE FARE FIELDS (jeepney / modern_puv / uv_express / provincial_bus) ── */}
+              {fareModalCategory !== 'tricycle' && fareModalCategory !== 'boat' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Transport Mode</label>
+                    <input type="text" value={fareModalCategory.replace('_', ' ')} readOnly
+                      className="w-full px-3 py-2 border border-slate-100 bg-slate-50 rounded-xl text-sm text-slate-500 capitalize" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Route Name <span className="text-rose-500">*</span></label>
+                    <input type="text" value={fareFormData.route_name} onChange={(e) => setFareFormData(p => ({ ...p, route_name: e.target.value }))}
+                      placeholder="e.g. Dagupan – Calasiao" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Origin / Main Terminal</label>
+                    <input type="text" value={fareFormData.terminal} onChange={(e) => setFareFormData(p => ({ ...p, terminal: e.target.value }))}
+                      placeholder="e.g. Dagupan Bus Terminal, A.B. Fernandez Ave." className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Key Waypoints / Vehicle Type</label>
+                    <textarea rows={2} value={fareFormData.waypoints} onChange={(e) => setFareFormData(p => ({ ...p, waypoints: e.target.value }))}
+                      placeholder="e.g. Barangays served or vehicle type" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 resize-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Estimated Distance</label>
+                    <input type="text" value={fareFormData.distance_km} onChange={(e) => setFareFormData(p => ({ ...p, distance_km: e.target.value }))}
+                      placeholder="e.g. ~8 km" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Regular Fare — Min (₱)</label>
+                      <input type="number" min="0" value={fareFormData.regular_fare_min} onChange={(e) => setFareFormData(p => ({ ...p, regular_fare_min: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Regular Fare — Max (₱)</label>
+                      <input type="number" min="0" value={fareFormData.regular_fare_max} onChange={(e) => setFareFormData(p => ({ ...p, regular_fare_max: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Discounted Fare — Min (₱)</label>
+                      <input type="number" min="0" value={fareFormData.discounted_fare_min} onChange={(e) => setFareFormData(p => ({ ...p, discounted_fare_min: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Discounted Fare — Max (₱)</label>
+                      <input type="number" min="0" value={fareFormData.discounted_fare_max} onChange={(e) => setFareFormData(p => ({ ...p, discounted_fare_max: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600" required />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setFareModalOpen(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 px-6 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow transition-all"
+                >
+                  {editingFare ? 'Save Changes' : 'Add Fare Record'}
                 </button>
               </div>
             </form>

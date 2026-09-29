@@ -3184,6 +3184,439 @@ router.put('/admin/fares/:id', authenticateToken, requireAdmin, async (req, res)
     }
 });
 
+// ============================================================================
+// ADMIN AUTHORITATIVE FARE MATRIX CRUD (Tricycles, Routes, Boats)
+// ============================================================================
+
+// Helper to parse fare range from object { min, max } or numeric input
+function parseFareRangeInput(val, defaultMin = 0, defaultMax = 0) {
+    if (val && typeof val === 'object') {
+        const rawMin = val.min !== undefined ? val.min : defaultMin;
+        const rawMax = val.max !== undefined ? val.max : (val.min !== undefined ? val.min : defaultMax);
+        const min = parseFloat(rawMin);
+        const max = parseFloat(rawMax);
+        const validMin = isNaN(min) || min < 0 ? defaultMin : min;
+        const validMax = isNaN(max) || max < 0 ? (isNaN(min) || min < 0 ? defaultMax : validMin) : max;
+        return { min: validMin, max: validMax >= validMin ? validMax : validMin };
+    }
+    const num = parseFloat(val);
+    if (!isNaN(num) && num >= 0) {
+        return { min: num, max: num };
+    }
+    return { min: defaultMin, max: defaultMax };
+}
+
+// ── 1. Tricycle Fares CRUD ──
+
+// POST /api/admin/fares/tricycles - Create tricycle fare
+router.post('/admin/fares/tricycles', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { zone, barangay, landmarks, solo_fare, fare_per_2pax, fare_per_3pax_shared } = req.body;
+
+        if (!zone || typeof zone !== 'string' || zone.trim() === '') {
+            return res.status(400).json({ error: 'zone is required.' });
+        }
+        if (!barangay || typeof barangay !== 'string' || barangay.trim() === '') {
+            return res.status(400).json({ error: 'barangay is required.' });
+        }
+
+        const trimmedBarangay = barangay.trim();
+        const existing = await TricycleFare.findOne({ barangay: new RegExp(`^${trimmedBarangay.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+        if (existing) {
+            return res.status(409).json({ error: `Tricycle fare record for ${trimmedBarangay} already exists.` });
+        }
+
+        const parsedSolo = parseFareRangeInput(solo_fare, 30, 40);
+        const parsed2pax = parseFareRangeInput(fare_per_2pax, 15, 20);
+        const parsed3pax = parseFareRangeInput(fare_per_3pax_shared, 10, 15);
+
+        const newFare = await TricycleFare.create({
+            zone: zone.trim(),
+            barangay: trimmedBarangay,
+            landmarks: landmarks ? landmarks.trim() : '',
+            solo_fare: parsedSolo,
+            fare_per_2pax: parsed2pax,
+            fare_per_3pax_shared: parsed3pax,
+            created_at: new Date(),
+            updated_at: new Date()
+        });
+
+        res.status(201).json({
+            message: 'Tricycle fare created successfully.',
+            fare: newFare
+        });
+    } catch (err) {
+        console.error('Error creating tricycle fare:', err);
+        res.status(500).json({ error: 'Failed to create tricycle fare.' });
+    }
+});
+
+// PUT /api/admin/fares/tricycles/:id - Update tricycle fare
+router.put('/admin/fares/tricycles/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ _id: id }, { barangay: id }] } : { barangay: id };
+        const existing = await TricycleFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Tricycle fare not found.' });
+        }
+
+        const { zone, barangay, landmarks, solo_fare, fare_per_2pax, fare_per_3pax_shared } = req.body;
+
+        if (zone !== undefined) {
+            if (typeof zone !== 'string' || zone.trim() === '') {
+                return res.status(400).json({ error: 'zone cannot be empty.' });
+            }
+            existing.zone = zone.trim();
+        }
+
+        if (barangay !== undefined) {
+            if (typeof barangay !== 'string' || barangay.trim() === '') {
+                return res.status(400).json({ error: 'barangay cannot be empty.' });
+            }
+            const trimmedBarangay = barangay.trim();
+            if (trimmedBarangay.toLowerCase() !== existing.barangay.toLowerCase()) {
+                const dup = await TricycleFare.findOne({
+                    barangay: new RegExp(`^${trimmedBarangay.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                    _id: { $ne: existing._id }
+                });
+                if (dup) {
+                    return res.status(409).json({ error: `Tricycle fare record for ${trimmedBarangay} already exists.` });
+                }
+            }
+            existing.barangay = trimmedBarangay;
+        }
+
+        if (landmarks !== undefined) {
+            existing.landmarks = landmarks ? landmarks.trim() : '';
+        }
+        if (solo_fare !== undefined) {
+            existing.solo_fare = parseFareRangeInput(solo_fare, existing.solo_fare.min, existing.solo_fare.max);
+        }
+        if (fare_per_2pax !== undefined) {
+            existing.fare_per_2pax = parseFareRangeInput(fare_per_2pax, existing.fare_per_2pax.min, existing.fare_per_2pax.max);
+        }
+        if (fare_per_3pax_shared !== undefined) {
+            existing.fare_per_3pax_shared = parseFareRangeInput(fare_per_3pax_shared, existing.fare_per_3pax_shared.min, existing.fare_per_3pax_shared.max);
+        }
+
+        existing.updated_at = new Date();
+        await existing.save();
+
+        res.json({
+            message: 'Tricycle fare updated successfully.',
+            fare: existing
+        });
+    } catch (err) {
+        console.error('Error updating tricycle fare:', err);
+        res.status(500).json({ error: 'Failed to update tricycle fare.' });
+    }
+});
+
+// DELETE /api/admin/fares/tricycles/:id - Delete tricycle fare
+router.delete('/admin/fares/tricycles/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ _id: id }, { barangay: id }] } : { barangay: id };
+        const existing = await TricycleFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Tricycle fare not found.' });
+        }
+
+        await TricycleFare.deleteOne({ _id: existing._id });
+        res.json({ message: 'Tricycle fare deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting tricycle fare:', err);
+        res.status(500).json({ error: 'Failed to delete tricycle fare.' });
+    }
+});
+
+// ── 2. Route Fares CRUD (Jeepney, Modern PUV, UV Express, Provincial Bus) ──
+
+const VALID_ROUTE_FARE_MODES = ['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'];
+
+// POST /api/admin/fares/routes - Create route fare
+router.post('/admin/fares/routes', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { transport_mode, route_name, terminal, waypoints, distance_km, regular_fare, discounted_fare_20pct } = req.body;
+
+        if (!transport_mode || !VALID_ROUTE_FARE_MODES.includes(transport_mode.toLowerCase().trim())) {
+            return res.status(400).json({ error: `Invalid transport_mode. Must be one of: ${VALID_ROUTE_FARE_MODES.join(', ')}` });
+        }
+        if (!route_name || typeof route_name !== 'string' || route_name.trim() === '') {
+            return res.status(400).json({ error: 'route_name is required.' });
+        }
+        if (!terminal || typeof terminal !== 'string' || terminal.trim() === '') {
+            return res.status(400).json({ error: 'terminal is required.' });
+        }
+
+        const modeKey = transport_mode.toLowerCase().trim();
+        const trimmedRouteName = route_name.trim();
+
+        const existing = await RouteFare.findOne({
+            transport_mode: modeKey,
+            route_name: new RegExp(`^${trimmedRouteName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        });
+        if (existing) {
+            return res.status(409).json({ error: `Route fare for "${trimmedRouteName}" under ${modeKey} already exists.` });
+        }
+
+        const parsedRegular = parseFareRangeInput(regular_fare, 15, 20);
+        let parsedDiscounted;
+        if (discounted_fare_20pct !== undefined && discounted_fare_20pct !== null && discounted_fare_20pct !== '') {
+            parsedDiscounted = parseFareRangeInput(discounted_fare_20pct, parsedRegular.min * 0.8, parsedRegular.max * 0.8);
+        } else {
+            parsedDiscounted = {
+                min: Number((parsedRegular.min * 0.8).toFixed(2)),
+                max: Number((parsedRegular.max * 0.8).toFixed(2))
+            };
+        }
+
+        const newFare = await RouteFare.create({
+            transport_mode: modeKey,
+            route_name: trimmedRouteName,
+            terminal: terminal.trim(),
+            waypoints: waypoints ? waypoints.trim() : '',
+            distance_km: distance_km ? distance_km.toString().trim() : null,
+            regular_fare: parsedRegular,
+            discounted_fare_20pct: parsedDiscounted,
+            created_at: new Date(),
+            updated_at: new Date()
+        });
+
+        res.status(201).json({
+            message: 'Route fare created successfully.',
+            fare: newFare
+        });
+    } catch (err) {
+        console.error('Error creating route fare:', err);
+        res.status(500).json({ error: 'Failed to create route fare.' });
+    }
+});
+
+// PUT /api/admin/fares/routes/:id - Update route fare
+router.put('/admin/fares/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { route_name: id };
+        const existing = await RouteFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Route fare not found.' });
+        }
+
+        const { transport_mode, route_name, terminal, waypoints, distance_km, regular_fare, discounted_fare_20pct } = req.body;
+
+        if (transport_mode !== undefined) {
+            const modeKey = transport_mode.toLowerCase().trim();
+            if (!VALID_ROUTE_FARE_MODES.includes(modeKey)) {
+                return res.status(400).json({ error: `Invalid transport_mode. Must be one of: ${VALID_ROUTE_FARE_MODES.join(', ')}` });
+            }
+            existing.transport_mode = modeKey;
+        }
+
+        if (route_name !== undefined) {
+            if (typeof route_name !== 'string' || route_name.trim() === '') {
+                return res.status(400).json({ error: 'route_name cannot be empty.' });
+            }
+            const trimmedName = route_name.trim();
+            if (trimmedName.toLowerCase() !== existing.route_name.toLowerCase()) {
+                const dup = await RouteFare.findOne({
+                    transport_mode: existing.transport_mode,
+                    route_name: new RegExp(`^${trimmedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                    _id: { $ne: existing._id }
+                });
+                if (dup) {
+                    return res.status(409).json({ error: `Route fare for "${trimmedName}" under ${existing.transport_mode} already exists.` });
+                }
+            }
+            existing.route_name = trimmedName;
+        }
+
+        if (terminal !== undefined) {
+            if (typeof terminal !== 'string' || terminal.trim() === '') {
+                return res.status(400).json({ error: 'terminal cannot be empty.' });
+            }
+            existing.terminal = terminal.trim();
+        }
+
+        if (waypoints !== undefined) {
+            existing.waypoints = waypoints ? waypoints.trim() : '';
+        }
+        if (distance_km !== undefined) {
+            existing.distance_km = distance_km ? distance_km.toString().trim() : null;
+        }
+
+        if (regular_fare !== undefined) {
+            existing.regular_fare = parseFareRangeInput(regular_fare, existing.regular_fare.min, existing.regular_fare.max);
+        }
+        if (discounted_fare_20pct !== undefined) {
+            existing.discounted_fare_20pct = parseFareRangeInput(discounted_fare_20pct, existing.discounted_fare_20pct.min, existing.discounted_fare_20pct.max);
+        } else if (regular_fare !== undefined) {
+            existing.discounted_fare_20pct = {
+                min: Number((existing.regular_fare.min * 0.8).toFixed(2)),
+                max: Number((existing.regular_fare.max * 0.8).toFixed(2))
+            };
+        }
+
+        existing.updated_at = new Date();
+        await existing.save();
+
+        res.json({
+            message: 'Route fare updated successfully.',
+            fare: existing
+        });
+    } catch (err) {
+        console.error('Error updating route fare:', err);
+        res.status(500).json({ error: 'Failed to update route fare.' });
+    }
+});
+
+// DELETE /api/admin/fares/routes/:id - Delete route fare
+router.delete('/admin/fares/routes/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { route_name: id };
+        const existing = await RouteFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Route fare not found.' });
+        }
+
+        await RouteFare.deleteOne({ _id: existing._id });
+        res.json({ message: 'Route fare deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting route fare:', err);
+        res.status(500).json({ error: 'Failed to delete route fare.' });
+    }
+});
+
+// ── 3. Boat Fares CRUD ──
+
+// POST /api/admin/fares/boats - Create boat fare
+router.post('/admin/fares/boats', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { service_type, dock_location, destinations, fare_rate_note } = req.body;
+
+        if (!service_type || typeof service_type !== 'string' || service_type.trim() === '') {
+            return res.status(400).json({ error: 'service_type is required.' });
+        }
+        if (!dock_location || typeof dock_location !== 'string' || dock_location.trim() === '') {
+            return res.status(400).json({ error: 'dock_location is required.' });
+        }
+        if (!destinations || typeof destinations !== 'string' || destinations.trim() === '') {
+            return res.status(400).json({ error: 'destinations is required.' });
+        }
+        if (!fare_rate_note || typeof fare_rate_note !== 'string' || fare_rate_note.trim() === '') {
+            return res.status(400).json({ error: 'fare_rate_note is required.' });
+        }
+
+        const trimmedService = service_type.trim();
+        const existing = await BoatFare.findOne({
+            service_type: new RegExp(`^${trimmedService.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        });
+        if (existing) {
+            return res.status(409).json({ error: `Boat fare record for "${trimmedService}" already exists.` });
+        }
+
+        const newFare = await BoatFare.create({
+            service_type: trimmedService,
+            dock_location: dock_location.trim(),
+            destinations: destinations.trim(),
+            fare_rate_note: fare_rate_note.trim(),
+            created_at: new Date(),
+            updated_at: new Date()
+        });
+
+        res.status(201).json({
+            message: 'Boat fare created successfully.',
+            fare: newFare
+        });
+    } catch (err) {
+        console.error('Error creating boat fare:', err);
+        res.status(500).json({ error: 'Failed to create boat fare.' });
+    }
+});
+
+// PUT /api/admin/fares/boats/:id - Update boat fare
+router.put('/admin/fares/boats/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ _id: id }, { service_type: id }] } : { service_type: id };
+        const existing = await BoatFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Boat fare not found.' });
+        }
+
+        const { service_type, dock_location, destinations, fare_rate_note } = req.body;
+
+        if (service_type !== undefined) {
+            if (typeof service_type !== 'string' || service_type.trim() === '') {
+                return res.status(400).json({ error: 'service_type cannot be empty.' });
+            }
+            const trimmedService = service_type.trim();
+            if (trimmedService.toLowerCase() !== existing.service_type.toLowerCase()) {
+                const dup = await BoatFare.findOne({
+                    service_type: new RegExp(`^${trimmedService.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                    _id: { $ne: existing._id }
+                });
+                if (dup) {
+                    return res.status(409).json({ error: `Boat fare record for "${trimmedService}" already exists.` });
+                }
+            }
+            existing.service_type = trimmedService;
+        }
+
+        if (dock_location !== undefined) {
+            if (typeof dock_location !== 'string' || dock_location.trim() === '') {
+                return res.status(400).json({ error: 'dock_location cannot be empty.' });
+            }
+            existing.dock_location = dock_location.trim();
+        }
+
+        if (destinations !== undefined) {
+            if (typeof destinations !== 'string' || destinations.trim() === '') {
+                return res.status(400).json({ error: 'destinations cannot be empty.' });
+            }
+            existing.destinations = destinations.trim();
+        }
+
+        if (fare_rate_note !== undefined) {
+            if (typeof fare_rate_note !== 'string' || fare_rate_note.trim() === '') {
+                return res.status(400).json({ error: 'fare_rate_note cannot be empty.' });
+            }
+            existing.fare_rate_note = fare_rate_note.trim();
+        }
+
+        existing.updated_at = new Date();
+        await existing.save();
+
+        res.json({
+            message: 'Boat fare updated successfully.',
+            fare: existing
+        });
+    } catch (err) {
+        console.error('Error updating boat fare:', err);
+        res.status(500).json({ error: 'Failed to update boat fare.' });
+    }
+});
+
+// DELETE /api/admin/fares/boats/:id - Delete boat fare
+router.delete('/admin/fares/boats/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = mongoose.Types.ObjectId.isValid(id) ? { $or: [{ _id: id }, { service_type: id }] } : { service_type: id };
+        const existing = await BoatFare.findOne(query);
+        if (!existing) {
+            return res.status(404).json({ error: 'Boat fare not found.' });
+        }
+
+        await BoatFare.deleteOne({ _id: existing._id });
+        res.json({ message: 'Boat fare deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting boat fare:', err);
+        res.status(500).json({ error: 'Failed to delete boat fare.' });
+    }
+});
+
 // GET /api/admin/advisories - All advisories
 router.get('/admin/advisories', authenticateToken, requireAdmin, async (req, res) => {
     try {
