@@ -18,14 +18,16 @@ import {
   RefreshCw,
   Eye,
   Layers,
-  Ship
+  Ship,
+  FileSpreadsheet,
+  Search
 } from 'lucide-react';
 
 export default function Admin() {
   const { navigate } = useRouter();
   const { user, token, isAdmin, openAuth } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'advisories', 'locations', 'feedback'
+  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'advisories', 'locations', 'modes', 'fares', 'feedback'
   const [stats, setStats] = useState(null);
   const [routes, setRoutes] = useState([]);
   const [advisories, setAdvisories] = useState([]);
@@ -33,6 +35,13 @@ export default function Admin() {
   const [modes, setModes] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Authoritative Fare Matrix States
+  const [fareTricycles, setFareTricycles] = useState([]);
+  const [fareRoutes, setFareRoutes] = useState([]);
+  const [fareBoats, setFareBoats] = useState([]);
+  const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'uv_express', 'provincial_bus', 'boat'
+  const [fareSearch, setFareSearch] = useState('');
 
   // Form Modal States
   const [routeModalOpen, setRouteModalOpen] = useState(false);
@@ -96,13 +105,16 @@ export default function Admin() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes] = await Promise.all([
+      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/routes').then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
         fetch('/api/transport-modes').then(r => r.json()),
-        fetch('/api/admin/locations', { headers }).then(r => r.json())
+        fetch('/api/admin/locations', { headers }).then(r => r.json()),
+        fetch('/api/fares/tricycles').then(r => r.json()).catch(() => []),
+        fetch('/api/fares/routes').then(r => r.json()).catch(() => []),
+        fetch('/api/fares/boats').then(r => r.json()).catch(() => [])
       ]);
 
       setStats(statsRes);
@@ -111,6 +123,9 @@ export default function Admin() {
       setFeedbackList(feedRes);
       setModes(modesRes);
       setLocations(Array.isArray(locsRes) ? locsRes : (locsRes.locations || []));
+      setFareTricycles(Array.isArray(tricyclesRes) ? tricyclesRes : []);
+      setFareRoutes(Array.isArray(routeFaresRes) ? routeFaresRes : []);
+      setFareBoats(Array.isArray(boatFaresRes) ? boatFaresRes : []);
     } catch (err) {
       console.error('Error loading admin portal data:', err);
     } finally {
@@ -547,6 +562,7 @@ export default function Admin() {
             { key: 'advisories', label: 'Flood Advisories & Detours', icon: AlertTriangle },
             { key: 'locations', label: 'Places & Stops', icon: Layers },
             { key: 'modes', label: 'Transport Modes', icon: Ship },
+            { key: 'fares', label: 'Fare Matrix', icon: DollarSign },
             { key: 'feedback', label: 'Commuter Reports', icon: MessageSquare }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -921,6 +937,313 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: FARE MATRIX (VIEW-ONLY) */}
+      {/* ========================================================================= */}
+      {activeTab === 'fares' && (() => {
+        const formatFare = (val) => {
+          if (val === null || val === undefined || val === '') return 'Not configured';
+          if (typeof val === 'string') {
+            const trimmed = val.trim();
+            return trimmed || 'Not configured';
+          }
+          if (typeof val === 'number') {
+            return `₱${val.toFixed(2)}`;
+          }
+          if (typeof val === 'object') {
+            if (val.raw) return val.raw;
+            if (val.min != null && val.max != null) {
+              if (val.min === val.max) {
+                return `₱${Number(val.min).toFixed(2)}`;
+              }
+              return `₱${Number(val.min).toFixed(2)} – ₱${Number(val.max).toFixed(2)}`;
+            }
+            if (val.min != null) return `₱${Number(val.min).toFixed(2)}`;
+            if (val.max != null) return `₱${Number(val.max).toFixed(2)}`;
+          }
+          return 'Not configured';
+        };
+
+        const fareCategories = [
+          { key: 'tricycle', label: 'Motorized Tricycles', count: fareTricycles.length },
+          { key: 'jeepney', label: 'Traditional Jeepneys', count: fareRoutes.filter(r => r.transport_mode === 'jeepney').length },
+          { key: 'modern_puv', label: 'Modern PUVs', count: fareRoutes.filter(r => r.transport_mode === 'modern_puv').length },
+          { key: 'uv_express', label: 'UV Express Vans', count: fareRoutes.filter(r => r.transport_mode === 'uv_express').length },
+          { key: 'provincial_bus', label: 'Provincial Buses', count: fareRoutes.filter(r => r.transport_mode === 'provincial_bus').length },
+          { key: 'boat', label: 'Water Boats', count: fareBoats.length },
+        ];
+
+        const q = fareSearch.trim().toLowerCase();
+
+        const filteredTricycles = fareTricycles.filter(t => {
+          if (!q) return true;
+          return (t.barangay && t.barangay.toLowerCase().includes(q)) ||
+                 (t.landmarks && t.landmarks.toLowerCase().includes(q)) ||
+                 (t.zone && t.zone.toLowerCase().includes(q));
+        });
+
+        const activeRoutes = fareRoutes.filter(r => r.transport_mode === fareCategory);
+        const filteredRoutes = activeRoutes.filter(r => {
+          if (!q) return true;
+          return (r.route_name && r.route_name.toLowerCase().includes(q)) ||
+                 (r.terminal && r.terminal.toLowerCase().includes(q)) ||
+                 (r.waypoints && r.waypoints.toLowerCase().includes(q));
+        });
+
+        const filteredBoats = fareBoats.filter(b => {
+          if (!q) return true;
+          return (b.service_type && b.service_type.toLowerCase().includes(q)) ||
+                 (b.dock_location && b.dock_location.toLowerCase().includes(q)) ||
+                 (b.destinations && b.destinations.toLowerCase().includes(q)) ||
+                 (b.fare_rate_note && b.fare_rate_note.toLowerCase().includes(q));
+        });
+
+        return (
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6 space-y-6">
+            {/* Header & Source Metadata */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-900">Authoritative Fare Matrix</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+                    View-Only Reference
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Official Dagupan City benchmark transit fares across road corridors and river crossings.
+                </p>
+              </div>
+
+              {/* Source Badge */}
+              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-3.5 py-2 rounded-xl text-xs font-semibold self-start lg:self-auto">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Source: <strong className="font-bold">Fare Matrix for InerTayo.xlsx</strong> (InerTayo configured fare reference)</span>
+              </div>
+            </div>
+
+            {/* Sub-tabs / Mode Selector & Search Filter */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-wrap gap-2">
+                {fareCategories.map((cat) => {
+                  const isSel = fareCategory === cat.key;
+                  return (
+                    <button
+                      key={cat.key}
+                      onClick={() => {
+                        setFareCategory(cat.key);
+                        setFareSearch('');
+                      }}
+                      className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                        isSel
+                          ? 'bg-slate-900 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>{cat.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                        isSel ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {cat.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="relative min-w-[240px]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={fareSearch}
+                  onChange={(e) => setFareSearch(e.target.value)}
+                  placeholder={`Search ${fareCategory.replace('_', ' ')}...`}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
+            </div>
+
+            {/* Table Content */}
+            <div className="overflow-x-auto -mx-6 px-6">
+              {/* 1. MOTORIZED TRICYCLES */}
+              {fareCategory === 'tricycle' && (
+                <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Zone Category</th>
+                      <th className="py-3 px-4">Barangay</th>
+                      <th className="py-3 px-4">Description & Key Landmarks</th>
+                      <th className="py-3 px-4">Solo Passenger (Special Trip)</th>
+                      <th className="py-3 px-4">2 Passengers (Per Person)</th>
+                      <th className="py-3 px-4">3 Passengers / Shared</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredTricycles.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="text-center text-slate-400 py-8">
+                          No tricycle fare records found matching your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTricycles.map((t, idx) => (
+                        <tr key={t._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-50 text-amber-700 border border-amber-200/60">
+                              {t.zone}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{t.barangay}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[260px]">{t.landmarks || '—'}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(t.solo_fare)}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">{formatFare(t.fare_per_2pax)}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">{formatFare(t.fare_per_3pax_shared)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {/* 2. TRADITIONAL JEEPNEYS & 3. MODERN PUVS */}
+              {(fareCategory === 'jeepney' || fareCategory === 'modern_puv') && (
+                <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Route Name</th>
+                      <th className="py-3 px-4">Origin / Main Terminal</th>
+                      <th className="py-3 px-4">Key Waypoints & Barangays Served</th>
+                      <th className="py-3 px-4">Est. Distance</th>
+                      <th className="py-3 px-4">Regular Fare</th>
+                      <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredRoutes.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="text-center text-slate-400 py-8">
+                          No {fareCategory === 'jeepney' ? 'traditional jeepney' : 'modern PUV'} fare records found matching your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRoutes.map((r, idx) => (
+                        <tr key={r._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{r.route_name}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[200px]">{r.terminal || '—'}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[260px]">{r.waypoints || '—'}</td>
+                          <td className="py-3 px-4 text-slate-600 whitespace-nowrap">{r.distance_km || '—'}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
+                          <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {/* 4. UV EXPRESS VANS */}
+              {fareCategory === 'uv_express' && (
+                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Route Name</th>
+                      <th className="py-3 px-4">Terminal Location</th>
+                      <th className="py-3 px-4">Vehicle Type</th>
+                      <th className="py-3 px-4">Regular Fare</th>
+                      <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredRoutes.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="text-center text-slate-400 py-8">
+                          No UV Express fare records found matching your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRoutes.map((r, idx) => (
+                        <tr key={r._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{r.route_name}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[220px]">{r.terminal || '—'}</td>
+                          <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'UV Express Aircon Van'}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
+                          <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {/* 5. PROVINCIAL BUSES */}
+              {fareCategory === 'provincial_bus' && (
+                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Route Name</th>
+                      <th className="py-3 px-4">Bus Company & Terminal</th>
+                      <th className="py-3 px-4">Service Type</th>
+                      <th className="py-3 px-4">Regular Fare</th>
+                      <th className="py-3 px-4">Discounted Fare (20% Off)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredRoutes.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="text-center text-slate-400 py-8">
+                          No provincial bus fare records found matching your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRoutes.map((r, idx) => (
+                        <tr key={r._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{r.route_name}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[240px]">{r.terminal || '—'}</td>
+                          <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'Bus'}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
+                          <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {/* 6. WATER BOATS */}
+              {fareCategory === 'boat' && (
+                <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Service Type</th>
+                      <th className="py-3 px-4">Dock Location</th>
+                      <th className="py-3 px-4">Destinations Covered</th>
+                      <th className="py-3 px-4">Fare / Rate Range</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredBoats.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="text-center text-slate-400 py-8">
+                          No water boat fare records found matching your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredBoats.map((b, idx) => (
+                        <tr key={b._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{b.service_type}</td>
+                          <td className="py-3 px-4 text-slate-600">{b.dock_location || '—'}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-[260px]">{b.destinations || '—'}</td>
+                          <td className="py-3 px-4 font-bold text-cyan-700 whitespace-nowrap">{formatFare(b.fare_rate_note)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       </div>
 
