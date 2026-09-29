@@ -36,30 +36,14 @@ export default function WebMap() {
   const [mobileView, setMobileView] = useState('map'); // 'map' | 'planner'
 
   useEffect(() => {
-    // Load routes with full stops details
+    // Load routes summary
     fetch('/api/routes')
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(async (routesData) => {
-        if (!Array.isArray(routesData)) {
-          setRoutes([]);
-          setLoading(false);
-          return;
-        }
-        const detailedRoutes = await Promise.all(
-          routesData.map(async (r) => {
-            try {
-              const detailRes = await fetch(`/api/routes/${r.id}`);
-              if (!detailRes.ok) return r;
-              return await detailRes.json();
-            } catch (e) {
-              return r;
-            }
-          })
-        );
-        setRoutes(detailedRoutes);
+      .then((routesData) => {
+        setRoutes(Array.isArray(routesData) ? routesData : []);
         setLoading(false);
       })
       .catch(err => {

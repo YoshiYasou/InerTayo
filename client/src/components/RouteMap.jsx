@@ -92,6 +92,68 @@ function landmarkDivIcon() {
   });
 }
 
+function locationDivIcon(loc) {
+  const type = (loc.type || '').toUpperCase();
+  let bg = '#6366f1';
+  let symbol = '★';
+  let size = 18;
+  let isDiamond = false;
+
+  if (type === 'RIVER_STOP') {
+    bg = '#0284c7';
+    symbol = '⚓';
+    size = 22;
+    isDiamond = true;
+  } else if (type === 'STREET') {
+    bg = '#475569';
+    symbol = '≡';
+    size = 16;
+  } else if (type === 'TERMINAL') {
+    bg = '#ea580c';
+    symbol = 'T';
+    size = 18;
+  } else if (type === 'ESTABLISHMENT') {
+    bg = '#8b5cf6';
+    symbol = 'E';
+    size = 16;
+  } else if (type === 'BARANGAY') {
+    bg = '#0d9488';
+    symbol = 'B';
+    size = 16;
+  } else if (type === 'INTERSECTION') {
+    bg = '#64748b';
+    symbol = '+';
+    size = 14;
+  } else if (type === 'STOP') {
+    bg = '#10b981';
+    symbol = '●';
+    size = 14;
+  }
+
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width: ${size}px;
+      height: ${size}px;
+      border-radius: ${isDiamond ? '4px' : '50%'};
+      background-color: ${bg};
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: ${size >= 18 ? '10px' : '9px'};
+      font-weight: 800;
+      line-height: 1;
+      ${isDiamond ? 'transform: rotate(45deg);' : ''}
+    "><span style="${isDiamond ? 'transform: rotate(-45deg);' : ''}">${symbol}</span></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
 function clusterIcon(color) {
   return (cluster) => {
     const n = cluster.getChildCount();
@@ -169,6 +231,7 @@ function LayerManager({
   onSelect,
   selectedRouteId,
   setSelectedRouteId,
+  locations = [],
 }) {
   const map = useMap();
 
@@ -185,6 +248,7 @@ function LayerManager({
     stopCluster:  null,            // L.markerClusterGroup
     schoolCluster: null,
     landmarkCluster: null,
+    locationCluster: null,
     journeyGroup: null,
     // Per-feature lookup for highlight/dim
     routeFeatureLayers: {},        // { routeId: L.layer }
@@ -224,7 +288,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -359,10 +423,11 @@ function LayerManager({
     // Apply current selection highlight
     applySelectionStyles();
 
-    // 3. STOPS, SCHOOLS, LANDMARKS — clusters (Step 7: after route lines)
+    // 3. STOPS, SCHOOLS, LANDMARKS, LOCATIONS — clusters (Step 7: after route lines)
     rebuildStopCluster();
     rebuildSchoolCluster();
     rebuildLandmarkCluster();
+    rebuildLocationCluster();
 
     // 4. JOURNEY OVERLAY (always top)
     buildJourneyOverlay();
@@ -419,6 +484,7 @@ function LayerManager({
     const zoom = currentZoom.current;
     const showAll = zoom >= ZOOM_TIER2_MIN || forceRouteId !== null;
     if (!showAll) return; // don't even build below LOD threshold
+    if (!geo.stops?.features?.length) return;
 
     geo.stops.features.forEach(f => {
       const props = f.properties;
@@ -526,6 +592,47 @@ function LayerManager({
   }
 
   // ════════════════════════════════════════════════════════════════════════
+  function rebuildLocationCluster() {
+    const refs = layersRef.current;
+
+    if (refs.locationCluster) { refs.locationCluster.remove(); refs.locationCluster = null; }
+    if (!showLocations || !locations?.length) return;
+
+    const zoom = currentZoom.current;
+    if (zoom < ZOOM_TIER2_MIN) return;
+
+    const isTouch = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const clusterRadius = isTouch ? 75 : 60;
+
+    const cluster = L.markerClusterGroup({
+      maxClusterRadius: clusterRadius,
+      disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: clusterIcon('#0d9488'),
+    });
+
+    locations.forEach(loc => {
+      if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') return;
+      const marker = L.marker([loc.latitude, loc.longitude], {
+        icon: locationDivIcon(loc),
+        zIndexOffset: 120
+      });
+      marker.bindPopup(`<div style="font-family:sans-serif;min-width:160px">
+        <div style="font-size:9px;font-weight:bold;color:#0284c7;text-transform:uppercase">${loc.type || 'LOCATION'}</div>
+        <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${loc.name}</div>
+        ${loc.address ? `<div style="font-size:10px;color:#64748b">${loc.address}</div>` : ''}
+        ${loc.description ? `<div style="font-size:10px;color:#475569;margin-top:4px">${loc.description}</div>` : ''}
+      </div>`);
+      marker.on('click', () => onSelect?.('location', loc));
+      cluster.addLayer(marker);
+    });
+
+    refs.locationCluster = cluster;
+    cluster.addTo(map);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
   // Step 3: LOD — add/remove cluster layers based on zoom
   function syncZoomLOD() {
     const refs = layersRef.current;
@@ -550,6 +657,14 @@ function LayerManager({
     } else {
       if (refs.schoolCluster && !map.hasLayer(refs.schoolCluster)) refs.schoolCluster.addTo(map);
       else if (!refs.schoolCluster && showSchools) rebuildSchoolCluster();
+    }
+
+    // Locations (Places & Streets)
+    if (zoom < ZOOM_TIER2_MIN) {
+      if (refs.locationCluster && map.hasLayer(refs.locationCluster)) refs.locationCluster.remove();
+    } else {
+      if (refs.locationCluster && !map.hasLayer(refs.locationCluster)) refs.locationCluster.addTo(map);
+      else if (!refs.locationCluster && showLocations) rebuildLocationCluster();
     }
 
     // Landmarks only at TIER3
@@ -626,6 +741,7 @@ function LayerManager({
       if (refs.stopCluster)    refs.stopCluster.remove();
       if (refs.schoolCluster)  refs.schoolCluster.remove();
       if (refs.landmarkCluster) refs.landmarkCluster.remove();
+      if (refs.locationCluster) refs.locationCluster.remove();
       if (refs.journeyGroup)   refs.journeyGroup.remove();
     };
   }, []);
@@ -687,6 +803,7 @@ export default function RouteMap({
           onSelect={onSelect}
           selectedRouteId={selectedRouteId}
           setSelectedRouteId={setSelectedRouteId}
+          locations={locations}
         />
       </MapContainer>
     </div>
