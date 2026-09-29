@@ -31,28 +31,44 @@ export default function AuthModal() {
     confirmChangePassword
   } = useAuth();
   
+  // Sign In state (strictly user-entered)
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
+  
+  // Registration state
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+
+  // Password Reset flow state (completely isolated from Sign In)
+  const [resetIdentifier, setResetIdentifier] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+
+  // Password inputs
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [resetCode, setResetCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
+  // Isolated feedback and alert states
   const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
+  const [resetNoticeMsg, setResetNoticeMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Change Password flow state
   const [codeCooldown, setCodeCooldown] = useState(0);
   const [codeRequestLoading, setCodeRequestLoading] = useState(false);
   const [changePasswordSuccess, setChangePasswordSuccess] = useState(false);
-  // devCode is returned by the server when no SMTP is configured (dev/no-email mode)
-  const [devCode, setDevCode] = useState('');
   
   // Security & Rate limiting state
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutTimer, setLockoutTimer] = useState(0);
+
+  // Clear transient reset messages and reset inputs whenever mode changes
+  useEffect(() => {
+    setError('');
+    setResetNoticeMsg('');
+  }, [authModalMode]);
 
   // Countdown timer for rate limiting lockout
   useEffect(() => {
@@ -119,30 +135,28 @@ export default function AuthModal() {
   if (!authModalOpen) return null;
 
   const resetFormState = () => {
-    setUsername('');
-    setEmail('');
     setPassword('');
     setConfirmPassword('');
     setResetCode('');
-    setDevCode('');
     setShowPassword(false);
     setShowConfirmPassword(false);
     setError('');
-    setSuccessMsg('');
+    setResetNoticeMsg('');
+    setLoginSuccessMsg('');
+    setResetIdentifier('');
+    setResetEmail('');
+    setRegUsername('');
+    setRegEmail('');
     setChangePasswordSuccess(false);
   };
 
   const handleSendChangePasswordCode = async () => {
     setError('');
-    setSuccessMsg('');
+    setResetNoticeMsg('');
     setCodeRequestLoading(true);
     try {
       const res = await requestChangePasswordCode();
-      setSuccessMsg(res.message || `Verification code sent to ${user?.email}.`);
-      if (res.devCode) {
-        setDevCode(res.devCode);
-        setResetCode(res.devCode);
-      }
+      setResetNoticeMsg(res.message || 'A 6-digit verification code has been sent to your registered email.');
       setCodeCooldown(60);
     } catch (err) {
       setError(err.message || 'Failed to send verification code.');
@@ -187,7 +201,8 @@ export default function AuthModal() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccessMsg('');
+    setLoginSuccessMsg('');
+    setResetNoticeMsg('');
 
     // Check rate limit lockout
     if (authModalMode === 'login' && lockoutTimer > 0) {
@@ -197,7 +212,7 @@ export default function AuthModal() {
 
     // 1. REGISTER MODE
     if (authModalMode === 'register') {
-      const cleanUsername = username.trim();
+      const cleanUsername = regUsername.trim();
       if (cleanUsername.length < 3 || cleanUsername.length > 30) {
         setError('Username must be between 3 and 30 characters.');
         return;
@@ -208,7 +223,7 @@ export default function AuthModal() {
       }
 
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
+      if (!emailRegex.test(regEmail.trim())) {
         setError('Please enter a valid email address.');
         return;
       }
@@ -217,7 +232,7 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        await register(cleanUsername, email.trim(), password);
+        await register(cleanUsername, regEmail.trim(), password);
         resetFormState();
       } catch (err) {
         setError(err.message || 'Registration failed.');
@@ -229,25 +244,18 @@ export default function AuthModal() {
 
     // 2. FORGOT PASSWORD REQUEST MODE
     if (authModalMode === 'forgot_request') {
-      if (!email.trim() && !username.trim()) {
+      const cleanId = resetIdentifier.trim();
+      if (!cleanId) {
         setError('Please enter your registered email address or username.');
         return;
       }
 
       setLoading(true);
       try {
-        const identifier = email.trim() || username.trim();
-        const res = await forgotPassword(identifier);
-        
-        if (res.email) {
-          setEmail(res.email);
-        }
-
-        setSuccessMsg(res.message || 'Reset code generated. Please check your email.');
-        if (res.devCode) {
-          setDevCode(res.devCode);
-          setResetCode(res.devCode);
-        }
+        const res = await forgotPassword(cleanId);
+        setResetEmail(cleanId);
+        setResetNoticeMsg(res.message || 'If an account matches that email or username, a verification code has been sent.');
+        setResetCode(''); // Verification code starts completely empty
         setAuthModalMode('forgot_reset');
       } catch (err) {
         setError(err.message || 'Failed to request password reset code.');
@@ -267,9 +275,9 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        const res = await resetPassword(email.trim(), resetCode.trim(), password);
+        const res = await resetPassword(resetEmail.trim(), resetCode.trim(), password);
         resetFormState();
-        setSuccessMsg(res.message || 'Password reset successfully! Please sign in with your new password.');
+        setLoginSuccessMsg(res.message || 'Password reset successfully! Please sign in with your new password.');
         setAuthModalMode('login');
       } catch (err) {
         setError(err.message || 'Failed to reset password.');
@@ -291,7 +299,7 @@ export default function AuthModal() {
       try {
         const res = await confirmChangePassword(resetCode.trim(), password);
         setChangePasswordSuccess(true);
-        setSuccessMsg(res.message || 'Password changed successfully!');
+        setResetNoticeMsg('');
       } catch (err) {
         setError(err.message || 'Failed to update password.');
       } finally {
@@ -340,7 +348,10 @@ export default function AuthModal() {
         
         {/* Close Button */}
         <button
-          onClick={closeAuth}
+          onClick={() => {
+            resetFormState();
+            closeAuth();
+          }}
           className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
         >
           <X className="w-5 h-5" />
@@ -381,7 +392,7 @@ export default function AuthModal() {
             {authModalMode === 'login' && 'Access saved routes and submit verified commuter feedback.'}
             {authModalMode === 'register' && 'Join fellow Dagupan commuters to save daily routes.'}
             {authModalMode === 'forgot_request' && 'Enter your registered email to receive a 6-digit verification code.'}
-            {authModalMode === 'forgot_reset' && 'Enter the 6-digit code and choose a new secure password.'}
+            {authModalMode === 'forgot_reset' && 'Enter the 6-digit code sent to your email and choose a new secure password.'}
             {authModalMode === 'change_password' && 'Verify your email to securely update your account password.'}
           </p>
         </div>
@@ -394,11 +405,19 @@ export default function AuthModal() {
           </div>
         )}
 
-        {/* Success Alert */}
-        {successMsg && (
+        {/* Sign In Success Alert (Post-Password Reset Only) */}
+        {authModalMode === 'login' && loginSuccessMsg && (
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <span>{successMsg}</span>
+            <span>{loginSuccessMsg}</span>
+          </div>
+        )}
+
+        {/* Verification Code Notice (Reset / Change Password Only) */}
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password') && resetNoticeMsg && (
+          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{resetNoticeMsg}</span>
           </div>
         )}
 
@@ -437,103 +456,109 @@ export default function AuthModal() {
           /* Form */
           <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* USERNAME / IDENTIFIER FIELD */}
-          {(authModalMode === 'login' || authModalMode === 'register' || authModalMode === 'forgot_request') && (
+          {/* USERNAME FIELD (LOGIN ONLY) */}
+          {authModalMode === 'login' && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                {authModalMode === 'login' ? 'Username or Email' : authModalMode === 'register' ? 'Username' : 'Registered Email or Username'}
+                Username or Email
               </label>
               <div className="relative">
-                {authModalMode === 'forgot_request' ? (
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                ) : (
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                )}
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input
-                  type={authModalMode === 'forgot_request' ? 'text' : 'text'}
+                  type="text"
                   required
-                  value={authModalMode === 'forgot_request' ? (email || username) : username}
-                  disabled={authModalMode === 'login' && lockoutTimer > 0}
-                  onChange={(e) => {
-                    if (authModalMode === 'forgot_request') {
-                      setEmail(e.target.value);
-                      setUsername(e.target.value);
-                    } else {
-                      setUsername(e.target.value);
-                    }
-                  }}
-                  placeholder={
-                    authModalMode === 'login'
-                      ? 'e.g. commuter or admin'
-                      : authModalMode === 'register'
-                      ? 'e.g. juan_commuter'
-                      : 'e.g. commuter@example.ph or commuter'
-                  }
+                  value={username}
+                  disabled={lockoutTimer > 0}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. commuter or admin"
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all disabled:opacity-50"
                 />
               </div>
-              {authModalMode === 'register' && (
-                <p className="text-[11px] text-slate-400 mt-1">3–30 characters, letters & numbers</p>
-              )}
             </div>
           )}
 
-          {/* EMAIL FIELD (REGISTER ONLY) */}
+          {/* USERNAME & EMAIL (REGISTER ONLY) */}
           {authModalMode === 'register' && (
+            <>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Username
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="text"
+                    required
+                    value={regUsername}
+                    onChange={(e) => setRegUsername(e.target.value)}
+                    placeholder="e.g. juan_commuter"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">3–30 characters, letters & numbers</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="email"
+                    required
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    placeholder="commuter@example.ph"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* REGISTERED EMAIL OR USERNAME (FORGOT REQUEST ONLY) */}
+          {authModalMode === 'forgot_request' && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Email Address
+                Registered Email or Username
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={email}
-                  disabled={authModalMode === 'login' && lockoutTimer > 0}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="commuter@example.ph"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all disabled:opacity-50"
+                  value={resetIdentifier}
+                  onChange={(e) => setResetIdentifier(e.target.value)}
+                  placeholder="e.g. commuter@example.ph or commuter"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
                 />
               </div>
             </div>
           )}
 
-          {/* 6-DIGIT RESET CODE (FORGOT_RESET ONLY) */}
+          {/* 6-DIGIT RESET CODE (FORGOT_RESET ONLY - NEVER AUTO-FILLED) */}
           {authModalMode === 'forgot_reset' && (
-            <div className="space-y-2">
-              {devCode && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-emerald-900">
-                      Verification Code: <span className="font-mono text-sm tracking-wider font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-300 ml-1">{devCode}</span>
-                    </p>
-                    <p className="text-[11px] text-emerald-600 mt-1">Code has been generated and pre-filled below.</p>
-                  </div>
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  6-Digit Verification Code
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    required
-                    maxLength={6}
-                    value={resetCode}
-                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                6-Digit Verification Code
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                />
               </div>
             </div>
           )}
 
-          {/* VERIFICATION CODE SECTION (CHANGE PASSWORD ONLY) */}
+          {/* VERIFICATION CODE SECTION (CHANGE PASSWORD ONLY - NEVER AUTO-FILLED) */}
           {authModalMode === 'change_password' && (
             <div className="space-y-3">
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-2">
@@ -553,18 +578,6 @@ export default function AuthModal() {
                   </button>
                 </div>
               </div>
-
-              {devCode && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-emerald-900">
-                      Verification Code: <span className="font-mono text-sm tracking-wider font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-300 ml-1">{devCode}</span>
-                    </p>
-                    <p className="text-[11px] text-emerald-600 mt-1">Code has been generated and pre-filled below.</p>
-                  </div>
-                </div>
-              )}
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">

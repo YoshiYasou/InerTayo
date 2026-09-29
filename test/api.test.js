@@ -320,8 +320,16 @@ async function runTests() {
         const forgotReq = await makeRequest('POST', '/api/auth/forgot-password', {
             identifier: 'commuter@inertayo.ph'
         });
-        assert(forgotReq.status === 200 && forgotReq.data.devCode, 'POST /api/auth/forgot-password generates valid 6-digit reset code');
-        const generatedCode = forgotReq.data.devCode;
+        assert(
+            forgotReq.status === 200 &&
+            !forgotReq.data.devCode &&
+            !forgotReq.data.code &&
+            !forgotReq.data.resetCode &&
+            !forgotReq.data.verificationCode,
+            'POST /api/auth/forgot-password succeeds without exposing verification code in response'
+        );
+        assert(global.__testMailbox && global.__testMailbox.code, 'Verification code was dispatched to email mailbox');
+        const generatedCode = global.__testMailbox.code;
 
         // Reset with invalid code
         const invalidReset = await makeRequest('POST', '/api/auth/reset-password', {
@@ -347,12 +355,12 @@ async function runTests() {
         assert(loginWithNew.status === 200, 'Login succeeds with newly reset password');
 
         // Restore default password for remaining tests
-        const forgotRestore = await makeRequest('POST', '/api/auth/forgot-password', {
+        await makeRequest('POST', '/api/auth/forgot-password', {
             identifier: 'commuter@inertayo.ph'
         });
         await makeRequest('POST', '/api/auth/reset-password', {
             email: 'commuter@inertayo.ph',
-            resetCode: forgotRestore.data.devCode,
+            resetCode: global.__testMailbox.code,
             newPassword: 'Commuter123!'
         });
 
@@ -372,8 +380,15 @@ async function runTests() {
         const cpReq = await makeRequest('POST', '/api/auth/change-password/request-code', null, {
             'Authorization': `Bearer ${commuterToken}`
         });
-        assert(cpReq.status === 200 && cpReq.data.devCode, 'Authenticated user requests change password code and receives 6-digit devCode');
-        const cpCode = cpReq.data.devCode;
+        assert(
+            cpReq.status === 200 &&
+            !cpReq.data.devCode &&
+            !cpReq.data.code &&
+            !cpReq.data.verificationCode,
+            'Authenticated user requests change password code without code exposure in response'
+        );
+        assert(global.__testMailbox && global.__testMailbox.code, 'Change-password verification code was dispatched to email mailbox');
+        const cpCode = global.__testMailbox.code;
 
         // 3. Rate limiting cooldown rejection (within 60s)
         const cpCooldownReq = await makeRequest('POST', '/api/auth/change-password/request-code', null, {

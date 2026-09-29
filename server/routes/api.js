@@ -1531,6 +1531,7 @@ router.post('/auth/forgot-password', async (req, res) => {
         }
 
         const resetCode = crypto.randomInt(100000, 1000000).toString();
+        const codeHash = crypto.createHash('sha256').update(resetCode).digest('hex');
 
         await PasswordReset.updateMany(
             { user_id: user.id, used: 0 },
@@ -1544,7 +1545,8 @@ router.post('/auth/forgot-password', async (req, res) => {
             id: resetId,
             user_id: user.id,
             email: user.email,
-            reset_code: resetCode,
+            code_hash: codeHash,
+            reset_code: codeHash,
             expires_at: expiresAt,
             used: 0
         });
@@ -1552,53 +1554,53 @@ router.post('/auth/forgot-password', async (req, res) => {
         const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
         const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
-        if (process.env.NODE_ENV !== 'test' && (hasGmail || hasSmtp)) {
-            const transporter = hasGmail
-                ? nodemailer.createTransport({
-                    host: 'smtp.gmail.com',
-                    port: 465,
-                    secure: true,
-                    auth: {
-                        user: process.env.GMAIL_USER,
-                        pass: process.env.GMAIL_APP_PASSWORD
-                    }
-                })
-                : nodemailer.createTransport({
-                    host: process.env.SMTP_HOST,
-                    port: Number(process.env.SMTP_PORT) || 587,
-                    secure: Number(process.env.SMTP_PORT) === 465,
-                    auth: {
-                        user: process.env.SMTP_USER,
-                        pass: process.env.SMTP_PASS
-                    }
+        if (process.env.NODE_ENV === 'test') {
+            global.__testMailbox = { to: user.email, code: resetCode };
+        } else if (hasGmail || hasSmtp) {
+            try {
+                const transporter = hasGmail
+                    ? nodemailer.createTransport({
+                        host: 'smtp.gmail.com',
+                        port: 465,
+                        secure: true,
+                        auth: {
+                            user: process.env.GMAIL_USER,
+                            pass: process.env.GMAIL_APP_PASSWORD
+                        }
+                    })
+                    : nodemailer.createTransport({
+                        host: process.env.SMTP_HOST,
+                        port: Number(process.env.SMTP_PORT) || 587,
+                        secure: Number(process.env.SMTP_PORT) === 465,
+                        auth: {
+                            user: process.env.SMTP_USER,
+                            pass: process.env.SMTP_PASS
+                        }
+                    });
+
+                const sender = hasGmail
+                    ? `InerTayo <${process.env.GMAIL_USER}>`
+                    : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
+
+                await transporter.sendMail({
+                    from: sender,
+                    to: user.email,
+                    subject: 'Your InerTayo password reset code',
+                    text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to reset your InerTayo password is:\n\n${resetCode}\n\nThis code will expire in 15 minutes and can only be used once.\nIf you did not request this, you can ignore this email.\n\n— InerTayo Dagupan City Commute Guide`
                 });
-
-            const sender = hasGmail
-                ? `InerTayo <${process.env.GMAIL_USER}>`
-                : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
-
-            await transporter.sendMail({
-                from: sender,
-                to: user.email,
-                subject: 'Your InerTayo password reset code',
-                text: `Your InerTayo password reset code is ${resetCode}. It expires in 15 minutes. If you did not request this, you can ignore this email.`
-            });
+            } catch (mailErr) {
+                console.error('[AUTH] Failed to send password reset email via SMTP.');
+                return res.status(500).json({ error: "We couldn't send the verification email. Please try again later." });
+            }
         } else {
-            console.log(`[AUTH] Password reset code for ${user.email}: ${resetCode}`);
+            console.error('[AUTH] Email delivery failed: SMTP credentials are not configured.');
+            return res.status(503).json({ error: "We couldn't send the verification email. Please try again later." });
         }
 
-        const isRealEmailSent = Boolean(hasGmail || hasSmtp);
-        const response = {
-            message: isRealEmailSent
-                ? `A 6-digit password reset code has been sent to ${user.email}.`
-                : `A 6-digit password reset code has been generated for ${user.email}.`,
-            email: user.email,
+        res.json({
+            message: 'If an account matches that email or username, a 6-digit reset code has been sent.',
             sent: true
-        };
-        if (process.env.NODE_ENV === 'test' || !isRealEmailSent) {
-            response.devCode = resetCode;
-        }
-        res.json(response);
+        });
     } catch (err) {
         console.error('Forgot password error:', err);
         res.status(500).json({ error: 'Failed to process password reset request.' });
@@ -1615,7 +1617,7 @@ router.post('/auth/reset-password', async (req, res) => {
         }
 
         const cleanEmail = email.trim().toLowerCase();
-        const cleanCode = resetCode.trim();
+        const cleanCode = resetCode.toString().trim();
 
         if (newPassword.length < 8) {
             return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
@@ -1633,9 +1635,10 @@ router.post('/auth/reset-password', async (req, res) => {
             return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
         }
 
+        const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
         const resetRecord = await PasswordReset.findOne({
             email: cleanEmail,
-            reset_code: cleanCode,
+            $or: [{ code_hash: inputHash }, { reset_code: cleanCode }, { reset_code: inputHash }],
             used: 0,
             expires_at: { $gt: new Date() }
         }).sort({ id: -1 });
@@ -1725,57 +1728,57 @@ router.post('/auth/change-password/request-code', authenticateToken, async (req,
             used: 0
         });
 
-        // Email dispatch — support Gmail env, generic SMTP env, or graceful fallback
+        // Email dispatch — support Gmail env, generic SMTP env, or test environment
         const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
         const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
-        if (process.env.NODE_ENV !== 'test' && (hasGmail || hasSmtp)) {
-            const transporter = hasGmail
-                ? nodemailer.createTransport({
-                    host: 'smtp.gmail.com',
-                    port: 465,
-                    secure: true,
-                    auth: {
-                        user: process.env.GMAIL_USER,
-                        pass: process.env.GMAIL_APP_PASSWORD
-                    }
-                })
-                : nodemailer.createTransport({
-                    host: process.env.SMTP_HOST,
-                    port: Number(process.env.SMTP_PORT) || 587,
-                    secure: Number(process.env.SMTP_PORT) === 465,
-                    auth: {
-                        user: process.env.SMTP_USER,
-                        pass: process.env.SMTP_PASS
-                    }
+        if (process.env.NODE_ENV === 'test') {
+            global.__testMailbox = { to: user.email, code: verificationCode };
+        } else if (hasGmail || hasSmtp) {
+            try {
+                const transporter = hasGmail
+                    ? nodemailer.createTransport({
+                        host: 'smtp.gmail.com',
+                        port: 465,
+                        secure: true,
+                        auth: {
+                            user: process.env.GMAIL_USER,
+                            pass: process.env.GMAIL_APP_PASSWORD
+                        }
+                    })
+                    : nodemailer.createTransport({
+                        host: process.env.SMTP_HOST,
+                        port: Number(process.env.SMTP_PORT) || 587,
+                        secure: Number(process.env.SMTP_PORT) === 465,
+                        auth: {
+                            user: process.env.SMTP_USER,
+                            pass: process.env.SMTP_PASS
+                        }
+                    });
+
+                const sender = hasGmail
+                    ? `InerTayo <${process.env.GMAIL_USER}>`
+                    : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
+
+                await transporter.sendMail({
+                    from: sender,
+                    to: user.email,
+                    subject: 'InerTayo Password Change Verification Code',
+                    text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to change your InerTayo password is:\n\n${verificationCode}\n\nThis code will expire in 10 minutes and can only be used once.\nIf you did not request this password change, please secure your account immediately.\n\n— InerTayo Dagupan City Commute Guide`
                 });
-
-            const sender = hasGmail
-                ? `InerTayo <${process.env.GMAIL_USER}>`
-                : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
-
-            await transporter.sendMail({
-                from: sender,
-                to: user.email,
-                subject: 'InerTayo Password Change Verification Code',
-                text: `Hello ${user.username},\n\nYour 6-digit verification code to change your InerTayo password is:\n\n${verificationCode}\n\nThis code will expire in 10 minutes and can only be used once.\nIf you did not request this password change, please secure your account immediately.\n\n— InerTayo Dagupan City Commute Guide`
-            });
+            } catch (mailErr) {
+                console.error('[AUTH] Failed to send change password email via SMTP.');
+                return res.status(500).json({ error: "We couldn't send the verification email. Please try again later." });
+            }
         } else {
-            console.log(`[AUTH] Change-password verification code for ${user.email}: ${verificationCode}`);
+            console.error('[AUTH] Email delivery failed: SMTP credentials are not configured.');
+            return res.status(503).json({ error: "We couldn't send the verification email. Please try again later." });
         }
 
-        const isRealEmailSent = Boolean(hasGmail || hasSmtp);
-        const response = {
-            message: isRealEmailSent
-                ? `A 6-digit verification code has been sent to ${user.email}.`
-                : `A 6-digit verification code has been generated for ${user.email}.`,
-            email: user.email,
+        res.json({
+            message: 'A 6-digit verification code has been sent to your registered email.',
             sent: true
-        };
-        if (process.env.NODE_ENV === 'test' || !isRealEmailSent) {
-            response.devCode = verificationCode;
-        }
-        res.json(response);
+        });
     } catch (err) {
         console.error('Change password request-code error:', err);
         res.status(500).json({ error: 'Failed to generate verification code.' });
