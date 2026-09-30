@@ -161,6 +161,7 @@ export function AuthProvider({ children }) {
         method: currentlySaved ? 'DELETE' : 'POST',
         body: currentlySaved ? undefined : JSON.stringify({ routeId }),
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
       });

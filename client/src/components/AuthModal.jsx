@@ -602,19 +602,10 @@ export default function AuthModal() {
           {/* PASSWORD FIELD (LOGIN, REGISTER, FORGOT_RESET, CHANGE_PASSWORD) */}
           {(authModalMode === 'login' || authModalMode === 'register' || authModalMode === 'forgot_reset' || authModalMode === 'change_password') && (
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="mb-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                   {(authModalMode === 'forgot_reset' || authModalMode === 'change_password') ? 'New Password' : 'Password'}
                 </label>
-                {authModalMode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchMode('forgot_request')}
-                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                )}
               </div>
 
               <div className="relative">
@@ -746,6 +737,18 @@ export default function AuthModal() {
               'Reset Password & Sign In'
             )}
           </button>
+
+          {authModalMode === 'login' && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleSwitchMode('forgot_request')}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
 
           {authModalMode === 'change_password' && (
             <button
