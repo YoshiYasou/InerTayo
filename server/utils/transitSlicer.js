@@ -80,6 +80,17 @@ function sliceTransitRoute(routeGeometry, boardPt, alightPt, mode = 'jeepney') {
             slicedCoords = [...slicedCoords].reverse();
         }
 
+        // Double check endpoint orientation: start must be closest to boarding point
+        if (slicedCoords.length >= 2) {
+            const firstCoord = slicedCoords[0];
+            const lastCoord = slicedCoords[slicedCoords.length - 1];
+            const dFirstToBoard = pointDistanceMeters(firstCoord, snappedBoard.geometry.coordinates, true);
+            const dLastToBoard = pointDistanceMeters(lastCoord, snappedBoard.geometry.coordinates, true);
+            if (dLastToBoard < dFirstToBoard) {
+                slicedCoords = [...slicedCoords].reverse();
+            }
+        }
+
         const distanceMeters = pathLengthMeters(slicedCoords);
         const durationMinutes = ROUTING_CONFIG.estimateDurationMinutes(distanceMeters, mode);
 

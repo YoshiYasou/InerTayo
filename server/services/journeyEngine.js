@@ -56,12 +56,15 @@ async function resolveLocation(input) {
             return { lat, lng, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}` };
         }
 
+        const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const safeSearch = escapeRegex(trimmed);
+
         // Search in schools first
         const school = await School.findOne({
             active: 1,
             $or: [
-                { name: { $regex: trimmed, $options: 'i' } },
-                { aliases: { $regex: trimmed, $options: 'i' } }
+                { name: { $regex: safeSearch, $options: 'i' } },
+                { aliases: { $regex: safeSearch, $options: 'i' } }
             ]
         }).lean();
         if (school) {
@@ -74,10 +77,10 @@ async function resolveLocation(input) {
 
         // Search in locations
         const loc = await Location.findOne({
-            status: 'ACTIVE',
+            status: { $ne: 'INACTIVE' },
             $or: [
-                { name: { $regex: trimmed, $options: 'i' } },
-                { search_keywords: { $regex: trimmed, $options: 'i' } }
+                { name: { $regex: safeSearch, $options: 'i' } },
+                { search_keywords: { $regex: safeSearch, $options: 'i' } }
             ]
         }).lean();
         if (loc) {
@@ -85,22 +88,35 @@ async function resolveLocation(input) {
         }
 
         // Search in landmarks
-        const lm = await Landmark.findOne({ name: { $regex: trimmed, $options: 'i' } }).lean();
+        const lm = await Landmark.findOne({ name: { $regex: safeSearch, $options: 'i' } }).lean();
         if (lm) {
             return { lat: lm.latitude, lng: lm.longitude, name: lm.name };
+        }
+
+        // Search in transit stops
+        const stp = await Stop.findOne({
+            stop_name: { $regex: safeSearch, $options: 'i' }
+        }).lean();
+        if (stp && typeof stp.latitude === 'number' && typeof stp.longitude === 'number') {
+            return { lat: stp.latitude, lng: stp.longitude, name: stp.stop_name };
         }
 
         // Search by individual words if multi-word phrase
         const words = trimmed.split(/[\s,–-]+/).filter(w => w.length >= 3);
         if (words.length > 0) {
-            const wordOr = words.map(w => ({ name: { $regex: w, $options: 'i' } }));
-            const locLike = await Location.findOne({ status: 'ACTIVE', $or: wordOr }).lean();
+            const wordOr = words.map(w => ({ name: { $regex: escapeRegex(w), $options: 'i' } }));
+            const locLike = await Location.findOne({ status: { $ne: 'INACTIVE' }, $or: wordOr }).lean();
             if (locLike) {
                 return { lat: locLike.latitude, lng: locLike.longitude, name: locLike.name };
             }
             const lmLike = await Landmark.findOne({ $or: wordOr }).lean();
             if (lmLike) {
                 return { lat: lmLike.latitude, lng: lmLike.longitude, name: lmLike.name };
+            }
+            const stopOr = words.map(w => ({ stop_name: { $regex: escapeRegex(w), $options: 'i' } }));
+            const stopLike = await Stop.findOne({ $or: stopOr }).lean();
+            if (stopLike && typeof stopLike.latitude === 'number' && typeof stopLike.longitude === 'number') {
+                return { lat: stopLike.latitude, lng: stopLike.longitude, name: stopLike.stop_name };
             }
         }
 
@@ -207,6 +223,32 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
         }
     }
 
+    // Extract active flood advisories and build avoidance polygons for pedestrian routing
+    let floodAvoidPolygons = null;
+    const floodRoadsList = [];
+    for (const adv of activeAdvisories) {
+        if (adv.affected_road) {
+            floodRoadsList.push(...adv.affected_road.split(/[,;&]+/).map(s => s.trim()).filter(Boolean));
+        }
+    }
+    if (activeAdvisories.length > 0) {
+        // Enclosing corridor polygon around active high tide / flooded streets in Downtown
+        floodAvoidPolygons = {
+            type: 'Polygon',
+            coordinates: [[
+                [120.3330, 16.0410],
+                [120.3430, 16.0450],
+                [120.3430, 16.0475],
+                [120.3330, 16.0435],
+                [120.3330, 16.0410]
+            ]]
+        };
+    }
+    const walkOptions = {
+        avoidPolygons: floodAvoidPolygons,
+        avoidRoads: floodRoadsList
+    };
+
     const routes = [];
     for (const r of rawRoutes) {
         const mode = modeMap.get(r.transport_mode_id) || {};
@@ -260,9 +302,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
             if (!sliced || sliced.distanceMeters < 150) continue;
 
             // Generate walking route 1: Origin to boarding point
-            const walk1 = await getWalkingRoute(origLngLat, sliced.snappedBoarding);
+            const walk1 = await getWalkingRoute(origLngLat, sliced.snappedBoarding, walkOptions);
             // Generate walking route 2: Alighting point to Destination
-            const walk2 = await getWalkingRoute(sliced.snappedAlighting, destLngLat);
+            const walk2 = await getWalkingRoute(sliced.snappedAlighting, destLngLat, walkOptions);
 
             const walk1Mins = ROUTING_CONFIG.estimateDurationMinutes(walk1.distanceMeters, 'walk');
             const walk2Mins = ROUTING_CONFIG.estimateDurationMinutes(walk2.distanceMeters, 'walk');
@@ -365,13 +407,17 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
         }
     }
 
-    // 2. River Boat Crossing Option (Route 13 or any boat route)
+    // 2. River Boat Crossing Option (Route 22, 23 or any boat route)
     const boatRoute = routes.find(r => r.mode_name.toLowerCase() === 'boat');
     if (boatRoute && isModeAllowed('Boat') && boatRoute.boat_operating_status !== 'SUSPENDED') {
-        const docks = [
-            { name: 'Downtown Dock (Pantal)', lat: 16.0395, lng: 120.3310 },
-            { name: 'Bonuan Dock (Dawel/Pantal)', lat: 16.0620, lng: 120.3420 }
-        ];
+        // Dynamically query river stops from database Location collection
+        const riverStops = await Location.find({ type: 'RIVER_STOP', status: { $ne: 'INACTIVE' } }).lean();
+        const docks = (riverStops.length >= 2)
+            ? riverStops.map(s => ({ name: s.name, lat: s.latitude, lng: s.longitude }))
+            : [
+                { name: 'Pantal River Dock (Downtown Side)', lat: 16.0395, lng: 120.3310 },
+                { name: 'Pantal River Dock (Bonuan Side)', lat: 16.0620, lng: 120.3420 }
+            ];
 
         // Determine orientation
         const d1Orig = pointDistanceMeters(origLngLat, [docks[0].lng, docks[0].lat], true);
@@ -385,9 +431,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
 
         // If reasonable commute using river boat
         if (walkToDock < 1500 && walkFromDock < 1800) {
-            const walk1 = await getWalkingRoute(origLngLat, [boardDock.lng, boardDock.lat]);
+            const walk1 = await getWalkingRoute(origLngLat, [boardDock.lng, boardDock.lat], walkOptions);
             const slicedBoat = sliceTransitRoute(boatRoute.parsedCoordinates, [boardDock.lng, boardDock.lat], [alightDock.lng, alightDock.lat], 'boat');
-            const walk2 = await getWalkingRoute([alightDock.lng, alightDock.lat], destLngLat);
+            const walk2 = await getWalkingRoute([alightDock.lng, alightDock.lat], destLngLat, walkOptions);
 
             if (slicedBoat) {
                 const walk1Mins = ROUTING_CONFIG.estimateDurationMinutes(walk1.distanceMeters, 'walk');
@@ -407,7 +453,8 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                         instruction: `Walk ${walk1.distanceMeters}m to ${boardDock.name}`,
                         fare: 0,
                         coordinates: walk1.coordinates,
-                        geometry: { type: 'LineString', coordinates: walk1.coordinates }
+                        geometry: { type: 'LineString', coordinates: walk1.coordinates },
+                        isApproximate: walk1.isApproximate
                     },
                     {
                         id: `boat-transit`,
@@ -435,7 +482,8 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                         instruction: `Walk ${walk2.distanceMeters}m to ${dest.name}`,
                         fare: 0,
                         coordinates: walk2.coordinates,
-                        geometry: { type: 'LineString', coordinates: walk2.coordinates }
+                        geometry: { type: 'LineString', coordinates: walk2.coordinates },
+                        isApproximate: walk2.isApproximate
                     }
                 ];
 
@@ -466,7 +514,20 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
             { name: 'Mayombo District Junction', lat: 16.0380, lng: 120.3450 }
         ];
 
-        for (const hub of transferHubs) {
+        // Enrich transfer hubs with designated transfer stops from database
+        const stopTransferHubs = allStops
+            .filter(s => s.is_transfer_point === 1 && typeof s.latitude === 'number' && typeof s.longitude === 'number')
+            .map(s => ({ name: s.stop_name, lat: s.latitude, lng: s.longitude }));
+
+        const allHubs = [...transferHubs];
+        for (const sh of stopTransferHubs) {
+            const alreadyExists = allHubs.some(h => Math.hypot(h.lat - sh.lat, h.lng - sh.lng) < 0.0008);
+            if (!alreadyExists) {
+                allHubs.push(sh);
+            }
+        }
+
+        for (const hub of allHubs) {
             const hubLngLat = [hub.lng, hub.lat];
 
             // Find Route 1 near Origin that passes through Hub
@@ -493,9 +554,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
 
                     if (!slice1 || !slice2 || slice1.distanceMeters < 200 || slice2.distanceMeters < 200) continue;
 
-                    const walk1 = await getWalkingRoute(origLngLat, slice1.snappedBoarding);
-                    const transferWalk = await getWalkingRoute(slice1.snappedAlighting, slice2.snappedBoarding);
-                    const walk2 = await getWalkingRoute(slice2.snappedAlighting, destLngLat);
+                    const walk1 = await getWalkingRoute(origLngLat, slice1.snappedBoarding, walkOptions);
+                    const transferWalk = await getWalkingRoute(slice1.snappedAlighting, slice2.snappedBoarding, walkOptions);
+                    const walk2 = await getWalkingRoute(slice2.snappedAlighting, destLngLat, walkOptions);
 
                     const walk1Mins = ROUTING_CONFIG.estimateDurationMinutes(walk1.distanceMeters, 'walk');
                     const r1Mins = slice1.durationMinutes;
@@ -518,7 +579,8 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                             instruction: `Walk ${walk1.distanceMeters}m to board ${r1.mode_name}`,
                             fare: 0,
                             coordinates: walk1.coordinates,
-                            geometry: { type: 'LineString', coordinates: walk1.coordinates }
+                            geometry: { type: 'LineString', coordinates: walk1.coordinates },
+                            isApproximate: walk1.isApproximate
                         },
                         {
                             id: `transfer-r1`,
@@ -544,7 +606,8 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                             instruction: `Transfer at ${hub.name} (${transferWalk.distanceMeters}m walk + ~5 min wait)`,
                             fare: 0,
                             coordinates: transferWalk.coordinates,
-                            geometry: { type: 'LineString', coordinates: transferWalk.coordinates }
+                            geometry: { type: 'LineString', coordinates: transferWalk.coordinates },
+                            isApproximate: transferWalk.isApproximate
                         },
                         {
                             id: `transfer-r2`,
@@ -570,7 +633,8 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                             instruction: `Walk ${walk2.distanceMeters}m to ${dest.name}`,
                             fare: 0,
                             coordinates: walk2.coordinates,
-                            geometry: { type: 'LineString', coordinates: walk2.coordinates }
+                            geometry: { type: 'LineString', coordinates: walk2.coordinates },
+                            isApproximate: walk2.isApproximate
                         }
                     ];
 
@@ -596,7 +660,7 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
 
     // 4. Direct Walk Option (Always provide if distance < 2.5km or if few transit options)
     if (straightDist < 2500 || candidateItineraries.length === 0) {
-        const walkDirect = await getWalkingRoute(origLngLat, destLngLat);
+        const walkDirect = await getWalkingRoute(origLngLat, destLngLat, walkOptions);
         const walkMins = ROUTING_CONFIG.estimateDurationMinutes(walkDirect.distanceMeters, 'walk');
         candidateItineraries.push({
             id: 'direct-walk',
