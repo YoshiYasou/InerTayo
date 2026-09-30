@@ -779,7 +779,7 @@ export default function RouteMap({
         center={dagupanCenter}
         zoom={13}
         preferCanvas={true}          // Step 2 – canvas renderer
-        scrollWheelZoom={false}
+        scrollWheelZoom={interactive}
         dragging={interactive}
         zoomControl={interactive}
         doubleClickZoom={interactive}
