@@ -421,8 +421,14 @@ export default function WebMap() {
               <span className={`text-slate-400 transition-transform ${legendOpen ? 'rotate-180' : ''}`}>⌄</span>
             </button>
 
-            {legendOpen && (
-              <div id="map-legend" className="mt-2 w-56 rounded-2xl border border-slate-200 bg-white/95 p-3 text-xs shadow-md backdrop-blur-md">
+            <div
+              id="map-legend"
+              aria-hidden={!legendOpen}
+              className={`absolute right-0 top-full mt-2 w-56 origin-top-right rounded-2xl border border-slate-200 bg-white/95 p-3 text-xs shadow-md backdrop-blur-md transition-all duration-200 ease-out ${legendOpen
+                ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
+                : 'pointer-events-none -translate-y-2 scale-95 opacity-0'
+              }`}
+            >
                 <div className="space-y-1.5">
                   {selectedJourney && (
                     <div className="flex items-center gap-2 border-b border-slate-100 pb-1">
@@ -466,8 +472,7 @@ export default function WebMap() {
                 <div className="mt-2 border-t border-slate-100 pt-1 text-[9px] italic text-slate-400">
                   Click routes and markers for details. Boat routes are sample data.
                 </div>
-              </div>
-            )}
+            </div>
           </div>
 
         </div>
