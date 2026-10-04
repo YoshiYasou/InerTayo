@@ -277,6 +277,16 @@ export default function WebMap() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900">{selectedItem.data.route_name}</h3>
                   <p className="text-xs text-slate-500 mt-1">{selectedItem.data.description}</p>
+                  {selectedItem.data.geometry_needs_review && (
+                    <p role="status" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                      This route is hidden from the map until its road geometry is verified.
+                    </p>
+                  )}
+                  {selectedItem.data.map_preview_unavailable && (
+                    <p role="status" className="mt-2 rounded-lg border border-slate-200 bg-slate-100 p-2 text-xs text-slate-700">
+                      This river service is not active, so it is hidden from the map.
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 text-xs">
                     <div>
                       <span className="text-slate-400 block">Est. Fare</span>

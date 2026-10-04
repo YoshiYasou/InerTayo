@@ -134,6 +134,26 @@ This starts Express on `http://localhost:5000` and Vite on `http://localhost:300
 
 ---
 
+### Repairing straight-line map routes
+
+Legacy road routes with sparse straight-line geometry can be rebuilt from their ordered stops using the OSRM road router. Boat geometry and existing corrected geometries are left unchanged; inactive boat services and routes with unverified geometry are hidden from commuter map previews. Stops more than 300m from a routable road are skipped for manual review. The original geometry remains intact.
+
+Preview eligible route corrections first:
+
+```bash
+npm run map:repair-roads
+```
+
+Apply the road geometries to the configured MongoDB database:
+
+```bash
+npm run map:repair-roads -- --apply
+```
+
+After applying corrections, restart the API server or wait for its 90-second map-layer cache to expire.
+
+---
+
 ### 6. Run Automated Test Suite
 
 InerTayo includes a comprehensive automated test suite covering all 67 API endpoints, security controls, and journey calculations. Tests automatically spin up an isolated in-memory MongoDB server (`mongodb-memory-server`) so they run completely independently of your live database:

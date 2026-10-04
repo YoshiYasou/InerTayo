@@ -28,6 +28,7 @@ const BoatFare = require('../models/BoatFare');
 const ChangePasswordCode = require('../models/ChangePasswordCode');
 const { nextId } = require('../db/counter');
 const { getCache, setCache, invalidateMapCache } = require('../cache/mapLayerCache');
+const { isDetailedRoadGeometry } = require('../utils/routeGeometryQuality');
 
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
@@ -813,6 +814,8 @@ router.get('/routes', async (req, res) => {
                 geometry_corrected: r.geometry_corrected,
                 use_corrected_geometry: r.use_corrected_geometry,
                 geometry,
+                geometry_needs_review: !/boat/i.test(m.name || '') && !isDetailedRoadGeometry(geometry),
+                map_preview_unavailable: /boat/i.test(m.name || '') && boat?.operating_status !== 'ACTIVE',
                 created_at: r.created_at,
                 updated_at: r.updated_at,
                 waterway: boat ? boat.waterway : null,
@@ -1074,6 +1077,8 @@ router.get('/routes/:id', async (req, res) => {
             geometry_corrected: route.geometry_corrected,
             use_corrected_geometry: route.use_corrected_geometry,
             geometry,
+            geometry_needs_review: !/boat/i.test(mode?.name || '') && !isDetailedRoadGeometry(geometry),
+            map_preview_unavailable: /boat/i.test(mode?.name || '') && boatDetail?.operating_status !== 'ACTIVE',
             created_at: route.created_at,
             updated_at: route.updated_at,
             waterway: boatDetail ? boatDetail.waterway : null,
@@ -1100,6 +1105,7 @@ router.get('/routes/:id/geojson', async (req, res) => {
             return res.status(400).json({ error: 'Invalid route ID format.' });
         }
 
+        const useCorrected = (req.query.use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
         const route = await Route.findOne({ id: routeId }).lean();
         if (!route) {
             return res.status(404).json({ error: 'Route not found.' });
@@ -1107,11 +1113,23 @@ router.get('/routes/:id/geojson', async (req, res) => {
 
         const mode = await TransportMode.findOne({ id: route.transport_mode_id }).lean();
         const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
+        const boatDetail = /boat/i.test(mode?.name || '')
+            ? await BoatRouteDetail.findOne({ route_id: routeId }).lean()
+            : null;
+        if (boatDetail && boatDetail.operating_status !== 'ACTIVE') {
+            return res.status(422).json({
+                error: 'This river service is not active and has no commuter map preview.',
+                map_preview_unavailable: true,
+            });
+        }
+        const routeGeometry = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected)
+            ? route.geometry_corrected
+            : route.geometry;
 
         let geometryObj = null;
-        if (route.geometry) {
+        if (routeGeometry) {
             try {
-                geometryObj = typeof route.geometry === 'string' ? JSON.parse(route.geometry) : route.geometry;
+                geometryObj = typeof routeGeometry === 'string' ? JSON.parse(routeGeometry) : routeGeometry;
             } catch (e) {
                 console.error('Failed to parse route geometry JSON:', e);
             }
@@ -1125,6 +1143,13 @@ router.get('/routes/:id/geojson', async (req, res) => {
                 type: 'LineString',
                 coordinates: coords
             };
+        }
+        const geometryNeedsReview = !/boat/i.test(mode?.name || '') && !isDetailedRoadGeometry(geometryObj);
+        if (geometryNeedsReview) {
+            return res.status(422).json({
+                error: 'Route geometry is too coarse to display safely and needs road verification.',
+                geometry_needs_review: true,
+            });
         }
 
         const geojsonFeature = {
@@ -3905,13 +3930,15 @@ async function buildMapDataset() {
     const allRoutes = await Route.find().lean();
     const allModes  = await TransportMode.find().lean();
     const modeMap   = new Map(allModes.map(m => [m.id, m]));
+    const boatDetails = await BoatRouteDetail.find().lean();
+    const boatDetailsByRoute = new Map(boatDetails.map(detail => [detail.route_id, detail]));
     const allStops  = await Stop.find().sort({ route_id: 1, stop_order: 1 }).lean();
     const stopsByRoute = new Map();
     for (const s of allStops) {
         if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
         stopsByRoute.get(s.route_id).push(s);
     }
-    return { allRoutes, modeMap, stopsByRoute };
+    return { allRoutes, modeMap, stopsByRoute, boatDetailsByRoute };
 }
 
 async function handleRouteLayer(req, res, modeKeyword) {
@@ -3920,13 +3947,14 @@ async function handleRouteLayer(req, res, modeKeyword) {
     if (cached) return res.json(cached);
 
     try {
-        const { allRoutes, modeMap } = await buildMapDataset();
+        const { allRoutes, modeMap, boatDetailsByRoute } = await buildMapDataset();
         const features = [];
 
         for (const route of allRoutes) {
             const m = modeMap.get(route.transport_mode_id) || {};
             const modeName = m.name || '';
             if (!modeName.toLowerCase().includes(modeKeyword)) continue;
+            if (modeKeyword === 'boat' && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') continue;
 
             const routeGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
                 && route.use_corrected_geometry === 1
@@ -3941,6 +3969,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
                 } catch (e) {}
             }
             if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) continue;
+            if (!/boat/i.test(modeName) && !isDetailedRoadGeometry(geomObj)) continue;
 
             const color     = layerModeColor(modeName);
             const isDetour  = route.status === 'DETOUR_ACTIVE';
@@ -4060,7 +4089,7 @@ router.get('/map/layers/stops', async (req, res) => {
     if (cached) return res.json(cached);
 
     try {
-        const { allRoutes, modeMap, stopsByRoute } = await buildMapDataset();
+        const { allRoutes, modeMap, stopsByRoute, boatDetailsByRoute } = await buildMapDataset();
         const features = [];
 
         for (const route of allRoutes) {
@@ -4068,6 +4097,13 @@ router.get('/map/layers/stops', async (req, res) => {
             const modeName = m.name || '';
             const color = layerModeColor(modeName);
             const stops = stopsByRoute.get(route.id) || [];
+            if (/boat/i.test(modeName) && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') continue;
+            const routeGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
+                && route.use_corrected_geometry === 1
+                && route.geometry_corrected)
+                ? route.geometry_corrected
+                : route.geometry;
+            if (!/boat/i.test(modeName) && !isDetailedRoadGeometry(routeGeometry)) continue;
 
             stops.forEach((stop, idx) => {
                 if (typeof stop.latitude !== 'number' || typeof stop.longitude !== 'number') return;
@@ -4210,4 +4246,3 @@ router.get('/map/layers/flood-zones', (req, res) => {
 });
 
 module.exports = router;
-

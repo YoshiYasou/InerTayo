@@ -192,8 +192,12 @@ async function runTests() {
 
         const geojsonRes = await makeRequest('GET', `/api/routes/${bonuanRoute.id}/geojson`);
         assert(
-            geojsonRes.status === 200 && geojsonRes.data.type === 'Feature' && geojsonRes.data.geometry.type === 'LineString' && Array.isArray(geojsonRes.data.geometry.coordinates),
-            'GET /api/routes/:id/geojson returns RFC 7946 GeoJSON Feature with LineString geometry'
+            (r1Res.data.geometry_needs_review &&
+                geojsonRes.status === 422 && geojsonRes.data.geometry_needs_review === true) ||
+            (!r1Res.data.geometry_needs_review &&
+                geojsonRes.status === 200 && geojsonRes.data.type === 'Feature' &&
+                geojsonRes.data.geometry.type === 'LineString' && Array.isArray(geojsonRes.data.geometry.coordinates)),
+            'GET /api/routes/:id/geojson only returns detailed routes and flags coarse geometry for review'
         );
 
         // Locations registry (Phase 3 & Advanced Mapping)
@@ -1259,6 +1263,85 @@ async function runTests() {
             global.fetch = originalFetch;
         }
         assert(typeof orsRouter.safeRouteGeometry === 'function', 'ORS router exposes a safe geometry normalizer');
+
+        const osrmRouter = require('../server/services/osrmRouter');
+        const roadGeometryRepair = require('../server/scripts/repairRoadGeometry');
+        const routeGeometryQuality = require('../server/utils/routeGeometryQuality');
+        const coarseGeometry = {
+            type: 'LineString',
+            coordinates: [[120.333, 16.043], [120.34, 16.05], [120.35, 16.06]],
+        };
+        const detailedGeometry = {
+            type: 'LineString',
+            coordinates: Array.from({ length: 20 }, (_, index) => [120.333 + index / 10000, 16.043]),
+        };
+        assert(roadGeometryRepair.needsRoadGeometry({ geometry: JSON.stringify(coarseGeometry) }), 'Road geometry repair detects sparse straight-line routes');
+        assert(!roadGeometryRepair.needsRoadGeometry({ geometry: JSON.stringify(detailedGeometry) }), 'Road geometry repair preserves detailed existing routes');
+        assert(routeGeometryQuality.isDetailedRoadGeometry(detailedGeometry), 'Map geometry quality accepts dense road-following paths');
+        assert(!routeGeometryQuality.isDetailedRoadGeometry(coarseGeometry), 'Map geometry quality rejects sparse straight-line paths');
+        assert(
+            roadGeometryRepair.getRouteSkipReason({ transport_mode_id: 3, geometry: JSON.stringify(coarseGeometry) }, new Set([3])) === 'Boat routes use waterway geometry',
+            'Road geometry repair leaves boat routes unchanged'
+        );
+        const jeepneyMapLayer = await makeRequest('GET', '/api/map/layers/jeepneys');
+        assert(
+            jeepneyMapLayer.status === 200 && jeepneyMapLayer.data.features.every(feature =>
+                routeGeometryQuality.isDetailedRoadGeometry(feature.geometry)
+            ),
+            'Road map layers omit sparse, unverified straight-line route geometry'
+        );
+        const inactiveBoatRouteIds = new Set(routesRes.data
+            .filter(route => route.mode_name === 'Boat' && route.boat_operating_status !== 'ACTIVE')
+            .map(route => route.id));
+        const hiddenMapRouteIds = new Set(routesRes.data
+            .filter(route => route.geometry_needs_review || route.map_preview_unavailable)
+            .map(route => route.id));
+        const boatMapLayer = await makeRequest('GET', '/api/map/layers/boats');
+        const stopMapLayer = await makeRequest('GET', '/api/map/layers/stops');
+        assert(
+            boatMapLayer.status === 200 && boatMapLayer.data.features.every(feature =>
+                !inactiveBoatRouteIds.has(feature.properties.id)
+            ),
+            'Boat map layers omit inactive services'
+        );
+        assert(
+            stopMapLayer.status === 200 && stopMapLayer.data.features.every(feature =>
+                !hiddenMapRouteIds.has(feature.properties.route_id)
+            ),
+            'Map stop layers omit stops for inactive or unverified routes'
+        );
+
+        const originalOsrmFetch = global.fetch;
+        let capturedOsrmUrl;
+        try {
+            global.fetch = async (url) => {
+                capturedOsrmUrl = String(url);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        code: 'Ok',
+                        waypoints: [{ distance: 8 }, { distance: 12 }],
+                        routes: [{
+                            distance: 1300,
+                            duration: 240,
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: denseCoordinates,
+                            },
+                        }],
+                    }),
+                };
+            };
+            const osrmResult = await osrmRouter.fetchRoadRoute(
+                [[120.33, 16.04], [120.34, 16.04]],
+                { baseUrl: 'https://osrm.invalid', maxSnapDistanceMeters: 30 }
+            );
+            assert(osrmResult.coordinates.length === 150, 'OSRM route adapter preserves dense road geometry');
+            assert(capturedOsrmUrl.startsWith('https://osrm.invalid/route/v1/driving/'), 'OSRM route adapter requests road-following geometry');
+            assert(osrmResult.waypointSnapDistances.every(distance => distance <= 30), 'OSRM route adapter validates stop-to-road snapping');
+        } finally {
+            global.fetch = originalOsrmFetch;
+        }
 
     } catch (err) {
         console.error('Test execution error:', err);

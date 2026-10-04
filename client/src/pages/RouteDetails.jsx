@@ -270,14 +270,24 @@ export default function RouteDetails() {
               </div>
 
               {/* Interactive Route Map Preview per Addendum */}
-              <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
-                <RouteMap
-                  routes={[route]}
-                  interactive={true}
-                  showAdvisories={true}
-                  className="absolute inset-0 w-full h-full"
-                />
-              </div>
+              {route.map_preview_unavailable ? (
+                <div role="status" className="h-52 sm:h-64 lg:h-72 flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 p-6 text-center text-sm text-slate-600">
+                  This river service is not active, so its map preview is hidden.
+                </div>
+              ) : route.geometry_needs_review ? (
+                <div role="status" className="h-52 sm:h-64 lg:h-72 flex items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">
+                  This route’s map preview is unavailable while its road geometry is being verified.
+                </div>
+              ) : (
+                <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
+                  <RouteMap
+                    routes={[route]}
+                    interactive={true}
+                    showAdvisories={true}
+                    className="absolute inset-0 w-full h-full"
+                  />
+                </div>
+              )}
               <div className="mt-2 text-right">
                 <span className="text-[10px] text-slate-400">Interactive OpenStreetMap preview • No live GPS</span>
               </div>

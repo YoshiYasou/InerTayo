@@ -7,6 +7,7 @@
     "dev": "concurrently -k -n API,WEB -c cyan,green \"npm run server\" \"npm run client\"",
     "server": "node server/server.js",
     "seed": "node server/db/seed.js",
+    "map:repair-roads": "node server/scripts/repairRoadGeometry.js",
     "build": "npm --prefix client run build",
     "client": "npm --prefix client run dev",
     "test": "node test/api.test.js"
