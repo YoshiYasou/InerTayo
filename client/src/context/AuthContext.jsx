@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useRouter } from './RouterContext';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
+  const { navigate } = useRouter();
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem('inertayo_token'));
   const [savedRouteIds, setSavedRouteIds] = useState([]);
@@ -60,6 +62,7 @@ export function AuthProvider({ children }) {
     setToken(data.token);
     setUser(data.user);
     setAuthModalOpen(false);
+    navigate(data.user?.role === 'ADMIN' ? '/admin' : '/');
     return data.user;
   };
 
@@ -79,6 +82,7 @@ export function AuthProvider({ children }) {
     setToken(data.token);
     setUser(data.user);
     setAuthModalOpen(false);
+    navigate('/');
     return data.user;
   };
 
@@ -146,6 +150,7 @@ export function AuthProvider({ children }) {
     setToken(null);
     setUser(null);
     setSavedRouteIds([]);
+    navigate('/');
   };
 
   const toggleSaveRoute = async (routeId) => {

@@ -122,7 +122,7 @@ export default function Navbar() {
                     }`}
                     title="Open Admin Portal"
                   >
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <ShieldCheck className={`w-4 h-4 ${currentPath === '/admin' ? 'text-white' : 'text-emerald-600'}`} />
                     Admin Portal
                   </button>
                 ) : (
