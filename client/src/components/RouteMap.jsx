@@ -46,10 +46,39 @@ function modeColor(modeName = '') {
   return MODE_COLORS.default;
 }
 
+function routeFeature(route) {
+  let geometry = route.geometry;
+  if (typeof geometry === 'string') {
+    try {
+      geometry = JSON.parse(geometry);
+    } catch {
+      return null;
+    }
+  }
+  if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2) {
+    return null;
+  }
+
+  const mode = route.mode_name || route.mode || '';
+  return {
+    type: 'Feature',
+    geometry,
+    properties: {
+      ...route,
+      mode,
+      style: { color: modeColor(mode) },
+    },
+  };
+}
+
 // Default / dim / selected polyline styles
-const STYLE_DEFAULT  = { weight: 2, opacity: 0.5 };
-const STYLE_DIMMED   = { weight: 2, opacity: 0.12 };
-const STYLE_SELECTED = { weight: 5, opacity: 1.0 };
+const STYLE_DEFAULT  = { weight: 3, opacity: 0.65 };
+const STYLE_DIMMED   = { weight: 3, opacity: 0.12 };
+const STYLE_SELECTED = { weight: 7, opacity: 1.0 };
+
+function zoomedLineWeight(weight, zoom) {
+  return Math.max(2, Math.min(12, weight + (zoom - 13) * 0.5));
+}
 
 // ─── Zoom LOD thresholds (Step 3) ──────────────────────────────────────────
 const ZOOM_TIER1_MAX      = 13; // ≤13: routes only
@@ -179,6 +208,16 @@ function journeyStopIcon(label, bg) {
   });
 }
 
+function routeEndpointIcon(label) {
+  const color = label === 'A' ? '#059669' : '#e11d48';
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:26px;height:26px;border:2px solid #fff;border-radius:50%;background:${color};box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font:800 12px/1 system-ui,sans-serif">${label}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
 // ─── Popup HTML helpers ────────────────────────────────────────────────────
 function routePopupHtml(props) {
   const detour  = props.status === 'DETOUR_ACTIVE';
@@ -232,6 +271,7 @@ function LayerManager({
   selectedRouteId,
   setSelectedRouteId,
   locations = [],
+  focusedRouteFeature = null,
 }) {
   const map = useMap();
 
@@ -250,6 +290,7 @@ function LayerManager({
     landmarkCluster: null,
     locationCluster: null,
     journeyGroup: null,
+    routeEndpointGroup: null,
     // Per-feature lookup for highlight/dim
     routeFeatureLayers: {},        // { routeId: L.layer }
   });
@@ -294,6 +335,7 @@ function LayerManager({
   useEffect(() => {
     const onZoomEnd = () => {
       currentZoom.current = map.getZoom();
+      updateRouteLineWeights();
       syncZoomLOD();
     };
     map.on('zoomend', onZoomEnd);
@@ -366,7 +408,10 @@ function LayerManager({
 
     for (const key of modeKeys) {
       const data = geo[key];
-      if (!data?.features?.length) continue;
+      const features = focusedRouteFeature
+        ? (focusedRouteFeature.properties.mode.toLowerCase().includes(modeKeywords[key]) ? [focusedRouteFeature] : [])
+        : data?.features || [];
+      if (!features.length) continue;
 
       // Filter by active mode toggle
       const matchesFilter = (
@@ -379,14 +424,14 @@ function LayerManager({
       );
       if (!matchesFilter) continue;
 
-      const layerGroup = L.geoJSON(data, {
+      const layerGroup = L.geoJSON({ type: 'FeatureCollection', features }, {
         renderer: L.canvas(), // Step 2 – canvas per layer
         style(f) {
           const props = f.properties;
           const base = props.style || {};
           return {
             color:     base.color    || modeColor(props.mode),
-            weight:    STYLE_DEFAULT.weight,
+            weight:    zoomedLineWeight(STYLE_DEFAULT.weight, map.getZoom()),
             opacity:   STYLE_DEFAULT.opacity,
             dashArray: base.dashArray || undefined,
             lineCap:   'round',
@@ -401,13 +446,16 @@ function LayerManager({
           // Hover: boost this, don't dim others on hover (only on click)
           layer.on('mouseover', () => {
             if (selectedRouteId !== id) {
-              layer.setStyle({ weight: 4, opacity: 0.85 });
+              layer.setStyle({ weight: zoomedLineWeight(5, map.getZoom()), opacity: 0.9 });
               layer.bringToFront();
             }
           });
           layer.on('mouseout', () => {
             if (selectedRouteId !== id) {
-              layer.setStyle(STYLE_DEFAULT);
+              layer.setStyle({
+                ...STYLE_DEFAULT,
+                weight: zoomedLineWeight(STYLE_DEFAULT.weight, map.getZoom()),
+              });
             }
           });
           layer.on('click', () => {
@@ -418,6 +466,10 @@ function LayerManager({
       }).addTo(map);
 
       refs.routeLayers[key] = layerGroup;
+      if (focusedRouteFeature) {
+        const bounds = layerGroup.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, { padding: [32, 32], maxZoom: 16 });
+      }
     }
 
     // Apply current selection highlight
@@ -440,28 +492,104 @@ function LayerManager({
   function applySelectionStyles() {
     const refs = layersRef.current;
     const flayers = refs.routeFeatureLayers;
-    if (!Object.keys(flayers).length) return;
+    const activeRouteId = selectedRouteId ?? focusedRouteFeature?.properties.id ?? null;
 
-    if (!selectedRouteId) {
+    if (!Object.keys(flayers).length) {
+      rebuildRouteEndpointMarkers();
+      return;
+    }
+
+    if (activeRouteId === null) {
       // No selection: restore all to default
-      Object.values(flayers).forEach(l => { try { l.setStyle(STYLE_DEFAULT); } catch {} });
+      Object.values(flayers).forEach(l => {
+        try {
+          l.setStyle({
+            ...STYLE_DEFAULT,
+            weight: zoomedLineWeight(STYLE_DEFAULT.weight, currentZoom.current),
+          });
+        } catch {}
+      });
+      rebuildRouteEndpointMarkers();
       return;
     }
 
     // Dim everything, then highlight the selected one
     Object.entries(flayers).forEach(([id, l]) => {
       try {
-        if (parseInt(id) === selectedRouteId) {
-          l.setStyle(STYLE_SELECTED);
+        if (String(id) === String(activeRouteId)) {
+          l.setStyle({
+            ...STYLE_SELECTED,
+            weight: zoomedLineWeight(STYLE_SELECTED.weight, currentZoom.current),
+          });
           l.bringToFront();
         } else {
-          l.setStyle(STYLE_DIMMED);
+          l.setStyle({
+            ...STYLE_DIMMED,
+            weight: zoomedLineWeight(STYLE_DIMMED.weight, currentZoom.current),
+          });
         }
       } catch {}
     });
 
+    const selectedLayer = flayers[activeRouteId];
+    if (selectedLayer?.getBounds) {
+      const bounds = selectedLayer.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    }
+
+    rebuildRouteEndpointMarkers();
+
     // If a route is selected, show its stops even below ZOOM_TIER2_MIN (Step 8)
-    rebuildStopCluster(selectedRouteId);
+    rebuildStopCluster(activeRouteId);
+  }
+
+  function updateRouteLineWeights() {
+    const activeRouteId = selectedRouteId ?? focusedRouteFeature?.properties.id ?? null;
+    Object.entries(layersRef.current.routeFeatureLayers).forEach(([id, layer]) => {
+      const style = activeRouteId === null
+        ? STYLE_DEFAULT
+        : String(id) === String(activeRouteId) ? STYLE_SELECTED : STYLE_DIMMED;
+      try {
+        layer.setStyle({
+          ...style,
+          weight: zoomedLineWeight(style.weight, currentZoom.current),
+        });
+      } catch {}
+    });
+  }
+
+  function rebuildRouteEndpointMarkers() {
+    const refs = layersRef.current;
+    if (refs.routeEndpointGroup) {
+      refs.routeEndpointGroup.remove();
+      refs.routeEndpointGroup = null;
+    }
+
+    let feature = focusedRouteFeature;
+    if (!feature && selectedRouteId !== null) {
+      const routeFeatures = ['jeepneys', 'buses', 'tricycles', 'boats']
+        .flatMap(key => geoDataRef.current[key]?.features || []);
+      feature = routeFeatures.find(item => String(item.properties.id) === String(selectedRouteId));
+    }
+
+    const coordinates = feature?.geometry?.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+
+    const endpoints = L.layerGroup();
+    [
+      { label: 'A', coordinate: coordinates[0], description: 'Route start' },
+      { label: 'B', coordinate: coordinates[coordinates.length - 1], description: 'Route end' },
+    ].forEach(({ label, coordinate, description }) => {
+      const marker = L.marker([coordinate[1], coordinate[0]], {
+        icon: routeEndpointIcon(label),
+        zIndexOffset: 1200,
+        keyboard: false,
+      });
+      marker.bindTooltip(`Point ${label} · ${description}`);
+      endpoints.addLayer(marker);
+    });
+
+    refs.routeEndpointGroup = endpoints.addTo(map);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -743,6 +871,7 @@ function LayerManager({
       if (refs.landmarkCluster) refs.landmarkCluster.remove();
       if (refs.locationCluster) refs.locationCluster.remove();
       if (refs.journeyGroup)   refs.journeyGroup.remove();
+      if (refs.routeEndpointGroup) refs.routeEndpointGroup.remove();
     };
   }, []);
 
@@ -767,6 +896,7 @@ export default function RouteMap({
 }) {
   // selectedRouteId is owned here so LayerManager + parent can both react
   const [selectedRouteId, setSelectedRouteId] = useState(null);
+  const focusedRouteFeature = routes.length === 1 ? routeFeature(routes[0]) : null;
 
   const dagupanCenter = [16.0433, 120.3333];
 
@@ -804,6 +934,7 @@ export default function RouteMap({
           selectedRouteId={selectedRouteId}
           setSelectedRouteId={setSelectedRouteId}
           locations={locations}
+          focusedRouteFeature={focusedRouteFeature}
         />
       </MapContainer>
     </div>
