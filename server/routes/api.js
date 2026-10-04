@@ -3984,49 +3984,70 @@ router.get('/map/layers/buses',     (req, res) => handleRouteLayer(req, res, 'bu
 router.get('/map/layers/tricycles', (req, res) => handleRouteLayer(req, res, 'tricycle'));
 router.get('/map/layers/boats',     (req, res) => handleRouteLayer(req, res, 'boat'));
 
-// POST /api/roads/route - route admin waypoints along the street network
-router.post('/roads/route', async (req, res) => {
+// POST /api/roads/match - map-match an existing route trace to the street network
+router.post('/roads/match', authenticateToken, requireAdmin, async (req, res) => {
     const coordinates = req.body?.coordinates;
 
-    if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.length > 75 || coordinates.some(point =>
+    if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.length > 100 || coordinates.some(point =>
         !Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]) ||
         point[0] < -180 || point[0] > 180 || point[1] < -90 || point[1] > 90
     )) {
-        return res.status(400).json({ error: 'Provide between 2 and 75 valid [longitude, latitude] route points.' });
+        return res.status(400).json({ error: 'Provide between 2 and 100 valid [longitude, latitude] route points.' });
     }
 
-    const coordinatePath = coordinates.map(([longitude, latitude]) => `${longitude},${latitude}`).join(';');
-    const routeUrl = new URL(`https://router.project-osrm.org/route/v1/driving/${coordinatePath}`);
-    routeUrl.searchParams.set('overview', 'full');
-    routeUrl.searchParams.set('geometries', 'geojson');
-    routeUrl.searchParams.set('steps', 'false');
-    routeUrl.searchParams.set('alternatives', 'false');
-
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     try {
-        const response = await fetch(routeUrl, {
-            headers: { 'User-Agent': 'InerTayo-Dagupan/1.0', 'Accept': 'application/json' },
-            signal: controller.signal,
+        const matchedCoordinates = [];
+        const confidenceScores = [];
+        const chunkSize = 10;
+
+        for (let startIndex = 0; startIndex < coordinates.length - 1; startIndex += chunkSize - 1) {
+            const chunk = coordinates.slice(startIndex, startIndex + chunkSize);
+            const coordinatePath = chunk.map(([longitude, latitude]) => `${longitude},${latitude}`).join(';');
+            const matchUrl = new URL(`https://router.project-osrm.org/match/v1/driving/${coordinatePath}`);
+            matchUrl.searchParams.set('overview', 'full');
+            matchUrl.searchParams.set('geometries', 'geojson');
+            matchUrl.searchParams.set('steps', 'false');
+            matchUrl.searchParams.set('tidy', 'false');
+            matchUrl.searchParams.set('radiuses', chunk.map(() => '30').join(';'));
+
+            const response = await fetch(matchUrl, {
+                headers: { 'User-Agent': 'InerTayo-Dagupan/1.0', 'Accept': 'application/json' },
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                return res.status(502).json({ error: 'Map-matching service is temporarily unavailable. Your current route was kept.' });
+            }
+
+            const data = await response.json();
+            const matchings = data.matchings || [];
+            const matching = matchings.length === 1 ? matchings[0] : null;
+            const tracepoints = data.tracepoints || [];
+            const geometry = matching?.geometry;
+            const hasCompleteTrace = tracepoints.length === chunk.length && tracepoints.every(point =>
+                point && Number.isFinite(point.distance) && point.distance <= 60
+            );
+
+            if (data.code !== 'Ok' || !hasCompleteTrace || !Number.isFinite(matching?.confidence) || matching.confidence < 0.35 ||
+                geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2) {
+                return res.status(422).json({ error: 'The route could not be matched confidently to nearby streets. Your current route was kept.' });
+            }
+
+            matchedCoordinates.push(...(startIndex === 0 ? geometry.coordinates : geometry.coordinates.slice(1)));
+            confidenceScores.push(matching.confidence);
+        }
+
+        return res.json({
+            geometry: { type: 'LineString', coordinates: matchedCoordinates },
+            confidence: Math.min(...confidenceScores),
+            matchedPointCount: coordinates.length,
         });
-
-        if (!response.ok) {
-            return res.status(502).json({ error: 'Street routing service is temporarily unavailable. Your current route was kept.' });
-        }
-
-        const data = await response.json();
-        const route = data.routes?.[0];
-        const geometry = route?.geometry;
-
-        if (data.code !== 'Ok' || geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2) {
-            return res.status(422).json({ error: 'No drivable street route connects these points. Your current route was kept.' });
-        }
-
-        return res.json({ geometry, distanceMeters: route.distance, snappedWaypoints: data.waypoints });
     } catch (err) {
-        console.error('Street route snap error:', err);
-        return res.status(502).json({ error: 'Street routing failed. Check the connection and try again; your current route was kept.' });
+        console.error('Road map-matching error:', err);
+        return res.status(502).json({ error: 'Map matching failed. Check the connection and try again; your current route was kept.' });
     } finally {
         clearTimeout(timeout);
     }

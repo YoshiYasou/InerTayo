@@ -41,15 +41,12 @@ export default function Navbar() {
             onClick={() => handleNav('/')}
             className="flex items-center gap-3 cursor-pointer group select-none"
           >
-            <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-md group-hover:bg-brand-600 transition-colors">
-              <div className="flex flex-col gap-1 items-center">
-                <div className="w-4 h-1.5 bg-white rounded-full"></div>
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                </div>
-              </div>
-            </div>
+            <img
+              src="/inertayo-logo.webp"
+              alt="InerTayo logo"
+              draggable="false"
+              className="w-10 h-10 rounded-xl object-cover shadow-md transition-transform group-hover:scale-[1.03]"
+            />
             <div className="flex flex-col">
               <span className="text-2xl font-bold tracking-tight text-slate-900">
                 Iner<span className="text-emerald-600">Tayo</span>

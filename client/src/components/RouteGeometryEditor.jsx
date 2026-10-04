@@ -63,7 +63,7 @@ function FitInitialRoute({ positions }) {
   return null;
 }
 
-export default function RouteGeometryEditor({ value, onChange, color = '#ec4899', allowRoadSnap = true }) {
+export default function RouteGeometryEditor({ value, onChange, token, color = '#ec4899', allowRoadSnap = true }) {
   const parsed = readCoordinates(value);
   const lastValidCoordinates = useRef([]);
   const [snapping, setSnapping] = useState(false);
@@ -75,6 +75,9 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
   const { error } = parsed;
   const coordinates = error ? lastValidCoordinates.current : parsed.coordinates;
   const positions = coordinates.map(([longitude, latitude]) => [latitude, longitude]);
+  const handleIndices = coordinates.length <= 12
+    ? coordinates.map((_, index) => index)
+    : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
 
   const updateCoordinates = (nextCoordinates) => {
     onChange(nextCoordinates.length
@@ -88,19 +91,22 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
     setSnapping(true);
     setSnapMessage('');
     try {
-      const response = await fetch('/api/roads/route', {
+      const response = await fetch('/api/roads/match', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ coordinates }),
       });
       const result = await response.json();
 
       if (!response.ok || result?.geometry?.type !== 'LineString' || !Array.isArray(result.geometry.coordinates) || result.geometry.coordinates.length < 2) {
-        throw new Error(result?.error || 'Could not create a road-following path. Your current route was kept.');
+        throw new Error(result?.error || 'Could not match the path to streets. Your current route was kept.');
       }
 
       updateCoordinates(result.geometry.coordinates);
-      setSnapMessage(`Road-following path applied (${result.geometry.coordinates.length} points).`);
+      setSnapMessage(`Road match applied (${result.geometry.coordinates.length} points).`);
     } catch (snapError) {
       setSnapMessage(snapError.message || 'Road snapping failed. Your current route was kept.');
     } finally {
@@ -120,8 +126,8 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
         <div className="flex items-center gap-1">
           <button
             type="button"
-            title="Route the path along nearby streets"
-            aria-label="Route the path along nearby streets"
+            title="Match this path to nearby streets"
+            aria-label="Match this path to nearby streets"
             disabled={coordinates.length < 2 || Boolean(error) || snapping || !allowRoadSnap}
             onClick={snapToNearbyRoads}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -172,7 +178,9 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
           {positions.length > 1 && (
             <Polyline positions={positions} pathOptions={{ color, weight: 5, opacity: 0.9 }} />
           )}
-          {positions.map((position, index) => (
+          {handleIndices.map((index) => {
+            const position = positions[index];
+            return (
             <Marker
               key={index}
               position={position}
@@ -193,7 +201,8 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
                 },
               }}
             />
-          ))}
+            );
+          })}
         </MapContainer>
       </div>
 

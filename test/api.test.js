@@ -505,6 +505,9 @@ async function runTests() {
         const noAuthAdmin = await makeRequest('GET', '/api/admin/stats');
         assert(noAuthAdmin.status === 401, 'Accessing /api/admin/stats without token returns 401 Unauthorized');
 
+        const noAuthRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] });
+        assert(noAuthRoadMatch.status === 401, 'Road map matching rejects unauthenticated requests');
+
         // ── Test 4.3: Broken Function-Level Authorization (privilege escalation)
         // Attack: a valid COMMUTER JWT attempts a POST to an ADMIN-only endpoint.
         // Expected: 403 Forbidden — correct role is enforced by requireAdmin middleware.
@@ -513,6 +516,11 @@ async function runTests() {
             'Authorization': `Bearer ${commuterToken}`
         });
         assert(commuterAdmin.status === 403, 'Commuter role accessing admin endpoint returns 403 Forbidden (Broken Function-Level Auth)');
+
+        const commuterRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] }, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(commuterRoadMatch.status === 403, 'Road map matching rejects commuter-role requests');
 
         const commuterPostAdmin = await makeRequest('POST', '/api/admin/routes', {
             route_name: 'Injected Route',

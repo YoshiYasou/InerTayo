@@ -162,7 +162,7 @@ export default function About() {
               <h3 className="text-lg font-bold text-slate-900">
                 De Guzman, Jian Clarence
               </h3>
-              <span className="text-xs font-semibold text-amber-700 mb-3">
+              <span className="text-xs font-semibold text-pink-300 mb-3">
                 Member
               </span>
               <p className="text-xs text-slate-600 leading-relaxed">

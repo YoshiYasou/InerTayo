@@ -72,8 +72,9 @@ function routeFeature(route) {
 }
 
 // Default / dim / selected polyline styles
-const STYLE_DEFAULT  = { weight: 3, opacity: 0.65 };
-const STYLE_DIMMED   = { weight: 3, opacity: 0.12 };
+const STYLE_DEFAULT  = { weight: 2.5, opacity: 0.38 };
+const STYLE_OVERVIEW = { weight: 1.5, opacity: 0.12 };
+const STYLE_DIMMED   = { weight: 2.5, opacity: 0.08 };
 const STYLE_SELECTED = { weight: 7, opacity: 1.0 };
 
 function zoomedLineWeight(weight, zoom) {
@@ -365,6 +366,10 @@ function LayerManager({
   }, [selectedRouteId]);
 
   // ════════════════════════════════════════════════════════════════════════
+  function defaultRouteStyle() {
+    return activeFilter === 'ALL' || activeFilter === 'FLOOD' ? STYLE_OVERVIEW : STYLE_DEFAULT;
+  }
+
   function buildAllLayers() {
     const refs = layersRef.current;
     const geo  = geoDataRef.current;
@@ -429,10 +434,11 @@ function LayerManager({
         style(f) {
           const props = f.properties;
           const base = props.style || {};
+          const routeStyle = defaultRouteStyle();
           return {
             color:     base.color    || modeColor(props.mode),
-            weight:    zoomedLineWeight(STYLE_DEFAULT.weight, map.getZoom()),
-            opacity:   STYLE_DEFAULT.opacity,
+            weight:    zoomedLineWeight(routeStyle.weight, map.getZoom()),
+            opacity:   routeStyle.opacity,
             dashArray: base.dashArray || undefined,
             lineCap:   'round',
           };
@@ -452,9 +458,10 @@ function LayerManager({
           });
           layer.on('mouseout', () => {
             if (selectedRouteId !== id) {
+              const routeStyle = defaultRouteStyle();
               layer.setStyle({
-                ...STYLE_DEFAULT,
-                weight: zoomedLineWeight(STYLE_DEFAULT.weight, map.getZoom()),
+                ...routeStyle,
+                weight: zoomedLineWeight(routeStyle.weight, map.getZoom()),
               });
             }
           });
@@ -501,11 +508,12 @@ function LayerManager({
 
     if (activeRouteId === null) {
       // No selection: restore all to default
+      const routeStyle = defaultRouteStyle();
       Object.values(flayers).forEach(l => {
         try {
           l.setStyle({
-            ...STYLE_DEFAULT,
-            weight: zoomedLineWeight(STYLE_DEFAULT.weight, currentZoom.current),
+            ...routeStyle,
+            weight: zoomedLineWeight(routeStyle.weight, currentZoom.current),
           });
         } catch {}
       });
@@ -547,7 +555,7 @@ function LayerManager({
     const activeRouteId = selectedRouteId ?? focusedRouteFeature?.properties.id ?? null;
     Object.entries(layersRef.current.routeFeatureLayers).forEach(([id, layer]) => {
       const style = activeRouteId === null
-        ? STYLE_DEFAULT
+        ? defaultRouteStyle()
         : String(id) === String(activeRouteId) ? STYLE_SELECTED : STYLE_DIMMED;
       try {
         layer.setStyle({

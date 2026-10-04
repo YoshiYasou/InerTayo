@@ -15,15 +15,12 @@ export default function Footer() {
               onClick={() => navigate('/')} 
               className="flex items-center gap-3 cursor-pointer group select-none"
             >
-              <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-white shadow">
-                <div className="flex flex-col gap-0.5 items-center">
-                  <div className="w-3.5 h-1.5 bg-white rounded-full"></div>
-                  <div className="flex gap-1">
-                    <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                    <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                  </div>
-                </div>
-              </div>
+              <img
+                src="/inertayo-logo.webp"
+                alt="InerTayo logo"
+                draggable="false"
+                className="w-9 h-9 rounded-xl object-cover shadow"
+              />
               <span className="text-2xl font-bold tracking-tight text-white">
                 Iner<span className="text-emerald-500">Tayo</span>
               </span>

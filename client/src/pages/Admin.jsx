@@ -1815,6 +1815,7 @@ export default function Admin() {
               <RouteGeometryEditor
                 value={routeFormData.geometry}
                 onChange={(geometry) => setRouteFormData({ ...routeFormData, geometry })}
+                token={token}
                 allowRoadSnap={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat'}
                 color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'
                   : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'bus' ? '#10b981'
