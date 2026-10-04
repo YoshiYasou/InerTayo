@@ -23,6 +23,13 @@ const ROUTING_CONFIG = {
     // Flag controlling whether to use validated, corrected geometry
     USE_CORRECTED_GEOMETRY: process.env.USE_CORRECTED_GEOMETRY !== 'false',
 
+    // OpenRouteService configuration for server-side routing and geometry generation
+    ors: {
+        baseUrl: process.env.ORS_BASE_URL || process.env.ORS_URL || 'https://api.openrouteservice.org',
+        defaultProfile: process.env.ORS_PROFILE || 'driving-car',
+        timeoutMs: Number(process.env.ORS_TIMEOUT_MS || 8000)
+    },
+
     // Geographic bounding box for Dagupan City area (minLon, minLat, maxLon, maxLat)
     dagupanBounds: {
         minLat: 16.0000,

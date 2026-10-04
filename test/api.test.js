@@ -1209,6 +1209,57 @@ async function runTests() {
             'GET /api/routes?search=PHINMA+University+of+Pangasinan returns serving routes via school proximity'
         );
 
+        // ORS regression guard: road-following geometry must be server-side, safe, and easy to validate.
+        const orsRouter = require('../server/services/orsRouter');
+        assert(orsRouter && typeof orsRouter.buildRoadGeometryRequest === 'function', 'ORS router exports a request builder');
+        const requestBody = orsRouter.buildRoadGeometryRequest([
+            { lat: 16.0430, lng: 120.3330 },
+            { lat: 16.0440, lng: 120.3350 }
+        ], 'driving-car');
+        assert(requestBody && requestBody.coordinates && requestBody.coordinates.length >= 2, 'ORS request builder preserves ordered road-following coordinates');
+        assert(requestBody.coordinates[0][0] === 120.3330 && requestBody.coordinates[0][1] === 16.0430, 'ORS coordinates are normalized as [lng, lat] per ORS API contract');
+        assert(orsRouter.buildRoadGeometryRequest([[120.3330, 16.0430], [120.3350, 16.0440]], 'foot-walking').profile === 'foot-walking', 'ORS supports the intended walking profile');
+        let rejectsUnsupportedProfile = false;
+        try {
+            orsRouter.buildRoadGeometryRequest([[120.3330, 16.0430], [120.3350, 16.0440]], 'driving-hgv');
+        } catch (error) {
+            rejectsUnsupportedProfile = true;
+        }
+        assert(rejectsUnsupportedProfile, 'ORS request builder rejects unsupported routing profiles');
+        const routeEligibility = require('../server/scripts/orsRoadGeometry');
+        assert(typeof routeEligibility.previewOrsGeometry === 'function', 'ORS batch geometry script exposes its preview operation');
+        assert(routeEligibility.getRouteSkipReason({ transport_mode_id: 3, geometry_corrected: null }, new Set([3])) === 'Boat routes use waterway geometry', 'ORS batch script skips boat routes');
+        assert(routeEligibility.getRouteSkipReason({ transport_mode_id: 1, geometry_corrected: '{"type":"LineString"}' }, new Set([3])) === 'Corrected geometry already exists', 'ORS batch script preserves existing corrected geometry');
+
+        const originalFetch = global.fetch;
+        const denseCoordinates = Array.from({ length: 150 }, (_, index) => [120.33 + index / 100000, 16.04]);
+        let capturedOrsRequest;
+        try {
+            global.fetch = async (url, options) => {
+                capturedOrsRequest = { url, options };
+                return {
+                    ok: true,
+                    json: async () => ({
+                        features: [{
+                            geometry: { type: 'LineString', coordinates: denseCoordinates },
+                            properties: { summary: { distance: 1300, duration: 240 } }
+                        }]
+                    })
+                };
+            };
+            const orsResult = await orsRouter.fetchRoadGeometry(
+                [[120.33, 16.04], [120.34, 16.04]],
+                'driving-car',
+                { apiKey: 'test-key', baseUrl: 'https://ors.invalid' }
+            );
+            assert(orsResult.coordinates.length === 150, 'ORS adapter preserves dense returned road geometry');
+            assert(capturedOrsRequest.url === 'https://ors.invalid/v2/directions/driving-car/geojson', 'ORS adapter calls the configured server-side endpoint');
+            assert(capturedOrsRequest.options.headers.Authorization === 'test-key', 'ORS API key is sent in the backend Authorization header');
+        } finally {
+            global.fetch = originalFetch;
+        }
+        assert(typeof orsRouter.safeRouteGeometry === 'function', 'ORS router exposes a safe geometry normalizer');
+
     } catch (err) {
         console.error('Test execution error:', err);
         failed++;

@@ -53,6 +53,7 @@ async function getWalkingRoute(startLngLat, endLngLat, options = {}) {
     }
 
     const apiKey = (process.env.ORS_API_KEY || process.env.OPENROUTESERVICE_API_KEY || '').trim();
+    const orsBaseUrl = (process.env.ORS_BASE_URL || process.env.ORS_URL || ROUTING_CONFIG.ors?.baseUrl || 'https://api.openrouteservice.org').replace(/\/+$/, '');
 
     // 1. Try OpenRouteService if API key is configured
     if (apiKey !== '') {
@@ -71,7 +72,7 @@ async function getWalkingRoute(startLngLat, endLngLat, options = {}) {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 6000);
 
-            const res = await fetch('https://api.openrouteservice.org/v2/directions/foot-walking/geojson', {
+            const res = await fetch(`${orsBaseUrl}/v2/directions/foot-walking/geojson`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json; charset=utf-8',
