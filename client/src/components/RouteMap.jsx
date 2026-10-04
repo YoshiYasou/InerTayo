@@ -73,7 +73,7 @@ function routeFeature(route) {
 
 // Default / dim / selected polyline styles
 const STYLE_DEFAULT  = { weight: 2.5, opacity: 0.38 };
-const STYLE_OVERVIEW = { weight: 1.5, opacity: 0.12 };
+const STYLE_OVERVIEW = { weight: 2.5, opacity: 0.58 };
 const STYLE_DIMMED   = { weight: 2.5, opacity: 0.08 };
 const STYLE_SELECTED = { weight: 7, opacity: 1.0 };
 

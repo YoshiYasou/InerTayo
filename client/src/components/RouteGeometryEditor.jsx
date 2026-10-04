@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { Crosshair, Trash2, Undo2 } from 'lucide-react';
+import { Crosshair, LocateFixed, Maximize2, Minimize2, Trash2, Undo2 } from 'lucide-react';
 
 const DAGUPAN_CENTER = [16.0433, 120.3333];
 
@@ -63,11 +63,39 @@ function FitInitialRoute({ positions }) {
   return null;
 }
 
+function RouteMapController({ isFullscreen, mapRef }) {
+  const map = useMap();
+
+  useEffect(() => {
+    mapRef.current = map;
+    const timeoutId = window.setTimeout(() => map.invalidateSize(), 100);
+    return () => {
+      window.clearTimeout(timeoutId);
+      mapRef.current = null;
+    };
+  }, [isFullscreen, map, mapRef]);
+
+  return null;
+}
+
 export default function RouteGeometryEditor({ value, onChange, token, color = '#ec4899', allowRoadSnap = true }) {
   const parsed = readCoordinates(value);
   const lastValidCoordinates = useRef([]);
+  const editorRef = useRef(null);
+  const mapRef = useRef(null);
   const [snapping, setSnapping] = useState(false);
   const [snapMessage, setSnapMessage] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState('');
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === editorRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   useEffect(() => {
     if (!parsed.error) lastValidCoordinates.current = parsed.coordinates;
   }, [value, parsed.error]);
@@ -83,6 +111,31 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
     onChange(nextCoordinates.length
       ? JSON.stringify({ type: 'LineString', coordinates: nextCoordinates })
       : '');
+  };
+
+  const toggleFullscreen = async () => {
+    setFullscreenError('');
+    try {
+      if (document.fullscreenElement === editorRef.current) {
+        await document.exitFullscreen();
+      } else if (editorRef.current?.requestFullscreen) {
+        await editorRef.current.requestFullscreen();
+      } else {
+        setFullscreenError('Fullscreen mode is not supported by this browser.');
+      }
+    } catch (error) {
+      setFullscreenError(error.message || 'Could not open the map in fullscreen mode.');
+    }
+  };
+
+  const fitRoute = () => {
+    const map = mapRef.current;
+    if (!map || !positions.length) return;
+    if (positions.length > 1) {
+      map.fitBounds(positions, { padding: [28, 28], maxZoom: 16 });
+    } else {
+      map.setView(positions[0], 16);
+    }
   };
 
   const snapToNearbyRoads = async () => {
@@ -115,7 +168,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   };
 
   return (
-    <section className="space-y-2">
+    <section ref={editorRef} className="route-geometry-editor space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h4 className="text-sm font-bold text-slate-800">Route path</h4>
@@ -126,6 +179,16 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
         <div className="flex items-center gap-1">
           <button
             type="button"
+            title="Fit route in map"
+            aria-label="Fit route in map"
+            disabled={!positions.length}
+            onClick={fitRoute}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <LocateFixed className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             title="Match this path to nearby streets"
             aria-label="Match this path to nearby streets"
             disabled={coordinates.length < 2 || Boolean(error) || snapping || !allowRoadSnap}
@@ -133,6 +196,15 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Crosshair className={`h-4 w-4 ${snapping ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            type="button"
+            title={isFullscreen ? 'Exit fullscreen map' : 'Expand map'}
+            aria-label={isFullscreen ? 'Exit fullscreen map' : 'Expand map'}
+            onClick={toggleFullscreen}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-sky-50 hover:text-sky-700"
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
           <button
             type="button"
@@ -157,7 +229,10 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
         </div>
       </div>
 
-      <div className="h-72 overflow-hidden rounded-lg border border-slate-300">
+      <p className="text-xs text-slate-500">
+        Click the map to add a point. Drag the route markers to adjust the path; scroll to zoom.
+      </p>
+      <div className="route-geometry-map relative h-72 overflow-hidden rounded-lg border border-slate-300">
         <MapContainer
           center={DAGUPAN_CENTER}
           zoom={13}
@@ -170,6 +245,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
             maxZoom={19}
           />
+          <RouteMapController isFullscreen={isFullscreen} mapRef={mapRef} />
           <MapPointPicker
             disabled={Boolean(error)}
             onAddPoint={(point) => updateCoordinates([...coordinates, point])}
@@ -206,6 +282,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
         </MapContainer>
       </div>
 
+      {fullscreenError && <p role="alert" className="text-xs font-medium text-rose-700">{fullscreenError}</p>}
       {error && <p role="alert" className="text-xs font-medium text-rose-700">{error}</p>}
       {snapMessage && (
         <p role="status" className={`text-xs font-medium ${snapMessage.includes('applied') ? 'text-emerald-700' : 'text-rose-700'}`}>
