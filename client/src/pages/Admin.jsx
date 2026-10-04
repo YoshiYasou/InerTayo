@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
+import RouteGeometryEditor from '../components/RouteGeometryEditor';
+import LocationPinPicker from '../components/LocationPinPicker';
 import { 
   ShieldCheck, 
   Route, 
@@ -243,18 +245,31 @@ export default function Admin() {
       let routeId;
       if (editingRoute) {
         routeId = editingRoute.id;
-        await fetch(`/api/admin/routes/${editingRoute.id}`, {
+        const response = await fetch(`/api/admin/routes/${editingRoute.id}`, {
           method: 'PUT',
           headers,
-          body: JSON.stringify(routeFormData)
+          body: JSON.stringify({
+            ...routeFormData,
+            geometry_corrected: routeFormData.geometry || null,
+            use_corrected_geometry: 1
+          })
         });
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.error || 'Route update was rejected by the server.');
+        }
       } else {
         const res = await fetch('/api/admin/routes', {
           method: 'POST',
           headers,
-          body: JSON.stringify(routeFormData)
+          body: JSON.stringify({
+            ...routeFormData,
+            geometry_corrected: routeFormData.geometry || null,
+            use_corrected_geometry: 1
+          })
         });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Route creation was rejected by the server.');
         routeId = data.routeId;
       }
 
@@ -432,8 +447,8 @@ export default function Admin() {
       barangay: loc.barangay || '',
       search_keywords: loc.search_keywords || '',
       address: loc.address || '',
-      lat: loc.lat,
-      lng: loc.lng,
+      lat: loc.latitude ?? loc.lat ?? '',
+      lng: loc.longitude ?? loc.lng ?? '',
       description: loc.description || '',
       status: loc.status
     });
@@ -443,16 +458,22 @@ export default function Admin() {
   const handleSaveLocation = async (e) => {
     e.preventDefault();
     const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    const { lat, lng, ...locationFields } = locationFormData;
     const body = {
-      ...locationFormData,
-      lat: parseFloat(locationFormData.lat),
-      lng: parseFloat(locationFormData.lng)
+      ...locationFields,
+      latitude: parseFloat(lat),
+      longitude: parseFloat(lng)
     };
     try {
+      let response;
       if (editingLocation) {
-        await fetch(`/api/admin/locations/${editingLocation.id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        response = await fetch(`/api/admin/locations/${editingLocation.id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
       } else {
-        await fetch('/api/admin/locations', { method: 'POST', headers, body: JSON.stringify(body) });
+        response = await fetch('/api/admin/locations', { method: 'POST', headers, body: JSON.stringify(body) });
+      }
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Location save was rejected by the server.');
       }
       setLocationModalOpen(false);
       loadAdminData();
@@ -993,7 +1014,7 @@ export default function Admin() {
                       </td>
                       <td className="py-3 px-4 text-slate-500 max-w-[130px] truncate">{loc.barangay || '—'}</td>
                       <td className="py-3 px-4 text-slate-500 max-w-[160px] truncate">{loc.address || '—'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-400">{Number(loc.lat).toFixed(4)}, {Number(loc.lng).toFixed(4)}</td>
+                      <td className="py-3 px-4 font-mono text-slate-400">{Number(loc.latitude ?? loc.lat).toFixed(4)}, {Number(loc.longitude ?? loc.lng).toFixed(4)}</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                           loc.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -1461,6 +1482,15 @@ export default function Admin() {
                   placeholder="e.g. AB Fernandez Ave, Dagupan City"
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
               </div>
+              <LocationPinPicker
+                latitude={locationFormData.lat}
+                longitude={locationFormData.lng}
+                onPin={(lat, lng) => setLocationFormData(previous => ({
+                  ...previous,
+                  lat: lat.toFixed(6),
+                  lng: lng.toFixed(6),
+                }))}
+              />
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Latitude *</label>
@@ -1706,21 +1736,14 @@ export default function Admin() {
                 ></textarea>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Route Geometry (GeoJSON LineString, optional)
-                </label>
-                <textarea
-                  rows="2"
-                  value={routeFormData.geometry}
-                  onChange={(e) => setRouteFormData({ ...routeFormData, geometry: e.target.value })}
-                  placeholder='{"type":"LineString","coordinates":[[120.334,16.043],[...]]}'
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-                ></textarea>
-                <span className="text-[10px] text-slate-400">
-                  Optional GeoJSON coordinates [lon, lat]. If left blank, geometry is automatically derived from designated stops.
-                </span>
-              </div>
+              <RouteGeometryEditor
+                value={routeFormData.geometry}
+                onChange={(geometry) => setRouteFormData({ ...routeFormData, geometry })}
+                color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'
+                  : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'bus' ? '#10b981'
+                  : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'tricycle' ? '#06b6d4'
+                  : '#ec4899'}
+              />
 
               <div className="pt-2 flex justify-end gap-3">
                 <button

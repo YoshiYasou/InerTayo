@@ -2689,7 +2689,9 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             maximum_fare,
             status = 'CLEAR',
             description,
-            geometry
+            geometry,
+            geometry_corrected,
+            use_corrected_geometry = 1
         } = req.body;
 
         if (!route_name || !transport_mode_id || !origin || !destination ||
@@ -2721,6 +2723,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         }
 
         const geomString = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
+        const correctedGeomString = geometry_corrected ? (typeof geometry_corrected === 'object' ? JSON.stringify(geometry_corrected) : geometry_corrected) : null;
         const routeId = await nextId('Route');
 
         await Route.create({
@@ -2735,7 +2738,9 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             maximum_fare: parsedMaxFare,
             status: routeStatus,
             description: description ? description.trim() : null,
-            geometry: geomString
+            geometry: geomString,
+            geometry_corrected: correctedGeomString,
+            use_corrected_geometry: Number(use_corrected_geometry)
         });
 
         // Seed default fares for this new route
@@ -2788,7 +2793,9 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             maximum_fare,
             status,
             description,
-            geometry
+            geometry,
+            geometry_corrected,
+            use_corrected_geometry
         } = req.body;
 
         if (!route_name || typeof route_name !== 'string' || route_name.trim() === '') {
@@ -2851,6 +2858,14 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
 
         if (geometry !== undefined) {
             updateData.geometry = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
+        }
+        if (geometry_corrected !== undefined) {
+            updateData.geometry_corrected = geometry_corrected
+                ? (typeof geometry_corrected === 'object' ? JSON.stringify(geometry_corrected) : geometry_corrected)
+                : null;
+        }
+        if (use_corrected_geometry !== undefined) {
+            updateData.use_corrected_geometry = Number(use_corrected_geometry);
         }
 
         await Route.updateOne({ id: routeId }, updateData);
@@ -3905,7 +3920,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
     if (cached) return res.json(cached);
 
     try {
-        const { allRoutes, modeMap, stopsByRoute } = await buildMapDataset();
+        const { allRoutes, modeMap } = await buildMapDataset();
         const features = [];
 
         for (const route of allRoutes) {
@@ -3913,20 +3928,19 @@ async function handleRouteLayer(req, res, modeKeyword) {
             const modeName = m.name || '';
             if (!modeName.toLowerCase().includes(modeKeyword)) continue;
 
+            const routeGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
+                && route.use_corrected_geometry === 1
+                && route.geometry_corrected)
+                ? route.geometry_corrected
+                : route.geometry;
+
             let geomObj = null;
-            if (route.geometry) {
+            if (routeGeometry) {
                 try {
-                    geomObj = typeof route.geometry === 'string' ? JSON.parse(route.geometry) : route.geometry;
+                    geomObj = typeof routeGeometry === 'string' ? JSON.parse(routeGeometry) : routeGeometry;
                 } catch (e) {}
             }
-            if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) {
-                const stops = (stopsByRoute.get(route.id) || []).filter(s => typeof s.latitude === 'number' && typeof s.longitude === 'number');
-                if (stops.length >= 2) {
-                    geomObj = { type: 'LineString', coordinates: stops.map(s => [s.longitude, s.latitude]) };
-                } else {
-                    continue;
-                }
-            }
+            if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) continue;
 
             const color     = layerModeColor(modeName);
             const isDetour  = route.status === 'DETOUR_ACTIVE';
