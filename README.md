@@ -125,20 +125,12 @@ Visit **`http://localhost:5000`** in your browser.
 ---
 
 #### Option B: Development Mode (Hot Reloading)
-For active development with hot-module replacement, run the backend and frontend in two separate terminals:
+From the project root, start both the backend API and frontend with one command:
 
-**Terminal 1 (Backend API):**
 ```bash
-npm run server
+npm run dev
 ```
-Runs the Express API server on `http://localhost:5000`. MongoDB must be available and configured in `.env`.
-
-**Terminal 2 (Frontend Client):**
-```bash
-npm run client
-```
-Runs the Vite development server on `http://localhost:3000` (proxies `/api` requests to port 5000).
-Visit **`http://localhost:3000`** in your browser.
+This starts Express on `http://localhost:5000` and Vite on `http://localhost:3000`; Vite proxies `/api` requests to Express. MongoDB must be available and configured in `.env`. Press `Ctrl+C` to stop both servers.
 
 ---
 
