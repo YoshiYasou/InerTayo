@@ -1290,6 +1290,11 @@ async function runTests() {
             ),
             'Road map layers omit sparse, unverified straight-line route geometry'
         );
+        const floodMapLayer = await makeRequest('GET', '/api/map/layers/flood-zones');
+        assert(
+            floodMapLayer.status === 200 && Array.isArray(floodMapLayer.data.features) && floodMapLayer.data.features.length === 0,
+            'Flood map layer omits unverified placeholder geometry'
+        );
         const inactiveBoatRouteIds = new Set(routesRes.data
             .filter(route => route.mode_name === 'Boat' && route.boat_operating_status !== 'ACTIVE')
             .map(route => route.id));

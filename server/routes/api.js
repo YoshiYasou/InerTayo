@@ -4215,34 +4215,8 @@ router.get('/map/layers/landmarks', async (req, res) => {
 
 // GET /api/map/layers/flood-zones
 router.get('/map/layers/flood-zones', (req, res) => {
-    res.json({
-        type: 'FeatureCollection',
-        features: [
-            {
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        [120.3345, 16.0420],
-                        [120.3380, 16.0440],
-                        [120.3420, 16.0460]
-                    ]
-                },
-                properties: {
-                    id:          'flood-ab-fernandez',
-                    name:        'AB Fernandez Avenue',
-                    description: 'High tide overflow. Routes 3, 4, 5 reflect active detour bypass.',
-                    type:        'FLOOD_ZONE',
-                    style: {
-                        color:   '#f59e0b',
-                        weight:  10,
-                        opacity: 0.70,
-                        lineCap: 'round'
-                    }
-                }
-            }
-        ]
-    });
+    // No verified flood-boundary geometry is available; don't draw a coarse placeholder line.
+    res.json({ type: 'FeatureCollection', features: [] });
 });
 
 module.exports = router;

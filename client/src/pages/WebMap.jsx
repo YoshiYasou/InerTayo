@@ -258,6 +258,13 @@ export default function WebMap() {
             />
           )}
 
+          {!loading && activeFilter === 'FLOOD' && (
+            <div role="status" className="absolute top-16 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-10 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/95 p-3 text-xs text-amber-900 shadow-lg">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>No verified flood-zone boundary is available to show. Flood-related route advisories remain available in trip details.</span>
+            </div>
+          )}
+
           {/* Selected Item Drawer / Overlay */}
           {selectedItem && (
             <div className="absolute bottom-16 lg:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-200/90 z-20 animate-in fade-in slide-in-from-bottom-4">
