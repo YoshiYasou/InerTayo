@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { Trash2, Undo2 } from 'lucide-react';
+import { Crosshair, Trash2, Undo2 } from 'lucide-react';
 
 const DAGUPAN_CENTER = [16.0433, 120.3333];
 
@@ -63,9 +63,11 @@ function FitInitialRoute({ positions }) {
   return null;
 }
 
-export default function RouteGeometryEditor({ value, onChange, color = '#ec4899' }) {
+export default function RouteGeometryEditor({ value, onChange, color = '#ec4899', allowRoadSnap = true }) {
   const parsed = readCoordinates(value);
   const lastValidCoordinates = useRef([]);
+  const [snapping, setSnapping] = useState(false);
+  const [snapMessage, setSnapMessage] = useState('');
   useEffect(() => {
     if (!parsed.error) lastValidCoordinates.current = parsed.coordinates;
   }, [value, parsed.error]);
@@ -80,6 +82,32 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
       : '');
   };
 
+  const snapToNearbyRoads = async () => {
+    if (coordinates.length < 2 || Boolean(error) || !allowRoadSnap) return;
+
+    setSnapping(true);
+    setSnapMessage('');
+    try {
+      const response = await fetch('/api/roads/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coordinates }),
+      });
+      const result = await response.json();
+
+      if (!response.ok || result?.geometry?.type !== 'LineString' || !Array.isArray(result.geometry.coordinates) || result.geometry.coordinates.length < 2) {
+        throw new Error(result?.error || 'Could not create a road-following path. Your current route was kept.');
+      }
+
+      updateCoordinates(result.geometry.coordinates);
+      setSnapMessage(`Road-following path applied (${result.geometry.coordinates.length} points).`);
+    } catch (snapError) {
+      setSnapMessage(snapError.message || 'Road snapping failed. Your current route was kept.');
+    } finally {
+      setSnapping(false);
+    }
+  };
+
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -90,6 +118,16 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Route the path along nearby streets"
+            aria-label="Route the path along nearby streets"
+            disabled={coordinates.length < 2 || Boolean(error) || snapping || !allowRoadSnap}
+            onClick={snapToNearbyRoads}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Crosshair className={`h-4 w-4 ${snapping ? 'animate-spin' : ''}`} />
+          </button>
           <button
             type="button"
             title="Remove last point"
@@ -160,6 +198,11 @@ export default function RouteGeometryEditor({ value, onChange, color = '#ec4899'
       </div>
 
       {error && <p role="alert" className="text-xs font-medium text-rose-700">{error}</p>}
+      {snapMessage && (
+        <p role="status" className={`text-xs font-medium ${snapMessage.includes('applied') ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {snapMessage}
+        </p>
+      )}
 
       <details className="text-xs">
         <summary className="cursor-pointer font-semibold text-slate-600">GeoJSON coordinates</summary>
