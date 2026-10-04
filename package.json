@@ -4,6 +4,7 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
+    "dev": "concurrently -k -n API,WEB -c cyan,green \"npm run server\" \"npm run client\"",
     "server": "node server/server.js",
     "seed": "node server/db/seed.js",
     "build": "npm --prefix client run build",
@@ -37,6 +38,7 @@
     "nodemailer": "^10.0.10"
   },
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "mongodb-memory-server": "^11.3.0"
   }
 }
