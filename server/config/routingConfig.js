@@ -25,7 +25,7 @@ const ROUTING_CONFIG = {
 
     // OpenRouteService configuration for server-side routing and geometry generation
     ors: {
-        baseUrl: process.env.ORS_BASE_URL || process.env.ORS_URL || 'https://api.openrouteservice.org',
+        baseUrl: process.env.ORS_BASE_URL || process.env.ORS_URL || 'https://api.heigit.org/openrouteservice',
         defaultProfile: process.env.ORS_PROFILE || 'driving-car',
         timeoutMs: Number(process.env.ORS_TIMEOUT_MS || 8000)
     },

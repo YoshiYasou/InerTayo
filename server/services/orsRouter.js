@@ -14,8 +14,18 @@ function getApiKey() {
 }
 
 function getBaseUrl() {
-    const configured = (process.env.ORS_BASE_URL || process.env.ORS_URL || ROUTING_CONFIG.ors?.baseUrl || 'https://api.openrouteservice.org').trim();
-    return configured.replace(/\/+$/, '');
+    const configured = (process.env.ORS_BASE_URL || process.env.ORS_URL || ROUTING_CONFIG.ors?.baseUrl || 'https://api.heigit.org/openrouteservice').trim();
+    const normalized = configured.replace(/\/+$/, '');
+
+    if (/api\.heigit\.org$/i.test(normalized) && !/\/openrouteservice$/i.test(normalized)) {
+        return `${normalized}/openrouteservice`;
+    }
+
+    if (/api\.openrouteservice\.org$/i.test(normalized)) {
+        return 'https://api.heigit.org/openrouteservice';
+    }
+
+    return normalized;
 }
 
 function normalizeCoordinatePair(point, index = 0) {

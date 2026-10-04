@@ -3,9 +3,9 @@
  * Server-side proxy for OpenRouteService pedestrian routing with fallback,
  * caching, and flood avoidance polygon integration.
  *
- * Adheres to 2025/2026 official HeiGIT/ORS v2 directions specifications:
+ * Adheres to the current HeiGIT/ORS v2 directions specification:
  * - Profile: foot-walking
- * - Endpoint: https://api.openrouteservice.org/v2/directions/foot-walking/geojson
+ * - Endpoint: https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson
  * - Method: POST with Authorization header
  */
 
@@ -53,7 +53,13 @@ async function getWalkingRoute(startLngLat, endLngLat, options = {}) {
     }
 
     const apiKey = (process.env.ORS_API_KEY || process.env.OPENROUTESERVICE_API_KEY || '').trim();
-    const orsBaseUrl = (process.env.ORS_BASE_URL || process.env.ORS_URL || ROUTING_CONFIG.ors?.baseUrl || 'https://api.openrouteservice.org').replace(/\/+$/, '');
+    const configured = (process.env.ORS_BASE_URL || process.env.ORS_URL || ROUTING_CONFIG.ors?.baseUrl || 'https://api.heigit.org/openrouteservice').trim();
+    const orsBaseUrl = configured.replace(/\/+$/, '');
+    const normalizedOrsBaseUrl = /api\.heigit\.org$/i.test(orsBaseUrl) && !/\/openrouteservice$/i.test(orsBaseUrl)
+        ? `${orsBaseUrl}/openrouteservice`
+        : /api\.openrouteservice\.org$/i.test(orsBaseUrl)
+            ? 'https://api.heigit.org/openrouteservice'
+            : orsBaseUrl;
 
     // 1. Try OpenRouteService if API key is configured
     if (apiKey !== '') {
@@ -72,7 +78,7 @@ async function getWalkingRoute(startLngLat, endLngLat, options = {}) {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 6000);
 
-            const res = await fetch(`${orsBaseUrl}/v2/directions/foot-walking/geojson`, {
+            const res = await fetch(`${normalizedOrsBaseUrl}/v2/directions/foot-walking/geojson`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json; charset=utf-8',
