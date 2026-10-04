@@ -37,6 +37,7 @@ export default function Admin() {
   const [modes, setModes] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [adminSearch, setAdminSearch] = useState('');
 
   // Authoritative Fare Matrix States
   const [fareTricycles, setFareTricycles] = useState([]);
@@ -122,6 +123,41 @@ export default function Admin() {
   });
 
   const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
+
+  const searchTerm = adminSearch.trim().toLowerCase();
+  const matchesAdminSearch = (values) => !searchTerm || values.some(value =>
+    String(value ?? '').toLowerCase().includes(searchTerm)
+  );
+  const searchedRoutes = routes.filter(route => matchesAdminSearch([
+    route.route_name, route.mode_name, route.origin, route.destination, route.status, route.description
+  ]));
+  const searchedAdvisories = advisories.filter(advisory => matchesAdminSearch([
+    advisory.title, advisory.affected_road, advisory.condition, advisory.description, advisory.status,
+    ...(advisory.routes || []).map(route => route.route_name)
+  ]));
+  const searchedFeedback = feedbackList.filter(item => matchesAdminSearch([
+    item.name, item.email, item.status, item.message
+  ]));
+  const searchedLocations = locations.filter(location => matchesAdminSearch([
+    location.name, location.type, location.barangay, location.address, location.status,
+    location.search_keywords, location.description
+  ]));
+  const searchedModes = modes.filter(mode => matchesAdminSearch([
+    mode.name, mode.description, mode.icon, mode.status
+  ]));
+  const renderAdminSearch = (placeholder) => (
+    <div className="relative w-full sm:max-w-xs">
+      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      <input
+        type="search"
+        value={adminSearch}
+        onChange={(event) => setAdminSearch(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder.replace('...', '')}
+        className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+      />
+    </div>
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -718,7 +754,10 @@ export default function Admin() {
             return (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setAdminSearch('');
+                }}
                 className={`flex items-center gap-2 py-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                   isActive
                     ? 'border-emerald-600 text-emerald-700'
@@ -737,18 +776,21 @@ export default function Admin() {
         {/* ========================================================================= */}
         {activeTab === 'routes' && (
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Registered Transit Routes</h3>
                 <p className="text-xs text-slate-500">Configure base time, detour time, and fares.</p>
               </div>
-              <button
-                onClick={openNewRouteModal}
-                className="py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                Add New Route
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {renderAdminSearch('Search routes...')}
+                <button
+                  onClick={openNewRouteModal}
+                  className="py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add New Route
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto -mx-6 px-6">
@@ -764,7 +806,13 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {routes.map((r) => (
+                  {searchedRoutes.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="text-center text-slate-400 py-8">
+                        {routes.length ? 'No routes match your search.' : 'No routes configured yet.'}
+                      </td>
+                    </tr>
+                  ) : searchedRoutes.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4 font-bold text-slate-900">
                         {r.route_name}
@@ -822,24 +870,32 @@ export default function Admin() {
         {/* ========================================================================= */}
         {activeTab === 'advisories' && (
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Flood & High Tide Road Advisories</h3>
                 <p className="text-xs text-slate-500">
                   Toggling an advisory instantly recalculates travel times and updates detour routes.
                 </p>
               </div>
-              <button
-                onClick={openNewAdvisoryModal}
-                className="py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                Publish Road Advisory
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {renderAdminSearch('Search advisories...')}
+                <button
+                  onClick={openNewAdvisoryModal}
+                  className="py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  Publish Road Advisory
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4">
-              {advisories.map((adv) => {
+              {searchedAdvisories.length === 0 && (
+                <p className="text-sm text-slate-400 py-6 text-center">
+                  {advisories.length ? 'No advisories match your search.' : 'No advisories published yet.'}
+                </p>
+              )}
+              {searchedAdvisories.map((adv) => {
                 const isActive = adv.status === 'ACTIVE';
                 return (
                   <div
@@ -915,16 +971,21 @@ export default function Admin() {
         {/* ========================================================================= */}
         {activeTab === 'feedback' && (
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
-            <div className="mb-6">
-              <h3 className="text-lg font-bold text-slate-900">Commuter Feedback & Road Reports</h3>
-              <p className="text-xs text-slate-500">Review submissions from travelers and commuters in Dagupan.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Commuter Feedback & Road Reports</h3>
+                <p className="text-xs text-slate-500">Review submissions from travelers and commuters in Dagupan.</p>
+              </div>
+              {renderAdminSearch('Search commuter reports...')}
             </div>
 
             <div className="space-y-3">
-              {feedbackList.length === 0 ? (
-                <p className="text-sm text-slate-400 py-6 text-center">No commuter feedback submitted yet.</p>
+              {searchedFeedback.length === 0 ? (
+                <p className="text-sm text-slate-400 py-6 text-center">
+                  {feedbackList.length ? 'No commuter reports match your search.' : 'No commuter feedback submitted yet.'}
+                </p>
               ) : (
-                feedbackList.map((item) => (
+                searchedFeedback.map((item) => (
                   <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-2">
@@ -969,18 +1030,21 @@ export default function Admin() {
       {/* ========================================================================= */}
       {activeTab === 'locations' && (
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
               <h3 className="text-lg font-bold text-slate-900">Places, Streets & River Stops</h3>
               <p className="text-xs text-slate-500">Searchable location registry — streets, barangays, terminals, river docks, and establishments. Adding a location here makes it available in map search and fare routing.</p>
             </div>
-            <button
-              onClick={openNewLocationModal}
-              className="py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              Add Location
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {renderAdminSearch('Search places and stops...')}
+              <button
+                onClick={openNewLocationModal}
+                className="py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                Add Location
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto -mx-6 px-6">
@@ -997,10 +1061,14 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {locations.length === 0 ? (
-                  <tr><td colSpan="7" className="text-center text-slate-400 py-8">No locations configured yet.</td></tr>
+                {searchedLocations.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="text-center text-slate-400 py-8">
+                      {locations.length ? 'No locations match your search.' : 'No locations configured yet.'}
+                    </td>
+                  </tr>
                 ) : (
-                  locations.map((loc) => (
+                  searchedLocations.map((loc) => (
                     <tr key={loc.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-4 font-semibold text-slate-900">{loc.name}</td>
                       <td className="py-3 px-4">
@@ -1044,15 +1112,23 @@ export default function Admin() {
       {/* ========================================================================= */}
       {activeTab === 'modes' && (
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
-          <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">Configured Transport Modes</h3>
-            <p className="text-xs text-slate-500">
-              Control transit modes (Jeepney, Bus, Tricycle, Boat). Inactive modes will not be displayed to commuters or allow new routes.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Configured Transport Modes</h3>
+              <p className="text-xs text-slate-500">
+                Control transit modes (Jeepney, Bus, Tricycle, Boat). Inactive modes will not be displayed to commuters or allow new routes.
+              </p>
+            </div>
+            {renderAdminSearch('Search transport modes...')}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {modes.map((mode) => {
+            {searchedModes.length === 0 && (
+              <p className="col-span-full text-sm text-slate-400 py-6 text-center">
+                {modes.length ? 'No transport modes match your search.' : 'No transport modes configured yet.'}
+              </p>
+            )}
+            {searchedModes.map((mode) => {
               const isActive = (mode.status || 'ACTIVE') === 'ACTIVE';
               return (
                 <div key={mode.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-4">
