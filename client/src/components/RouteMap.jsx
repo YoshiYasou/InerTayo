@@ -46,8 +46,8 @@ function modeColor(modeName = '') {
   return MODE_COLORS.default;
 }
 
-function routeFeature(route) {
-  if (route.geometry_needs_review) return null;
+function routeFeature(route, allowUnverifiedPreview = false) {
+  if (route.geometry_needs_review && !allowUnverifiedPreview) return null;
   let geometry = route.geometry;
   if (typeof geometry === 'string') {
     try {
@@ -293,7 +293,6 @@ function LayerManager({
     floodLayer:   null,            // L.geoJSON flood zone
     routeLayers:  {},              // { 'jeepneys': L.geoJSON, ... }
     stopCluster:  null,            // L.markerClusterGroup
-    schoolCluster: null,
     landmarkCluster: null,
     locationCluster: null,
     journeyGroup: null,
@@ -510,7 +509,7 @@ function LayerManager({
     applySelectionStyles();
 
     // 3. STOPS, SCHOOLS, LANDMARKS, LOCATIONS — clusters (Step 7: after route lines)
-    rebuildStopCluster();
+    rebuildStopCluster(focusedRouteFeature?.properties.id ?? null);
     rebuildSchoolCluster();
     rebuildLandmarkCluster();
     rebuildLocationCluster();
@@ -519,7 +518,7 @@ function LayerManager({
     buildJourneyOverlay();
 
     // 5. Sync LOD based on current zoom
-    syncZoomLOD();
+      syncZoomLOD(focusedRouteFeature?.properties.id ?? null);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -628,7 +627,7 @@ function LayerManager({
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  function rebuildStopCluster(forceRouteId = null) {
+  function rebuildStopCluster(forceRouteId = focusedRouteFeature?.properties.id ?? null) {
     const refs = layersRef.current;
     const geo  = geoDataRef.current;
 
@@ -653,8 +652,7 @@ function LayerManager({
       const props = f.properties;
       const [lng, lat] = f.geometry.coordinates;
 
-      // If a route is selected, only show stops from that route
-      if (forceRouteId && props.route_id !== forceRouteId) return;
+        if (forceRouteId && props.route_id !== forceRouteId) return;
 
       // Filter by active mode
       if (activeFilter !== 'ALL' && activeFilter !== 'FLOOD') {
@@ -810,7 +808,7 @@ function LayerManager({
       if (refs.stopCluster && !map.hasLayer(refs.stopCluster)) {
         refs.stopCluster.addTo(map);
       } else if (!refs.stopCluster) {
-        rebuildStopCluster(selectedRouteId || null);
+        rebuildStopCluster(selectedRouteId ?? focusedRouteFeature?.properties.id ?? null);
       }
     }
 
@@ -926,13 +924,14 @@ export default function RouteMap({
   showAdvisories = true,
   interactive   = true,
   showStopClusterCounts = true,
+  allowUnverifiedPreview = false,
   className     = 'w-full h-full rounded-2xl',
   style         = {},
   onSelect      = null,
 }) {
   // selectedRouteId is owned here so LayerManager + parent can both react
   const [selectedRouteId, setSelectedRouteId] = useState(null);
-  const focusedRouteFeature = routes.length === 1 ? routeFeature(routes[0]) : null;
+  const focusedRouteFeature = routes.length === 1 ? routeFeature(routes[0], allowUnverifiedPreview) : null;
 
   const dagupanCenter = [16.0433, 120.3333];
 

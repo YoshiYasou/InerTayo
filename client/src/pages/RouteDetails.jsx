@@ -274,20 +274,24 @@ export default function RouteDetails() {
                 <div role="status" className="h-52 sm:h-64 lg:h-72 flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 p-6 text-center text-sm text-slate-600">
                   This river service is not active, so its map preview is hidden.
                 </div>
-              ) : route.geometry_needs_review ? (
-                <div role="status" className="h-52 sm:h-64 lg:h-72 flex items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">
-                  This route’s map preview is unavailable while its road geometry is being verified.
-                </div>
               ) : (
-                <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
-                  <RouteMap
-                    routes={[route]}
-                    interactive={true}
-                    showAdvisories={true}
-                    showStopClusterCounts={false}
-                    className="absolute inset-0 w-full h-full"
-                  />
-                </div>
+                <>
+                  {route.geometry_needs_review && (
+                    <p role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Draft preview: this saved route path has not been verified against the actual transit corridor.
+                    </p>
+                  )}
+                  <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
+                    <RouteMap
+                      routes={[route]}
+                      interactive={true}
+                      showAdvisories={true}
+                      showStopClusterCounts={false}
+                      allowUnverifiedPreview={Boolean(route.geometry_needs_review)}
+                      className="absolute inset-0 w-full h-full"
+                    />
+                  </div>
+                </>
               )}
               <div className="mt-2 text-right">
                 <span className="text-[10px] text-slate-400">Interactive OpenStreetMap preview • No live GPS</span>
