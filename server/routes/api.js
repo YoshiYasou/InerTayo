@@ -812,6 +812,7 @@ router.get('/routes', async (req, res) => {
                 description: r.description,
                 geometry_original: r.geometry,
                 geometry_corrected: r.geometry_corrected,
+                walking_geometry: r.walking_geometry || null,
                 use_corrected_geometry: r.use_corrected_geometry,
                 geometry,
                 geometry_needs_review: !/boat/i.test(m.name || '') && !isDetailedRoadGeometry(geometry),
@@ -1075,6 +1076,7 @@ router.get('/routes/:id', async (req, res) => {
             description: route.description,
             geometry_original: route.geometry,
             geometry_corrected: route.geometry_corrected,
+            walking_geometry: route.walking_geometry || null,
             use_corrected_geometry: route.use_corrected_geometry,
             geometry,
             geometry_needs_review: !/boat/i.test(mode?.name || '') && !isDetailedRoadGeometry(geometry),
@@ -2715,6 +2717,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             status = 'CLEAR',
             description,
             geometry,
+            walking_geometry,
             geometry_corrected,
             use_corrected_geometry = 1
         } = req.body;
@@ -2748,6 +2751,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         }
 
         const geomString = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
+        const walkingGeomString = walking_geometry ? (typeof walking_geometry === 'object' ? JSON.stringify(walking_geometry) : walking_geometry) : null;
         const correctedGeomString = geometry_corrected ? (typeof geometry_corrected === 'object' ? JSON.stringify(geometry_corrected) : geometry_corrected) : null;
         const routeId = await nextId('Route');
 
@@ -2764,6 +2768,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             status: routeStatus,
             description: description ? description.trim() : null,
             geometry: geomString,
+            walking_geometry: walkingGeomString,
             geometry_corrected: correctedGeomString,
             use_corrected_geometry: Number(use_corrected_geometry)
         });
@@ -2819,6 +2824,7 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             status,
             description,
             geometry,
+            walking_geometry,
             geometry_corrected,
             use_corrected_geometry
         } = req.body;
@@ -2883,6 +2889,11 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
 
         if (geometry !== undefined) {
             updateData.geometry = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
+        }
+        if (walking_geometry !== undefined) {
+            updateData.walking_geometry = walking_geometry
+                ? (typeof walking_geometry === 'object' ? JSON.stringify(walking_geometry) : walking_geometry)
+                : null;
         }
         if (geometry_corrected !== undefined) {
             updateData.geometry_corrected = geometry_corrected
@@ -3968,6 +3979,17 @@ async function handleRouteLayer(req, res, modeKeyword) {
                     geomObj = typeof routeGeometry === 'string' ? JSON.parse(routeGeometry) : routeGeometry;
                 } catch (e) {}
             }
+            let walkingGeomObj = null;
+            if (route.walking_geometry) {
+                try {
+                    walkingGeomObj = typeof route.walking_geometry === 'string'
+                        ? JSON.parse(route.walking_geometry)
+                        : route.walking_geometry;
+                } catch (e) {}
+            }
+            if (walkingGeomObj?.type !== 'LineString' || !Array.isArray(walkingGeomObj.coordinates) || walkingGeomObj.coordinates.length < 2) {
+                walkingGeomObj = null;
+            }
             if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) continue;
             if (!/boat/i.test(modeName) && !isDetailedRoadGeometry(geomObj)) continue;
 
@@ -3985,6 +4007,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
                     status:         route.status,
                     origin:         route.origin,
                     destination:    route.destination,
+                    walking_geometry: walkingGeomObj,
                     minimum_fare:   route.minimum_fare,
                     maximum_fare:   route.maximum_fare,
                     estimated_time: route.estimated_time,

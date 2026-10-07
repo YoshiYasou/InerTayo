@@ -284,6 +284,7 @@ export default function RouteDetails() {
                     routes={[route]}
                     interactive={true}
                     showAdvisories={true}
+                    showStopClusterCounts={false}
                     className="absolute inset-0 w-full h-full"
                   />
                 </div>

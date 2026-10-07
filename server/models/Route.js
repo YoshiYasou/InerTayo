@@ -14,6 +14,7 @@ const RouteSchema = new mongoose.Schema({
     status: { type: String, required: true, enum: ['CLEAR', 'DETOUR_ACTIVE', 'UNAVAILABLE', 'ADVISORY'], default: 'CLEAR', index: true },
     description: { type: String, default: null },
     geometry: { type: String, default: null },
+    walking_geometry: { type: String, default: null },
     geometry_corrected: { type: String, default: null },
     use_corrected_geometry: { type: Number, default: 1 },
     created_at: { type: Date, default: Date.now },

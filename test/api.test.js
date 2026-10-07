@@ -652,6 +652,10 @@ async function runTests() {
             type: 'LineString',
             coordinates: [[120.334, 16.043], [120.340, 16.050]]
         });
+        const sampleWalkingGeom = JSON.stringify({
+            type: 'LineString',
+            coordinates: [[120.334, 16.043], [120.337, 16.046], [120.340, 16.050]]
+        });
         const createRouteRes = await makeRequest('POST', '/api/admin/routes', {
             route_name: 'Downtown – Binloc Loop',
             transport_mode_id: modesRes.data[0].id,
@@ -663,7 +667,8 @@ async function runTests() {
             maximum_fare: 30.00,
             status: 'CLEAR',
             description: 'New test loop line.',
-            geometry: sampleGeom
+            geometry: sampleGeom,
+            walking_geometry: sampleWalkingGeom
         }, { 'Authorization': `Bearer ${adminToken}` });
         assert(createRouteRes.status === 201 && createRouteRes.data.routeId, 'Admin successfully creates a new route with GeoJSON geometry');
         const newRouteId = createRouteRes.data.routeId;
@@ -672,14 +677,18 @@ async function runTests() {
         const updatedRoutes = await makeRequest('GET', '/api/routes');
         const createdRouteInList = updatedRoutes.data.find(r => r.id === newRouteId);
         assert(
-            updatedRoutes.data.length >= 14 && createdRouteInList && createdRouteInList.geometry === sampleGeom,
-            'New route immediately appears in public commuter route directory with GeoJSON geometry'
+            updatedRoutes.data.length >= 14 && createdRouteInList && createdRouteInList.geometry === sampleGeom && createdRouteInList.walking_geometry === sampleWalkingGeom,
+            'New route immediately appears in public route directory with separate walking geometry'
         );
 
         // Admin updates route geometry
         const updatedGeom = JSON.stringify({
             type: 'LineString',
             coordinates: [[120.334, 16.043], [120.342, 16.052], [120.350, 16.060]]
+        });
+        const updatedWalkingGeom = JSON.stringify({
+            type: 'LineString',
+            coordinates: [[120.334, 16.043], [120.336, 16.045], [120.339, 16.049], [120.350, 16.060]]
         });
         const updateRouteRes = await makeRequest('PUT', `/api/admin/routes/${newRouteId}`, {
             route_name: 'Downtown – Binloc Loop (Extended)',
@@ -690,9 +699,15 @@ async function runTests() {
             minimum_fare: 15.00,
             maximum_fare: 30.00,
             status: 'CLEAR',
-            geometry: updatedGeom
+            geometry: updatedGeom,
+            walking_geometry: updatedWalkingGeom
         }, { 'Authorization': `Bearer ${adminToken}` });
         assert(updateRouteRes.status === 200, 'Admin successfully updates route geometry');
+        const updatedRouteList = await makeRequest('GET', '/api/routes');
+        const updatedRouteInList = updatedRouteList.data.find(r => r.id === newRouteId);
+        assert(updatedRouteInList?.walking_geometry === updatedWalkingGeom, 'Admin route updates persist separate walking geometry');
+        const updatedRouteDetails = await makeRequest('GET', `/api/routes/${newRouteId}`);
+        assert(updatedRouteDetails.data.walking_geometry === updatedWalkingGeom, 'Route detail endpoint returns walking geometry for route previews');
 
         // Admin toggles advisory status
         const advisoryToToggle = advRes.data[0];

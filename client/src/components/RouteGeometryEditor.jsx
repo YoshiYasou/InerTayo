@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { Crosshair, LocateFixed, Maximize2, Minimize2, Trash2, Undo2 } from 'lucide-react';
+import { Crosshair, LocateFixed, Lock, Maximize2, Minimize2, Trash2, Undo2, Unlock } from 'lucide-react';
 
 const DAGUPAN_CENTER = [16.0433, 120.3333];
 
@@ -79,14 +79,24 @@ function RouteMapController({ isFullscreen, mapRef }) {
   return null;
 }
 
-export default function RouteGeometryEditor({ value, onChange, token, color = '#ec4899', allowRoadSnap = true }) {
-  const parsed = readCoordinates(value);
-  const lastValidCoordinates = useRef([]);
+export default function RouteGeometryEditor({ value, onChange, walkingValue = '', onWalkingChange, token, color = '#ec4899', allowRoadSnap = true }) {
+  const [activePath, setActivePath] = useState('route');
+  const activeValue = activePath === 'walking' ? walkingValue : value;
+  const changeActivePath = activePath === 'walking' ? onWalkingChange : onChange;
+  const parsed = readCoordinates(activeValue);
+  const secondaryParsed = readCoordinates(activePath === 'walking' ? value : walkingValue);
+  const lastValidCoordinates = useRef({ route: [], walking: [] });
   const editorRef = useRef(null);
   const mapRef = useRef(null);
+  const historyRef = useRef({ route: [], walking: [] });
+  const segmentDragRef = useRef(null);
+  const suppressNextLineClickRef = useRef(false);
   const [snapping, setSnapping] = useState(false);
   const [snapMessage, setSnapMessage] = useState('');
   const [activeHandleIndex, setActiveHandleIndex] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [moveWholeLine, setMoveWholeLine] = useState(false);
+  const [, setHistoryRevision] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState('');
 
@@ -99,12 +109,14 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   }, []);
 
   useEffect(() => {
-    if (!parsed.error) lastValidCoordinates.current = parsed.coordinates;
-  }, [value, parsed.error]);
+    if (!parsed.error) lastValidCoordinates.current[activePath] = parsed.coordinates;
+  }, [activeValue, parsed.error, activePath]);
 
   const { error } = parsed;
-  const coordinates = error ? lastValidCoordinates.current : parsed.coordinates;
+  const coordinates = error ? lastValidCoordinates.current[activePath] : parsed.coordinates;
   const positions = coordinates.map(([longitude, latitude]) => [latitude, longitude]);
+  const secondaryCoordinates = secondaryParsed.error ? [] : secondaryParsed.coordinates;
+  const secondaryPositions = secondaryCoordinates.map(([longitude, latitude]) => [latitude, longitude]);
   const handleIndices = coordinates.length <= 12
     ? coordinates.map((_, index) => index)
     : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
@@ -113,14 +125,50 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
     ? [...new Set([...handleIndices, selectedHandleIndex])]
     : handleIndices;
 
-  const updateCoordinates = (nextCoordinates) => {
-    onChange(nextCoordinates.length
+  const updateCoordinates = (nextCoordinates, { recordHistory = true } = {}) => {
+    if (recordHistory && JSON.stringify(nextCoordinates) !== JSON.stringify(coordinates)) {
+      historyRef.current[activePath] = [...historyRef.current[activePath].slice(-99), coordinates];
+      setHistoryRevision((revision) => revision + 1);
+    }
+    changeActivePath?.(nextCoordinates.length
       ? JSON.stringify({ type: 'LineString', coordinates: nextCoordinates })
       : '');
   };
 
+  const undo = () => {
+    const previousCoordinates = historyRef.current[activePath].pop();
+    if (!previousCoordinates) return;
+    setHistoryRevision((revision) => revision + 1);
+    changeActivePath?.(previousCoordinates.length
+      ? JSON.stringify({ type: 'LineString', coordinates: previousCoordinates })
+      : '');
+    setActiveHandleIndex(null);
+  };
+
+  useEffect(() => {
+    const handleUndoShortcut = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || !isEditing) return;
+      if (!editorRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (!historyRef.current[activePath].length) return;
+      event.preventDefault();
+      undo();
+    };
+    document.addEventListener('keydown', handleUndoShortcut);
+    return () => document.removeEventListener('keydown', handleUndoShortcut);
+  }, [activePath, isEditing]);
+
+  useEffect(() => () => {
+    const drag = segmentDragRef.current;
+    if (!drag) return;
+    drag.map.off('mousemove', drag.moveHandler);
+    drag.map.off('mouseup', drag.endHandler);
+    window.removeEventListener('mouseup', drag.endHandler);
+    if (drag.wasMapDraggingEnabled) drag.map.dragging.enable();
+  }, []);
+
   const addPointOnRoute = (event) => {
-    if (error || positions.length < 2 || !mapRef.current) return;
+    if (!isEditing || error || positions.length < 2 || !mapRef.current) return;
 
     const map = mapRef.current;
     const clickPoint = map.latLngToLayerPoint(event.latlng);
@@ -158,6 +206,105 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
     updateCoordinates(nextCoordinates);
   };
 
+  const startSegmentDrag = (event) => {
+    if (!isEditing || error || !mapRef.current || coordinates.length < 2) return;
+    const map = mapRef.current;
+    const pointerStart = map.latLngToLayerPoint(event.latlng);
+    let closestSegmentIndex = 0;
+    let closestDistance = Infinity;
+
+    for (let index = 0; index < positions.length - 1; index += 1) {
+      const start = map.latLngToLayerPoint(positions[index]);
+      const end = map.latLngToLayerPoint(positions[index + 1]);
+      const segmentX = end.x - start.x;
+      const segmentY = end.y - start.y;
+      const lengthSquared = segmentX * segmentX + segmentY * segmentY;
+      const projection = lengthSquared
+        ? Math.max(0, Math.min(1, ((pointerStart.x - start.x) * segmentX + (pointerStart.y - start.y) * segmentY) / lengthSquared))
+        : 0;
+      const distanceX = pointerStart.x - (start.x + projection * segmentX);
+      const distanceY = pointerStart.y - (start.y + projection * segmentY);
+      const distance = distanceX * distanceX + distanceY * distanceY;
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestSegmentIndex = index;
+      }
+    }
+
+    const originalCoordinates = coordinates.map((point) => [...point]);
+    const projectedPoints = originalCoordinates.map(([longitude, latitude]) =>
+      map.latLngToLayerPoint([latitude, longitude])
+    );
+    const cumulativeDistances = [0];
+    for (let index = 1; index < projectedPoints.length; index += 1) {
+      cumulativeDistances.push(cumulativeDistances[index - 1] + projectedPoints[index - 1].distanceTo(projectedPoints[index]));
+    }
+    const wasMapDraggingEnabled = map.dragging.enabled();
+    if (wasMapDraggingEnabled) map.dragging.disable();
+    event.originalEvent?.preventDefault();
+
+    const drag = {
+      map,
+      originalCoordinates,
+      pointerStart,
+      projectedPoints,
+      cumulativeDistances,
+      segmentIndex: closestSegmentIndex,
+      wasMapDraggingEnabled,
+      didMove: false,
+      ended: false,
+    };
+    drag.moveHandler = (moveEvent) => {
+      const pointer = map.latLngToLayerPoint(moveEvent.latlng);
+      const offsetX = pointer.x - drag.pointerStart.x;
+      const offsetY = pointer.y - drag.pointerStart.y;
+      if (Math.abs(offsetX) + Math.abs(offsetY) > 2) drag.didMove = true;
+      if (!drag.didMove) return;
+
+      const nextCoordinates = drag.originalCoordinates.map((point) => [...point]);
+      drag.originalCoordinates.forEach((_, pointIndex) => {
+        const segmentStart = drag.cumulativeDistances[drag.segmentIndex];
+        const segmentEnd = drag.cumulativeDistances[drag.segmentIndex + 1];
+        const distanceOutsideSegment = drag.cumulativeDistances[pointIndex] < segmentStart
+          ? segmentStart - drag.cumulativeDistances[pointIndex]
+          : drag.cumulativeDistances[pointIndex] > segmentEnd
+            ? drag.cumulativeDistances[pointIndex] - segmentEnd
+            : 0;
+        const influence = moveWholeLine ? 1 : Math.max(0, 1 - distanceOutsideSegment / 180);
+        if (!influence) return;
+        const easedInfluence = influence * influence * (3 - 2 * influence);
+        const movedPoint = map.layerPointToLatLng(L.point(
+          drag.projectedPoints[pointIndex].x + offsetX * easedInfluence,
+          drag.projectedPoints[pointIndex].y + offsetY * easedInfluence
+        ));
+        nextCoordinates[pointIndex] = [movedPoint.lng, movedPoint.lat];
+      });
+      changeActivePath?.(JSON.stringify({ type: 'LineString', coordinates: nextCoordinates }));
+    };
+    drag.endHandler = () => {
+      if (drag.ended) return;
+      drag.ended = true;
+      map.off('mousemove', drag.moveHandler);
+      map.off('mouseup', drag.endHandler);
+      window.removeEventListener('mouseup', drag.endHandler);
+      if (drag.wasMapDraggingEnabled) map.dragging.enable();
+      segmentDragRef.current = null;
+      if (drag.didMove) {
+        historyRef.current[activePath] = [...historyRef.current[activePath].slice(-99), drag.originalCoordinates];
+        setHistoryRevision((revision) => revision + 1);
+        suppressNextLineClickRef.current = true;
+        window.setTimeout(() => {
+          suppressNextLineClickRef.current = false;
+        }, 250);
+        setActiveHandleIndex(drag.segmentIndex);
+      }
+    };
+    segmentDragRef.current = drag;
+    map.on('mousemove', drag.moveHandler);
+    map.on('mouseup', drag.endHandler);
+    window.addEventListener('mouseup', drag.endHandler);
+  };
+
   const toggleFullscreen = async () => {
     setFullscreenError('');
     try {
@@ -184,7 +331,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   };
 
   const snapToNearbyRoads = async () => {
-    if (coordinates.length < 2 || Boolean(error) || !allowRoadSnap) return;
+    if (!isEditing || activePath === 'walking' || coordinates.length < 2 || Boolean(error) || !allowRoadSnap) return;
 
     setSnapping(true);
     setSnapMessage('');
@@ -220,6 +367,26 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
           <p className="text-xs text-slate-500">
             {coordinates.length} mapped points · A is the first point; B is the last.
           </p>
+          <div className="mt-2 inline-flex rounded-md border border-slate-200 p-0.5">
+            {[
+              { id: 'route', label: 'Transit path' },
+              { id: 'walking', label: 'Walking path' },
+            ].map((path) => (
+              <button
+                key={path.id}
+                type="button"
+                aria-pressed={activePath === path.id}
+                onClick={() => {
+                  setActivePath(path.id);
+                  setActiveHandleIndex(null);
+                }}
+                className={`rounded px-2.5 py-1 text-xs font-semibold ${activePath === path.id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {path.label}
+                {path.id === 'walking' && <span className="ml-1 text-sky-500">- - -</span>}
+              </button>
+            ))}
+          </div>
           {coordinates.length > 0 && (
             <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
               <label htmlFor="route-point-index">Selected point</label>
@@ -229,6 +396,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
                 min="1"
                 max={coordinates.length}
                 value={(selectedHandleIndex ?? 0) + 1}
+                disabled={!isEditing}
                 onChange={(event) => {
                   const pointIndex = Number(event.target.value) - 1;
                   if (Number.isInteger(pointIndex) && pointIndex >= 0 && pointIndex < coordinates.length) {
@@ -242,7 +410,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
                 type="button"
                 title="Remove selected point"
                 aria-label="Remove selected point"
-                disabled={coordinates.length <= 2 || selectedHandleIndex === null || Boolean(error)}
+                disabled={!isEditing || coordinates.length <= 2 || selectedHandleIndex === null || Boolean(error)}
                 onClick={() => {
                   const nextCoordinates = coordinates.filter((_, index) => index !== selectedHandleIndex);
                   updateCoordinates(nextCoordinates);
@@ -258,6 +426,28 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
         <div className="flex items-center gap-1">
           <button
             type="button"
+            title={isEditing ? 'Lock route editing' : 'Unlock route editing'}
+            aria-label={isEditing ? 'Lock route editing' : 'Unlock route editing'}
+            aria-pressed={isEditing}
+            onClick={() => setIsEditing((editing) => !editing)}
+            className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold ${isEditing ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+          >
+            {isEditing ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {isEditing ? 'Editing' : 'Edit route'}
+          </button>
+          <button
+            type="button"
+            title={moveWholeLine ? 'Disable whole-line moving' : 'Move the entire path while preserving its shape'}
+            aria-label={moveWholeLine ? 'Disable whole-line moving' : 'Move the entire path'}
+            aria-pressed={moveWholeLine}
+            disabled={!isEditing || coordinates.length < 2}
+            onClick={() => setMoveWholeLine((moving) => !moving)}
+            className={`inline-flex h-9 items-center justify-center rounded-md border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${moveWholeLine ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+          >
+            {moveWholeLine ? 'Move all' : 'Move section'}
+          </button>
+          <button
+            type="button"
             title="Fit route in map"
             aria-label="Fit route in map"
             disabled={!positions.length}
@@ -270,7 +460,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
             type="button"
             title="Match this path to nearby streets"
             aria-label="Match this path to nearby streets"
-            disabled={coordinates.length < 2 || Boolean(error) || snapping || !allowRoadSnap}
+            disabled={!isEditing || activePath === 'walking' || coordinates.length < 2 || Boolean(error) || snapping || !allowRoadSnap}
             onClick={snapToNearbyRoads}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -287,10 +477,10 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
           </button>
           <button
             type="button"
-            title="Remove last point"
-            aria-label="Remove last point"
-            disabled={!coordinates.length || Boolean(error)}
-            onClick={() => updateCoordinates(coordinates.slice(0, -1))}
+            title="Undo last route edit (Ctrl+Z)"
+            aria-label="Undo last route edit"
+            disabled={!historyRef.current[activePath].length || !isEditing}
+            onClick={undo}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Undo2 className="h-4 w-4" />
@@ -299,7 +489,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
             type="button"
             title="Clear entire route path"
             aria-label="Clear entire route path"
-            disabled={!coordinates.length || Boolean(error)}
+            disabled={!isEditing || !coordinates.length || Boolean(error)}
             onClick={() => updateCoordinates([])}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -309,7 +499,9 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
       </div>
 
       <p className="text-xs text-slate-500">
-        Click the map to extend the route. Click the line to add a draggable control point, then drag it to reshape that section.
+        {isEditing
+          ? 'Click the map to extend the route. Click the line to add a control point, drag points to reshape, or drag a line section to move it without adding a point. Ctrl+Z undoes the last edit.'
+          : 'Route editing is locked. Unlock editing to add points, reshape the route, or move a line section.'}
       </p>
       <div className="route-geometry-map relative h-72 overflow-hidden rounded-lg border border-slate-300">
         <MapContainer
@@ -325,16 +517,45 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
             maxZoom={19}
           />
           <RouteMapController isFullscreen={isFullscreen} mapRef={mapRef} />
+          {secondaryPositions.length > 1 && (
+            <Polyline
+              positions={secondaryPositions}
+              pathOptions={{
+                color: activePath === 'walking' ? color : '#2563eb',
+                weight: 5,
+                opacity: 0.6,
+                dashArray: activePath === 'walking' ? undefined : '8 8',
+                lineCap: 'round',
+                interactive: false,
+              }}
+            />
+          )}
           <MapPointPicker
-            disabled={Boolean(error)}
+            disabled={!isEditing || Boolean(error)}
             onAddPoint={(point) => updateCoordinates([...coordinates, point])}
           />
           <FitInitialRoute positions={positions} />
           {positions.length > 1 && (
             <Polyline
               positions={positions}
-              pathOptions={{ color, weight: 5, opacity: 0.9, bubblingMouseEvents: false }}
-              eventHandlers={{ click: addPointOnRoute }}
+              pathOptions={{
+                color: activePath === 'walking' ? '#2563eb' : color,
+                weight: 7,
+                opacity: 0.95,
+                dashArray: activePath === 'walking' ? '8 8' : undefined,
+                lineCap: 'round',
+                bubblingMouseEvents: false,
+              }}
+              eventHandlers={{
+                click(event) {
+                  if (suppressNextLineClickRef.current) {
+                    suppressNextLineClickRef.current = false;
+                    return;
+                  }
+                  addPointOnRoute(event);
+                },
+                mousedown: startSegmentDrag,
+              }}
             />
           )}
           {visibleHandleIndices.map((index) => {
@@ -345,10 +566,10 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
               position={position}
               icon={routePointIcon(
                 index === 0 ? 'A' : index === positions.length - 1 && positions.length > 1 ? 'B' : '',
-                color,
+                activePath === 'walking' ? '#2563eb' : color,
                 index === selectedHandleIndex
               )}
-              draggable={!error}
+              draggable={isEditing && !error}
               title={index === activeHandleIndex ? 'New control point: drag to adjust this section'
                 : index === 0 ? 'Point A: route start'
                 : index === positions.length - 1 && positions.length > 1 ? 'Point B: route end'
@@ -383,8 +604,9 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
         <summary className="cursor-pointer font-semibold text-slate-600">GeoJSON coordinates</summary>
         <textarea
           rows="3"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          value={activeValue}
+          disabled={!isEditing}
+          onChange={(event) => changeActivePath?.(event.target.value)}
           placeholder='{"type":"LineString","coordinates":[[120.334,16.043],[...]]}'
           className="mt-2 w-full rounded-md border border-slate-200 bg-slate-50 p-2 font-mono"
         />

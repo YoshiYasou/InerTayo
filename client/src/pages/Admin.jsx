@@ -12,6 +12,8 @@ import {
   MapPin, 
   Plus, 
   Trash2, 
+  ArrowUp,
+  ArrowDown,
   Edit, 
   Check, 
   X, 
@@ -78,6 +80,8 @@ export default function Admin() {
   // Form Modal States
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState(null);
+  const [routeSteps, setRouteSteps] = useState([]);
+  const [originalRouteSteps, setOriginalRouteSteps] = useState([]);
   const [routeFormData, setRouteFormData] = useState({
     route_name: '',
     transport_mode_id: 1,
@@ -90,6 +94,7 @@ export default function Admin() {
     status: 'CLEAR',
     description: '',
     geometry: '',
+    walking_geometry: '',
     waterway: '',
     origin_river_stop_id: '',
     destination_river_stop_id: '',
@@ -203,6 +208,8 @@ export default function Admin() {
   // Route Handlers
   const openNewRouteModal = () => {
     setEditingRoute(null);
+    setRouteSteps([]);
+    setOriginalRouteSteps([]);
     setRouteFormData({
       route_name: '',
       transport_mode_id: modes[0]?.id || 1,
@@ -215,6 +222,7 @@ export default function Admin() {
       status: 'CLEAR',
       description: '',
       geometry: '',
+      walking_geometry: '',
       waterway: 'Pantal River',
       origin_river_stop_id: '',
       destination_river_stop_id: '',
@@ -226,6 +234,8 @@ export default function Admin() {
 
   const openEditRouteModal = async (route) => {
     setEditingRoute(route);
+    setRouteSteps([]);
+    setOriginalRouteSteps([]);
     let waterway = route.waterway || '';
     let origin_river_stop_id = route.origin_river_stop_id || '';
     let destination_river_stop_id = route.destination_river_stop_id || '';
@@ -249,6 +259,18 @@ export default function Admin() {
       } catch (e) {}
     }
 
+    try {
+      const stepsResponse = await fetch(`/api/admin/routes/${route.id}/steps`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!stepsResponse.ok) throw new Error('Could not load route steps.');
+      const steps = await stepsResponse.json();
+      setRouteSteps(Array.isArray(steps) ? steps : []);
+      setOriginalRouteSteps(Array.isArray(steps) ? steps : []);
+    } catch (stepsError) {
+      console.error('Error loading route steps:', stepsError);
+    }
+
     setRouteFormData({
       route_name: route.route_name,
       transport_mode_id: route.transport_mode_id,
@@ -261,6 +283,7 @@ export default function Admin() {
       status: route.status,
       description: route.description || '',
       geometry: typeof route.geometry === 'object' ? JSON.stringify(route.geometry) : (route.geometry || ''),
+      walking_geometry: typeof route.walking_geometry === 'object' ? JSON.stringify(route.walking_geometry) : (route.walking_geometry || ''),
       waterway,
       origin_river_stop_id,
       destination_river_stop_id,
@@ -268,6 +291,39 @@ export default function Admin() {
       boat_notes
     });
     setRouteModalOpen(true);
+  };
+
+  const saveRouteSteps = async (routeId) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    };
+    const currentIds = new Set(routeSteps.filter((step) => step.id).map((step) => step.id));
+    const removedSteps = originalRouteSteps.filter((step) => !currentIds.has(step.id));
+
+    for (const step of removedSteps) {
+      const response = await fetch(`/api/admin/steps/${step.id}`, { method: 'DELETE', headers });
+      if (!response.ok) throw new Error('Could not remove a route step.');
+    }
+
+    for (const [index, step] of routeSteps.entries()) {
+      const payload = {
+        route_id: routeId,
+        step_number: index + 1,
+        mode: step.mode || 'Walk',
+        instruction: step.instruction,
+        location_info: step.location_info || '',
+      };
+      const response = await fetch(step.id ? `/api/admin/steps/${step.id}` : '/api/admin/steps', {
+        method: step.id ? 'PUT' : 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Could not save route steps.');
+      }
+    }
   };
 
   const handleSaveRoute = async (e) => {
@@ -325,6 +381,8 @@ export default function Admin() {
           })
         });
       }
+
+      await saveRouteSteps(routeId);
 
       setRouteModalOpen(false);
       loadAdminData();
@@ -1812,9 +1870,119 @@ export default function Admin() {
                 ></textarea>
               </div>
 
+              <section className="space-y-3 border-t border-slate-200 pt-4" aria-labelledby="route-steps-heading">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 id="route-steps-heading" className="text-sm font-bold text-slate-800">Route steps & directions</h4>
+                    <p className="text-xs text-slate-500">These instructions appear on the public route page.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRouteSteps((steps) => [...steps, {
+                      mode: 'Walk',
+                      instruction: '',
+                      location_info: '',
+                    }])}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add step
+                  </button>
+                </div>
+
+                {routeSteps.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-center text-xs text-slate-500">
+                    No directions yet. Add a step to describe the route.
+                  </p>
+                ) : routeSteps.map((step, index) => (
+                  <div key={step.id || `new-step-${index}`} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-2 rounded-md border border-slate-200 p-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold text-white">
+                      {index + 1}
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+                        <select
+                          aria-label={`Step ${index + 1} mode`}
+                          value={step.mode || 'Walk'}
+                          onChange={(event) => setRouteSteps((steps) => steps.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, mode: event.target.value } : item
+                          ))}
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs"
+                        >
+                          {[...new Set(['Walk', ...modes.map((mode) => mode.name)])].map((mode) => (
+                            <option key={mode} value={mode}>{mode}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          aria-label={`Step ${index + 1} instruction`}
+                          value={step.instruction || ''}
+                          onChange={(event) => setRouteSteps((steps) => steps.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, instruction: event.target.value } : item
+                          ))}
+                          placeholder="e.g. Board the tricycle toward Lucao"
+                          className="w-full rounded-md border border-slate-300 px-2 py-2 text-xs"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        aria-label={`Step ${index + 1} details`}
+                        value={step.location_info || ''}
+                        onChange={(event) => setRouteSteps((steps) => steps.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, location_info: event.target.value } : item
+                        ))}
+                        placeholder="Optional location details"
+                        className="w-full rounded-md border border-slate-300 px-2 py-2 text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        type="button"
+                        title="Move step up"
+                        aria-label={`Move step ${index + 1} up`}
+                        disabled={index === 0}
+                        onClick={() => setRouteSteps((steps) => {
+                          const nextSteps = [...steps];
+                          [nextSteps[index - 1], nextSteps[index]] = [nextSteps[index], nextSteps[index - 1]];
+                          return nextSteps;
+                        })}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-600 disabled:opacity-30"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Move step down"
+                        aria-label={`Move step ${index + 1} down`}
+                        disabled={index === routeSteps.length - 1}
+                        onClick={() => setRouteSteps((steps) => {
+                          const nextSteps = [...steps];
+                          [nextSteps[index + 1], nextSteps[index]] = [nextSteps[index], nextSteps[index + 1]];
+                          return nextSteps;
+                        })}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-600 disabled:opacity-30"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Remove step"
+                        aria-label={`Remove step ${index + 1}`}
+                        onClick={() => setRouteSteps((steps) => steps.filter((_, itemIndex) => itemIndex !== index))}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded border border-rose-200 text-rose-700 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </section>
+
               <RouteGeometryEditor
                 value={routeFormData.geometry}
-                onChange={(geometry) => setRouteFormData({ ...routeFormData, geometry })}
+                onChange={(geometry) => setRouteFormData((current) => ({ ...current, geometry }))}
+                walkingValue={routeFormData.walking_geometry}
+                onWalkingChange={(walking_geometry) => setRouteFormData((current) => ({ ...current, walking_geometry }))}
                 token={token}
                 allowRoadSnap={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat'}
                 color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'

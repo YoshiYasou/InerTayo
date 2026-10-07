@@ -185,16 +185,20 @@ function locationDivIcon(loc) {
   });
 }
 
-function clusterIcon(color) {
+function clusterIcon(color, showCount = true) {
   return (cluster) => {
     const n = cluster.getChildCount();
+    const size = showCount ? 34 : 18;
+    const content = showCount
+      ? n
+      : '<span aria-label="Grouped stops" style="display:flex;gap:2px"><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i></span>';
     return L.divIcon({
       className: '',
-      html: `<div style="width:34px;height:34px;border-radius:50%;background:${color};
+      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};
         border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
         display:flex;align-items:center;justify-content:center;
-        color:#fff;font-size:12px;font-weight:800;">${n}</div>`,
-      iconSize: [34, 34], iconAnchor: [17, 17],
+        color:#fff;font-size:12px;font-weight:800;" aria-label="${showCount ? `${n} stops` : 'Grouped stops'}">${content}</div>`,
+      iconSize: [size, size], iconAnchor: [size / 2, size / 2],
     });
   };
 }
@@ -274,6 +278,7 @@ function LayerManager({
   setSelectedRouteId,
   locations = [],
   focusedRouteFeature = null,
+  showStopClusterCounts = true,
 }) {
   const map = useMap();
 
@@ -331,7 +336,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -472,6 +477,27 @@ function LayerManager({
           });
         },
       }).addTo(map);
+
+      features.forEach((feature) => {
+        let walkingGeometry = feature.properties.walking_geometry;
+        if (typeof walkingGeometry === 'string') {
+          try {
+            walkingGeometry = JSON.parse(walkingGeometry);
+          } catch {
+            walkingGeometry = null;
+          }
+        }
+        if (walkingGeometry?.type !== 'LineString' || !Array.isArray(walkingGeometry.coordinates) || walkingGeometry.coordinates.length < 2) return;
+        L.polyline(walkingGeometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]), {
+          renderer: L.canvas(),
+          color: '#2563eb',
+          weight: 4,
+          opacity: 0.95,
+          dashArray: '6 8',
+          lineCap: 'round',
+          interactive: false,
+        }).addTo(layerGroup);
+      });
 
       refs.routeLayers[key] = layerGroup;
       if (focusedRouteFeature) {
@@ -615,7 +641,7 @@ function LayerManager({
       disableClusteringAtZoom: CLUSTER_MAX_ZOOM + 1,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
-      iconCreateFunction: clusterIcon('#64748b'),
+      iconCreateFunction: clusterIcon('#64748b', showStopClusterCounts),
     });
 
     const zoom = currentZoom.current;
@@ -899,6 +925,7 @@ export default function RouteMap({
   locations     = [],
   showAdvisories = true,
   interactive   = true,
+  showStopClusterCounts = true,
   className     = 'w-full h-full rounded-2xl',
   style         = {},
   onSelect      = null,
@@ -944,6 +971,7 @@ export default function RouteMap({
           setSelectedRouteId={setSelectedRouteId}
           locations={locations}
           focusedRouteFeature={focusedRouteFeature}
+          showStopClusterCounts={showStopClusterCounts}
         />
       </MapContainer>
     </div>
