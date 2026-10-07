@@ -2325,7 +2325,14 @@ router.delete('/admin/locations/:id', authenticateToken, requireAdmin, async (re
             return res.status(404).json({ error: 'Location not found.' });
         }
 
+        await Promise.all([
+            BoatRouteDetail.updateMany({ origin_river_stop_id: locationId }, { origin_river_stop_id: null }),
+            BoatRouteDetail.updateMany({ destination_river_stop_id: locationId }, { destination_river_stop_id: null }),
+            RouteSegment.updateMany({ start_location_id: locationId }, { start_location_id: null }),
+            RouteSegment.updateMany({ end_location_id: locationId }, { end_location_id: null })
+        ]);
         await Location.deleteOne({ id: locationId });
+        invalidateMapCache();
         res.json({ message: 'Location deleted successfully.' });
     } catch (err) {
         console.error('Error deleting location:', err);
@@ -2976,6 +2983,30 @@ router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, 
     }
 });
 
+async function normalizeRouteStops(routeId, selectedStopId = null, requestedOrder = null) {
+    const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1, id: 1 }).lean();
+    const selectedIndex = stops.findIndex(stop => stop.id === selectedStopId);
+    if (selectedIndex >= 0) {
+        const [selectedStop] = stops.splice(selectedIndex, 1);
+        const targetIndex = Math.max(0, Math.min(stops.length, Number(requestedOrder) - 1));
+        stops.splice(targetIndex, 0, selectedStop);
+    }
+
+    await Promise.all(stops.map((stop, index) =>
+        Stop.updateOne({ id: stop.id }, { stop_order: index + 1 })
+    ));
+}
+
+// GET /api/admin/stops - All route stops for admin management
+router.get('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const stops = await Stop.find().sort({ route_id: 1, stop_order: 1 }).lean();
+        res.json(stops);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch route stops.' });
+    }
+});
+
 // GET /api/admin/routes/:id/stops - Stops for a route
 router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
@@ -2996,16 +3027,20 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             return res.status(400).json({ error: 'route_id, stop_name, and stop_order are required.' });
         }
 
+        const parsedRouteId = parseId(route_id);
         const parsedStopOrder = parseInt(stop_order, 10);
-        if (isNaN(parsedStopOrder) || parsedStopOrder < 0) {
-            return res.status(400).json({ error: 'stop_order must be a valid non-negative integer.' });
+        if (parsedRouteId === null || !await Route.findOne({ id: parsedRouteId })) {
+            return res.status(400).json({ error: 'route_id must refer to an existing route.' });
+        }
+        if (isNaN(parsedStopOrder) || parsedStopOrder < 1) {
+            return res.status(400).json({ error: 'stop_order must be a positive integer.' });
         }
 
         const stopId = await nextId('Stop');
 
         await Stop.create({
             id: stopId,
-            route_id,
+            route_id: parsedRouteId,
             stop_name: stop_name.trim(),
             stop_order: parsedStopOrder,
             description: description || null,
@@ -3014,6 +3049,7 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             longitude: longitude || null
         });
 
+        await normalizeRouteStops(parsedRouteId, stopId, parsedStopOrder);
         invalidateMapCache();
         res.status(201).json({ message: 'Stop added.', stopId });
     } catch (err) {
@@ -3029,14 +3065,15 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
-        const { stop_name, stop_order, description, is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, stop_name, stop_order, description, is_transfer_point, latitude, longitude } = req.body;
         if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'stop_name and stop_order are required.' });
         }
 
         const parsedStopOrder = parseInt(stop_order, 10);
-        if (isNaN(parsedStopOrder) || parsedStopOrder < 0) {
-            return res.status(400).json({ error: 'stop_order must be a valid non-negative integer.' });
+        const parsedRouteId = route_id === undefined ? null : parseId(route_id);
+        if (isNaN(parsedStopOrder) || parsedStopOrder < 1) {
+            return res.status(400).json({ error: 'stop_order must be a positive integer.' });
         }
 
         const existing = await Stop.findOne({ id: stopId });
@@ -3044,9 +3081,15 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(404).json({ error: 'Stop not found.' });
         }
 
+        const nextRouteId = parsedRouteId === null ? existing.route_id : parsedRouteId;
+        if (route_id !== undefined && (parsedRouteId === null || !await Route.findOne({ id: nextRouteId }))) {
+            return res.status(400).json({ error: 'route_id must refer to an existing route.' });
+        }
+
         await Stop.updateOne(
             { id: stopId },
             {
+                route_id: nextRouteId,
                 stop_name: stop_name.trim(),
                 stop_order: parsedStopOrder,
                 description: description || null,
@@ -3056,6 +3099,10 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             }
         );
 
+        if (existing.route_id !== nextRouteId) {
+            await normalizeRouteStops(existing.route_id);
+        }
+        await normalizeRouteStops(nextRouteId, stopId, parsedStopOrder);
         invalidateMapCache();
         res.json({ message: 'Stop updated.' });
     } catch (err) {
@@ -3077,6 +3124,7 @@ router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, r
         }
 
         await Stop.deleteOne({ id: stopId });
+        await normalizeRouteStops(existing.route_id);
         invalidateMapCache();
         res.json({ message: 'Stop deleted.' });
     } catch (err) {

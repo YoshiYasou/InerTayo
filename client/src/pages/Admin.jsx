@@ -38,6 +38,7 @@ export default function Admin() {
   const [feedbackList, setFeedbackList] = useState([]);
   const [modes, setModes] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [routeStops, setRouteStops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adminSearch, setAdminSearch] = useState('');
 
@@ -126,8 +127,24 @@ export default function Admin() {
     description: '',
     status: 'ACTIVE'
   });
+  const [stopModalOpen, setStopModalOpen] = useState(false);
+  const [editingStop, setEditingStop] = useState(null);
+  const [stopFormData, setStopFormData] = useState({
+    route_id: '',
+    stop_name: '',
+    stop_order: 1,
+    description: '',
+    is_transfer_point: false,
+    latitude: '',
+    longitude: '',
+  });
 
   const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
+  const routePlaceOptions = Array.from(new Map(
+    locations
+      .filter(location => location.status !== 'INACTIVE' && location.name?.trim())
+      .map(location => [location.name, location])
+  ).values()).sort((first, second) => first.name.localeCompare(second.name));
 
   const searchTerm = adminSearch.trim().toLowerCase();
   const matchesAdminSearch = (values) => !searchTerm || values.some(value =>
@@ -146,6 +163,11 @@ export default function Admin() {
   const searchedLocations = locations.filter(location => matchesAdminSearch([
     location.name, location.type, location.barangay, location.address, location.status,
     location.search_keywords, location.description
+  ]));
+  const searchedRouteStops = routeStops.filter(stop => matchesAdminSearch([
+    stop.stop_name,
+    stop.description,
+    routes.find(route => route.id === stop.route_id)?.route_name,
   ]));
   const searchedModes = modes.filter(mode => matchesAdminSearch([
     mode.name, mode.description, mode.icon, mode.status
@@ -177,17 +199,27 @@ export default function Admin() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
+      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/routes').then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
         fetch('/api/transport-modes').then(r => r.json()),
         fetch('/api/admin/locations', { headers }).then(r => r.json()),
+        fetch('/api/admin/stops', { headers }).then(r => r.json()),
         fetch('/api/fares/tricycles').then(r => r.json()).catch(() => []),
         fetch('/api/fares/routes').then(r => r.json()).catch(() => []),
         fetch('/api/fares/boats').then(r => r.json()).catch(() => [])
       ]);
+
+      let stopRecords = stopsRes;
+      if (!Array.isArray(stopRecords) && Array.isArray(routesRes)) {
+        const routeStopLists = await Promise.all(routesRes.map(async (route) => {
+          const response = await fetch(`/api/admin/routes/${route.id}/stops`, { headers });
+          return response.ok ? response.json() : [];
+        }));
+        stopRecords = routeStopLists.flat();
+      }
 
       setStats(statsRes);
       setRoutes(routesRes);
@@ -195,6 +227,7 @@ export default function Admin() {
       setFeedbackList(feedRes);
       setModes(modesRes);
       setLocations(Array.isArray(locsRes) ? locsRes : (locsRes.locations || []));
+      setRouteStops(Array.isArray(stopRecords) ? stopRecords : []);
       setFareTricycles(Array.isArray(tricyclesRes) ? tricyclesRes : []);
       setFareRoutes(Array.isArray(routeFaresRes) ? routeFaresRes : []);
       setFareBoats(Array.isArray(boatFaresRes) ? boatFaresRes : []);
@@ -583,6 +616,76 @@ export default function Admin() {
       loadAdminData();
     } catch (err) {
       alert('Failed to delete location.');
+    }
+  };
+
+  const openNewStopModal = () => {
+    setEditingStop(null);
+    setStopFormData({
+      route_id: routes[0]?.id || '',
+      stop_name: '',
+      stop_order: 1,
+      description: '',
+      is_transfer_point: false,
+      latitude: '',
+      longitude: '',
+    });
+    setStopModalOpen(true);
+  };
+
+  const openEditStopModal = (stop) => {
+    setEditingStop(stop);
+    setStopFormData({
+      route_id: stop.route_id,
+      stop_name: stop.stop_name,
+      stop_order: stop.stop_order,
+      description: stop.description || '',
+      is_transfer_point: Boolean(stop.is_transfer_point),
+      latitude: stop.latitude ?? '',
+      longitude: stop.longitude ?? '',
+    });
+    setStopModalOpen(true);
+  };
+
+  const handleSaveStop = async (event) => {
+    event.preventDefault();
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const body = {
+      ...stopFormData,
+      route_id: Number(stopFormData.route_id),
+      stop_order: Number(stopFormData.stop_order),
+      latitude: Number(stopFormData.latitude),
+      longitude: Number(stopFormData.longitude),
+    };
+
+    try {
+      const response = await fetch(editingStop ? `/api/admin/stops/${editingStop.id}` : '/api/admin/stops', {
+        method: editingStop ? 'PUT' : 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Stop save was rejected by the server.');
+      }
+      setStopModalOpen(false);
+      await loadAdminData();
+    } catch (error) {
+      alert(`Failed to save stop: ${error.message}`);
+    }
+  };
+
+  const handleDeleteStop = async (stop) => {
+    if (!window.confirm(`Delete ${stop.stop_name} from ${routes.find(route => route.id === stop.route_id)?.route_name || 'this route'}?`)) return;
+    try {
+      const response = await fetch(`/api/admin/stops/${stop.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Stop deletion was rejected by the server.');
+      await loadAdminData();
+    } catch (error) {
+      alert(`Failed to delete stop: ${error.message}`);
     }
   };
 
@@ -1087,11 +1190,12 @@ export default function Admin() {
       {/* TAB 4: LOCATIONS / PLACES & STOPS MANAGEMENT */}
       {/* ========================================================================= */}
       {activeTab === 'locations' && (
+        <div className="space-y-6">
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Places, Streets & River Stops</h3>
-              <p className="text-xs text-slate-500">Searchable location registry — streets, barangays, terminals, river docks, and establishments. Adding a location here makes it available in map search and fare routing.</p>
+              <h3 className="text-lg font-bold text-slate-900">Places, Terminals & River Stops</h3>
+              <p className="text-xs text-slate-500">Manage searchable places, terminals, and docks. Terminal and river-stop locations are also used by boat-route configuration.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
               {renderAdminSearch('Search places and stops...')}
@@ -1100,7 +1204,7 @@ export default function Admin() {
                 className="py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
               >
                 <Plus className="w-4 h-4" />
-                Add Location
+                Add Place / Terminal
               </button>
             </div>
           </div>
@@ -1162,6 +1266,74 @@ export default function Admin() {
               </tbody>
             </table>
           </div>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Route Stops</h3>
+              <p className="text-xs text-slate-500">Add, edit, reorder, move, or remove stops. Each stop belongs to one route.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {renderAdminSearch('Search route stops...')}
+              <button
+                type="button"
+                onClick={openNewStopModal}
+                disabled={!routes.length}
+                className="py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" />
+                Add Stop
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto -mx-6 px-6">
+            <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Stop</th>
+                  <th className="py-3 px-4">Route</th>
+                  <th className="py-3 px-4">Order</th>
+                  <th className="py-3 px-4">Coordinates</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {searchedRouteStops.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="text-center text-slate-400 py-8">
+                      {routeStops.length ? 'No route stops match your search.' : 'No route stops configured yet. Add them when you are ready.'}
+                    </td>
+                  </tr>
+                ) : searchedRouteStops.map((stop) => (
+                  <tr key={stop.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4">
+                      <span className="font-semibold text-slate-900">{stop.stop_name}</span>
+                      {stop.is_transfer_point ? <span className="ml-2 text-[10px] font-bold uppercase text-sky-700">Transfer</span> : null}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500">{routes.find(route => route.id === stop.route_id)?.route_name || `Route ${stop.route_id}`}</td>
+                    <td className="py-3 px-4 tabular-nums">{stop.stop_order}</td>
+                    <td className="py-3 px-4 font-mono text-slate-400">
+                      {Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)
+                        ? `${stop.latitude.toFixed(5)}, ${stop.longitude.toFixed(5)}`
+                        : 'Not pinned'}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button type="button" onClick={() => openEditStopModal(stop)} className="p-2 text-slate-400 hover:text-emerald-700 rounded-lg hover:bg-slate-100" title="Edit stop" aria-label={`Edit ${stop.stop_name}`}>
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button type="button" onClick={() => handleDeleteStop(stop)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete stop" aria-label={`Delete ${stop.stop_name}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
         </div>
       )}
 
@@ -1662,6 +1834,92 @@ export default function Admin() {
       )}
 
       {/* ========================================================================= */}
+      {/* ROUTE STOP ADD/EDIT MODAL */}
+      {/* ========================================================================= */}
+      {stopModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+            <button type="button" onClick={() => setStopModalOpen(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-600" aria-label="Close stop form">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-xl font-bold text-slate-900 mb-4">
+              {editingStop ? 'Edit Route Stop' : 'Add Route Stop'}
+            </h3>
+            <form onSubmit={handleSaveStop} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Route *</label>
+                  <select required value={stopFormData.route_id}
+                    onChange={(event) => setStopFormData({ ...stopFormData, route_id: event.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                    <option value="" disabled>Select a route</option>
+                    {routes.map(route => <option key={route.id} value={route.id}>{route.route_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Stop Order *</label>
+                  <input type="number" min="1" required value={stopFormData.stop_order}
+                    onChange={(event) => setStopFormData({ ...stopFormData, stop_order: event.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Stop Name *</label>
+                <input type="text" required value={stopFormData.stop_name}
+                  onChange={(event) => setStopFormData({ ...stopFormData, stop_name: event.target.value })}
+                  placeholder="Enter a verified stop name"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Description</label>
+                <textarea rows="2" value={stopFormData.description}
+                  onChange={(event) => setStopFormData({ ...stopFormData, description: event.target.value })}
+                  placeholder="Optional stop details"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              </div>
+              <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                <input type="checkbox" checked={stopFormData.is_transfer_point}
+                  onChange={(event) => setStopFormData({ ...stopFormData, is_transfer_point: event.target.checked })}
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />
+                Transfer point
+              </label>
+              <LocationPinPicker
+                latitude={stopFormData.latitude}
+                longitude={stopFormData.longitude}
+                onPin={(latitude, longitude) => setStopFormData(previous => ({
+                  ...previous,
+                  latitude: latitude.toFixed(6),
+                  longitude: longitude.toFixed(6),
+                }))}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Latitude *</label>
+                  <input type="number" step="any" min="-90" max="90" required value={stopFormData.latitude}
+                    onChange={(event) => setStopFormData({ ...stopFormData, latitude: event.target.value })}
+                    placeholder="16.0435" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Longitude *</label>
+                  <input type="number" step="any" min="-180" max="180" required value={stopFormData.longitude}
+                    onChange={(event) => setStopFormData({ ...stopFormData, longitude: event.target.value })}
+                    placeholder="120.3340" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" />
+                </div>
+              </div>
+              <div className="pt-2 flex justify-end gap-3">
+                <button type="button" onClick={() => setStopModalOpen(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">Cancel</button>
+                <button type="submit"
+                  className="py-2.5 px-6 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow">
+                  {editingStop ? 'Save Stop' : 'Add Stop'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* ROUTE ADD/EDIT MODAL */}
       {/* ========================================================================= */}
       {routeModalOpen && (
@@ -1722,25 +1980,37 @@ export default function Admin() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Origin Landmark</label>
-                  <input
-                    type="text"
+                  <select
                     required
                     value={routeFormData.origin}
-                    onChange={(e) => setRouteFormData({ ...routeFormData, origin: e.target.value })}
-                    placeholder="Origin"
+                    onChange={(event) => setRouteFormData({ ...routeFormData, origin: event.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  />
+                  >
+                    <option value="" disabled>Select an origin</option>
+                    {routeFormData.origin && !routePlaceOptions.some(location => location.name === routeFormData.origin) && (
+                      <option value={routeFormData.origin}>{routeFormData.origin} (existing route value)</option>
+                    )}
+                    {routePlaceOptions.map(location => (
+                      <option key={location.id} value={location.name}>{location.name} ({location.type})</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Destination Landmark</label>
-                  <input
-                    type="text"
+                  <select
                     required
                     value={routeFormData.destination}
-                    onChange={(e) => setRouteFormData({ ...routeFormData, destination: e.target.value })}
-                    placeholder="Destination"
+                    onChange={(event) => setRouteFormData({ ...routeFormData, destination: event.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  />
+                  >
+                    <option value="" disabled>Select a destination</option>
+                    {routeFormData.destination && !routePlaceOptions.some(location => location.name === routeFormData.destination) && (
+                      <option value={routeFormData.destination}>{routeFormData.destination} (existing route value)</option>
+                    )}
+                    {routePlaceOptions.map(location => (
+                      <option key={location.id} value={location.name}>{location.name} ({location.type})</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

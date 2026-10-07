@@ -209,21 +209,27 @@ async function runTests() {
 
         const riverStops = await makeRequest('GET', '/api/locations?type=RIVER_STOP');
         assert(
-            riverStops.status === 200 && riverStops.data.length === 2 && riverStops.data.every(l => l.type === 'RIVER_STOP'),
-            'GET /api/locations?type=RIVER_STOP filters to river stop docks'
+            riverStops.status === 200 && riverStops.data.length === 0,
+            'GET /api/locations?type=RIVER_STOP has no unconfigured river docks'
         );
 
-        const singleLoc = await makeRequest('GET', `/api/locations/${riverStops.data[0].id}`);
+        const terminals = await makeRequest('GET', '/api/locations?type=TERMINAL');
         assert(
-            singleLoc.status === 200 && singleLoc.data.id === riverStops.data[0].id && Array.isArray(singleLoc.data.available_routes),
-            'GET /api/locations/:id returns location detail with available_routes'
+            terminals.status === 200 && terminals.data.length === 0,
+            'GET /api/locations?type=TERMINAL has no unconfigured terminals'
+        );
+
+        const stopLayer = await makeRequest('GET', '/api/map/layers/stops');
+        assert(
+            stopLayer.status === 200 && stopLayer.data.features.length === 0,
+            'Map stop layer is empty until route stops are configured'
         );
 
         // Boat route attributes in public list
         const boatRoute = routesRes.data.find(r => r.mode_name === 'Boat');
         assert(
-            boatRoute && boatRoute.waterway === 'Pantal River' && boatRoute.boat_operating_status === 'ACTIVE',
-            'GET /api/routes includes boat route with waterway and boat operating status'
+            boatRoute && boatRoute.waterway === 'Pantal River' && boatRoute.boat_operating_status === 'UNAVAILABLE',
+            'GET /api/routes keeps the unverified sample boat route unavailable'
         );
 
         // -------------------------------------------------------------
@@ -646,6 +652,48 @@ async function runTests() {
             'Authorization': `Bearer ${adminToken}`
         });
         assert(adminStats.status === 200 && adminStats.data.totalRoutes >= 13, 'Admin stats retrieves accurate metrics');
+
+        const emptyAdminStops = await makeRequest('GET', '/api/admin/stops', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(emptyAdminStops.status === 200 && emptyAdminStops.data.length === 0, 'Admin stop list starts empty after transit stops are cleared');
+
+        const createdStop = await makeRequest('POST', '/api/admin/stops', {
+            route_id: 1,
+            stop_name: 'Admin CRUD Test Stop',
+            stop_order: 1,
+            description: 'Temporary API test stop.',
+            is_transfer_point: 0,
+            latitude: 16.0435,
+            longitude: 120.334
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(createdStop.status === 201 && createdStop.data.stopId, 'Admin creates a route stop');
+
+        const updatedStop = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
+            route_id: 2,
+            stop_name: 'Admin CRUD Test Stop Updated',
+            stop_order: 1,
+            description: 'Updated temporary API test stop.',
+            is_transfer_point: 1,
+            latitude: 16.044,
+            longitude: 120.337
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const movedRouteStops = await makeRequest('GET', '/api/admin/routes/2/stops', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(
+            updatedStop.status === 200 && movedRouteStops.data.length === 1 &&
+                movedRouteStops.data[0].stop_name === 'Admin CRUD Test Stop Updated' && movedRouteStops.data[0].stop_order === 1,
+            'Admin edits and reassigns route stops while preserving sequential order'
+        );
+
+        const deletedStop = await makeRequest('DELETE', `/api/admin/stops/${createdStop.data.stopId}`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const finalAdminStops = await makeRequest('GET', '/api/admin/stops', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(deletedStop.status === 200 && finalAdminStops.status === 200 && finalAdminStops.data.length === 0, 'Admin deletes route stops and restores the empty list');
 
         // Admin creates a new route with GeoJSON geometry
         const sampleGeom = JSON.stringify({
@@ -1221,11 +1269,11 @@ async function runTests() {
             'GET /api/routes/nearby with non-numeric coordinates returns 400 Bad Request'
         );
 
-        // 4. Text search for school finds serving routes
+        // 4. Text search cannot infer served routes until route stops are configured
         const searchSchoolRoutes = await makeRequest('GET', '/api/routes?search=PHINMA+University+of+Pangasinan');
         assert(
-            searchSchoolRoutes.status === 200 && Array.isArray(searchSchoolRoutes.data) && searchSchoolRoutes.data.length > 0,
-            'GET /api/routes?search=PHINMA+University+of+Pangasinan returns serving routes via school proximity'
+            searchSchoolRoutes.status === 200 && Array.isArray(searchSchoolRoutes.data) && searchSchoolRoutes.data.length === 0,
+            'GET /api/routes?search=PHINMA+University+of+Pangasinan needs configured stops to infer route service'
         );
 
         // ORS regression guard: road-following geometry must be server-side, safe, and easy to validate.
