@@ -94,6 +94,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
   const [snapping, setSnapping] = useState(false);
   const [snapMessage, setSnapMessage] = useState('');
   const [activeHandleIndex, setActiveHandleIndex] = useState(null);
+  const [selectedSection, setSelectedSection] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [moveWholeLine, setMoveWholeLine] = useState(false);
   const [, setHistoryRevision] = useState(0);
@@ -202,6 +203,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
     const insertedIndex = closestSegmentIndex + 1;
     const nextCoordinates = [...coordinates];
     nextCoordinates.splice(insertedIndex, 0, [closestPoint.lng, closestPoint.lat]);
+    setSelectedSection(null);
     setActiveHandleIndex(insertedIndex);
     updateCoordinates(nextCoordinates);
   };
@@ -379,6 +381,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
                 onClick={() => {
                   setActivePath(path.id);
                   setActiveHandleIndex(null);
+                  setSelectedSection(null);
                 }}
                 className={`rounded px-2.5 py-1 text-xs font-semibold ${activePath === path.id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
@@ -415,12 +418,36 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
                   const nextCoordinates = coordinates.filter((_, index) => index !== selectedHandleIndex);
                   updateCoordinates(nextCoordinates);
                   setActiveHandleIndex(Math.min(selectedHandleIndex, nextCoordinates.length - 1));
+                  setSelectedSection(null);
                 }}
                 className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
+              <button
+                type="button"
+                title="Delete selected section"
+                aria-label="Delete selected section"
+                disabled={!isEditing || !selectedSection || Math.abs(selectedSection.start - selectedSection.end) <= 1 || Boolean(error)}
+                onClick={() => {
+                  const { start, end } = selectedSection;
+                  const sectionStart = Math.min(start, end);
+                  const sectionEnd = Math.max(start, end);
+                  const nextCoordinates = coordinates.filter((_, index) => index <= sectionStart || index >= sectionEnd);
+                  updateCoordinates(nextCoordinates);
+                  setSelectedSection(null);
+                  setActiveHandleIndex(Math.min(sectionStart, nextCoordinates.length - 1));
+                }}
+                className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Delete section
+              </button>
             </div>
+          )}
+          {selectedSection && (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Selected section: points {Math.min(selectedSection.start, selectedSection.end) + 1} to {Math.max(selectedSection.start, selectedSection.end) + 1}. Deleting removes the points inside and joins the ends.
+            </p>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -500,7 +527,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
 
       <p className="text-xs text-slate-500">
         {isEditing
-          ? 'Click the map to extend the route. Click the line to add a control point, drag points to reshape, or drag a line section to move it without adding a point. Ctrl+Z undoes the last edit.'
+          ? 'Click the map to extend the route. Click the line to add a control point, then Shift-click two points to select the part between them for deletion. Drag points to reshape, or drag a line section to move it. Ctrl+Z undoes the last edit.'
           : 'Route editing is locked. Unlock editing to add points, reshape the route, or move a line section.'}
       </p>
       <div className="route-geometry-map relative h-72 overflow-hidden rounded-lg border border-slate-300">
@@ -558,6 +585,21 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
               }}
             />
           )}
+          {selectedSection && positions.length > 1 && (
+            <Polyline
+              positions={positions.slice(
+                Math.min(selectedSection.start, selectedSection.end),
+                Math.max(selectedSection.start, selectedSection.end) + 1
+              )}
+              pathOptions={{
+                color: '#dc2626',
+                weight: 11,
+                opacity: 0.9,
+                lineCap: 'round',
+                interactive: false,
+              }}
+            />
+          )}
           {visibleHandleIndices.map((index) => {
             const position = positions[index];
             return (
@@ -575,7 +617,21 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
                 : index === positions.length - 1 && positions.length > 1 ? 'Point B: route end'
                 : 'Drag to adjust this route point'}
               eventHandlers={{
-                click() {
+                click(event) {
+                  if (event.originalEvent?.shiftKey) {
+                    if (selectedHandleIndex === null) {
+                      setActiveHandleIndex(index);
+                      return;
+                    }
+
+                    const start = Math.min(selectedHandleIndex, index);
+                    const end = Math.max(selectedHandleIndex, index);
+                    setSelectedSection({ start, end });
+                    setActiveHandleIndex(end);
+                    return;
+                  }
+
+                  setSelectedSection(null);
                   setActiveHandleIndex(index);
                 },
                 dragend(event) {
@@ -583,6 +639,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
                   updateCoordinates(coordinates.map((point, pointIndex) =>
                     pointIndex === index ? [lng, lat] : point
                   ));
+                  setSelectedSection(null);
                   setActiveHandleIndex(index);
                 },
               }}

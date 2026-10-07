@@ -2519,6 +2519,7 @@ router.post('/admin/boat-details', authenticateToken, requireAdmin, async (req, 
         }
 
         await syncRouteAdvisoryStatus(route_id);
+        invalidateMapCache();
         res.status(201).json({ message: 'Boat route details configured successfully.', id });
     } catch (err) {
         console.error('Error saving boat details:', err);
@@ -2569,6 +2570,7 @@ router.put('/admin/boat-details/:id', authenticateToken, requireAdmin, async (re
         );
 
         await syncRouteAdvisoryStatus(current.route_id);
+        invalidateMapCache();
         res.json({ message: 'Boat details updated successfully.' });
     } catch (err) {
         console.error('Error updating boat details:', err);
@@ -2585,6 +2587,7 @@ router.delete('/admin/boat-details/:id', authenticateToken, requireAdmin, async 
         if (current) {
             await syncRouteAdvisoryStatus(current.route_id);
         }
+        invalidateMapCache();
         res.json({ message: 'Boat details deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete boat details.' });
@@ -3011,6 +3014,7 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             longitude: longitude || null
         });
 
+        invalidateMapCache();
         res.status(201).json({ message: 'Stop added.', stopId });
     } catch (err) {
         res.status(500).json({ error: 'Failed to create stop.' });
@@ -3052,6 +3056,7 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             }
         );
 
+        invalidateMapCache();
         res.json({ message: 'Stop updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update stop.' });
@@ -3072,6 +3077,7 @@ router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, r
         }
 
         await Stop.deleteOne({ id: stopId });
+        invalidateMapCache();
         res.json({ message: 'Stop deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete stop.' });
