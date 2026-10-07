@@ -5,12 +5,13 @@ import { Crosshair, LocateFixed, Maximize2, Minimize2, Trash2, Undo2 } from 'luc
 
 const DAGUPAN_CENTER = [16.0433, 120.3333];
 
-function routePointIcon(label, color) {
+function routePointIcon(label, color, isActive = false) {
   const isEndpoint = Boolean(label);
-  const size = isEndpoint ? 26 : 14;
+  const size = isEndpoint ? 28 : isActive ? 20 : 18;
+  const pointColor = label === 'A' ? '#059669' : label === 'B' ? '#e11d48' : isActive ? '#f59e0b' : color;
   return L.divIcon({
     className: '',
-    html: `<div style="width:${size}px;height:${size}px;border:${isEndpoint ? 2 : 2}px solid #fff;border-radius:50%;background:${label === 'A' ? '#059669' : label === 'B' ? '#e11d48' : color};box-shadow:0 1px 4px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font:700 11px/1 system-ui,sans-serif;cursor:grab">${label || ''}</div>`,
+    html: `<div style="width:${size}px;height:${size}px;border:2px solid #fff;border-radius:50%;background:${pointColor};box-shadow:0 1px 4px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font:700 11px/1 system-ui,sans-serif;cursor:grab">${label || ''}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -85,6 +86,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   const mapRef = useRef(null);
   const [snapping, setSnapping] = useState(false);
   const [snapMessage, setSnapMessage] = useState('');
+  const [activeHandleIndex, setActiveHandleIndex] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState('');
 
@@ -106,11 +108,53 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   const handleIndices = coordinates.length <= 12
     ? coordinates.map((_, index) => index)
     : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
+  const visibleHandleIndices = activeHandleIndex !== null && activeHandleIndex < coordinates.length
+    ? [...new Set([...handleIndices, activeHandleIndex])]
+    : handleIndices;
 
   const updateCoordinates = (nextCoordinates) => {
     onChange(nextCoordinates.length
       ? JSON.stringify({ type: 'LineString', coordinates: nextCoordinates })
       : '');
+  };
+
+  const addPointOnRoute = (event) => {
+    if (error || positions.length < 2 || !mapRef.current) return;
+
+    const map = mapRef.current;
+    const clickPoint = map.latLngToLayerPoint(event.latlng);
+    let closestSegmentIndex = 0;
+    let closestPoint = null;
+    let closestDistance = Infinity;
+
+    for (let index = 0; index < positions.length - 1; index += 1) {
+      const start = map.latLngToLayerPoint(positions[index]);
+      const end = map.latLngToLayerPoint(positions[index + 1]);
+      const segmentX = end.x - start.x;
+      const segmentY = end.y - start.y;
+      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+      const projection = segmentLengthSquared
+        ? Math.max(0, Math.min(1, ((clickPoint.x - start.x) * segmentX + (clickPoint.y - start.y) * segmentY) / segmentLengthSquared))
+        : 0;
+      const pointX = start.x + projection * segmentX;
+      const pointY = start.y + projection * segmentY;
+      const distanceX = clickPoint.x - pointX;
+      const distanceY = clickPoint.y - pointY;
+      const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+
+      if (distanceSquared < closestDistance) {
+        closestDistance = distanceSquared;
+        closestSegmentIndex = index;
+        closestPoint = map.layerPointToLatLng(L.point(pointX, pointY));
+      }
+    }
+
+    if (!closestPoint) return;
+    const insertedIndex = closestSegmentIndex + 1;
+    const nextCoordinates = [...coordinates];
+    nextCoordinates.splice(insertedIndex, 0, [closestPoint.lng, closestPoint.lat]);
+    setActiveHandleIndex(insertedIndex);
+    updateCoordinates(nextCoordinates);
   };
 
   const toggleFullscreen = async () => {
@@ -230,7 +274,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
       </div>
 
       <p className="text-xs text-slate-500">
-        Click the map to add a point. Drag the route markers to adjust the path; scroll to zoom.
+        Click the map to extend the route. Click the line to add a draggable control point, then drag it to reshape that section.
       </p>
       <div className="route-geometry-map relative h-72 overflow-hidden rounded-lg border border-slate-300">
         <MapContainer
@@ -252,9 +296,13 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
           />
           <FitInitialRoute positions={positions} />
           {positions.length > 1 && (
-            <Polyline positions={positions} pathOptions={{ color, weight: 5, opacity: 0.9 }} />
+            <Polyline
+              positions={positions}
+              pathOptions={{ color, weight: 5, opacity: 0.9, bubblingMouseEvents: false }}
+              eventHandlers={{ click: addPointOnRoute }}
+            />
           )}
-          {handleIndices.map((index) => {
+          {visibleHandleIndices.map((index) => {
             const position = positions[index];
             return (
             <Marker
@@ -262,10 +310,12 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
               position={position}
               icon={routePointIcon(
                 index === 0 ? 'A' : index === positions.length - 1 && positions.length > 1 ? 'B' : '',
-                color
+                color,
+                index === activeHandleIndex
               )}
               draggable={!error}
-              title={index === 0 ? 'Point A: route start'
+              title={index === activeHandleIndex ? 'New control point: drag to adjust this section'
+                : index === 0 ? 'Point A: route start'
                 : index === positions.length - 1 && positions.length > 1 ? 'Point B: route end'
                 : 'Drag to adjust this route point'}
               eventHandlers={{
