@@ -108,8 +108,9 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
   const handleIndices = coordinates.length <= 12
     ? coordinates.map((_, index) => index)
     : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
-  const visibleHandleIndices = activeHandleIndex !== null && activeHandleIndex < coordinates.length
-    ? [...new Set([...handleIndices, activeHandleIndex])]
+  const selectedHandleIndex = activeHandleIndex ?? (coordinates.length ? 0 : null);
+  const visibleHandleIndices = selectedHandleIndex !== null && selectedHandleIndex < coordinates.length
+    ? [...new Set([...handleIndices, selectedHandleIndex])]
     : handleIndices;
 
   const updateCoordinates = (nextCoordinates) => {
@@ -219,6 +220,40 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
           <p className="text-xs text-slate-500">
             {coordinates.length} mapped points · A is the first point; B is the last.
           </p>
+          {coordinates.length > 0 && (
+            <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
+              <label htmlFor="route-point-index">Selected point</label>
+              <input
+                id="route-point-index"
+                type="number"
+                min="1"
+                max={coordinates.length}
+                value={(selectedHandleIndex ?? 0) + 1}
+                onChange={(event) => {
+                  const pointIndex = Number(event.target.value) - 1;
+                  if (Number.isInteger(pointIndex) && pointIndex >= 0 && pointIndex < coordinates.length) {
+                    setActiveHandleIndex(pointIndex);
+                  }
+                }}
+                className="h-7 w-16 rounded border border-slate-300 px-2 text-xs"
+              />
+              <span>of {coordinates.length}</span>
+              <button
+                type="button"
+                title="Remove selected point"
+                aria-label="Remove selected point"
+                disabled={coordinates.length <= 2 || selectedHandleIndex === null || Boolean(error)}
+                onClick={() => {
+                  const nextCoordinates = coordinates.filter((_, index) => index !== selectedHandleIndex);
+                  updateCoordinates(nextCoordinates);
+                  setActiveHandleIndex(Math.min(selectedHandleIndex, nextCoordinates.length - 1));
+                }}
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -311,7 +346,7 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
               icon={routePointIcon(
                 index === 0 ? 'A' : index === positions.length - 1 && positions.length > 1 ? 'B' : '',
                 color,
-                index === activeHandleIndex
+                index === selectedHandleIndex
               )}
               draggable={!error}
               title={index === activeHandleIndex ? 'New control point: drag to adjust this section'
@@ -319,11 +354,15 @@ export default function RouteGeometryEditor({ value, onChange, token, color = '#
                 : index === positions.length - 1 && positions.length > 1 ? 'Point B: route end'
                 : 'Drag to adjust this route point'}
               eventHandlers={{
+                click() {
+                  setActiveHandleIndex(index);
+                },
                 dragend(event) {
                   const { lat, lng } = event.target.getLatLng();
                   updateCoordinates(coordinates.map((point, pointIndex) =>
                     pointIndex === index ? [lng, lat] : point
                   ));
+                  setActiveHandleIndex(index);
                 },
               }}
             />
