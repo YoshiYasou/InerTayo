@@ -3,6 +3,7 @@ import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import RouteGeometryEditor from '../components/RouteGeometryEditor';
 import LocationPinPicker from '../components/LocationPinPicker';
+import LocationAutocomplete from '../components/LocationAutocomplete';
 import { 
   ShieldCheck, 
   Route, 
@@ -12,6 +13,7 @@ import {
   MapPin, 
   Plus, 
   Trash2, 
+  ArrowLeft,
   ArrowUp,
   ArrowDown,
   Edit, 
@@ -140,11 +142,6 @@ export default function Admin() {
   });
 
   const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
-  const routePlaceOptions = Array.from(new Map(
-    locations
-      .filter(location => location.status !== 'INACTIVE' && location.name?.trim())
-      .map(location => [location.name, location])
-  ).values()).sort((first, second) => first.name.localeCompare(second.name));
 
   const searchTerm = adminSearch.trim().toLowerCase();
   const matchesAdminSearch = (values) => !searchTerm || values.some(value =>
@@ -1923,20 +1920,36 @@ export default function Admin() {
       {/* ROUTE ADD/EDIT MODAL */}
       {/* ========================================================================= */}
       {routeModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setRouteModalOpen(false)}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600"
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50">
+          <div className="min-h-screen">
+            <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+              <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+                <button
+                  type="button"
+                  onClick={() => setRouteModalOpen(false)}
+                  className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to routes
+                </button>
+                <h2 className="text-base font-bold text-slate-900 sm:text-lg">
+                  {editingRoute ? 'Edit Transit Route' : 'Add New Transit Route'}
+                </h2>
+                <span className="w-24" aria-hidden="true" />
+              </div>
+            </header>
+
+            <form
+              onSubmit={handleSaveRoute}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.defaultPrevented) return;
+                const target = event.target;
+                if (target instanceof HTMLInputElement && !['button', 'submit', 'reset', 'checkbox', 'radio'].includes(target.type)) {
+                  event.preventDefault();
+                }
+              }}
+              className="mx-auto max-w-7xl space-y-4 px-4 py-6 text-xs sm:px-6 sm:py-8 lg:px-8"
             >
-              <X className="w-5 h-5" />
-            </button>
-
-            <h3 className="text-xl font-bold text-slate-900 mb-4">
-              {editingRoute ? 'Edit Transit Route' : 'Add New Transit Route'}
-            </h3>
-
-            <form onSubmit={handleSaveRoute} className="space-y-4 text-xs">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Route Name</label>
                 <input
@@ -1980,37 +1993,29 @@ export default function Admin() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Origin Landmark</label>
-                  <select
-                    required
+                  <LocationAutocomplete
                     value={routeFormData.origin}
-                    onChange={(event) => setRouteFormData({ ...routeFormData, origin: event.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  >
-                    <option value="" disabled>Select an origin</option>
-                    {routeFormData.origin && !routePlaceOptions.some(location => location.name === routeFormData.origin) && (
-                      <option value={routeFormData.origin}>{routeFormData.origin} (existing route value)</option>
-                    )}
-                    {routePlaceOptions.map(location => (
-                      <option key={location.id} value={location.name}>{location.name} ({location.type})</option>
-                    ))}
-                  </select>
+                    onChange={(origin) => setRouteFormData(previous => ({ ...previous, origin }))}
+                    placeholder="Type or search for an origin"
+                    required
+                    filterType="LOCATION"
+                    preventSubmitOnEnter
+                    className="w-full"
+                    inputClassName="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-normal"
+                  />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Destination Landmark</label>
-                  <select
-                    required
+                  <LocationAutocomplete
                     value={routeFormData.destination}
-                    onChange={(event) => setRouteFormData({ ...routeFormData, destination: event.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  >
-                    <option value="" disabled>Select a destination</option>
-                    {routeFormData.destination && !routePlaceOptions.some(location => location.name === routeFormData.destination) && (
-                      <option value={routeFormData.destination}>{routeFormData.destination} (existing route value)</option>
-                    )}
-                    {routePlaceOptions.map(location => (
-                      <option key={location.id} value={location.name}>{location.name} ({location.type})</option>
-                    ))}
-                  </select>
+                    onChange={(destination) => setRouteFormData(previous => ({ ...previous, destination }))}
+                    placeholder="Type or search for a destination"
+                    required
+                    filterType="LOCATION"
+                    preventSubmitOnEnter
+                    className="w-full"
+                    inputClassName="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-normal"
+                  />
                 </div>
               </div>
 

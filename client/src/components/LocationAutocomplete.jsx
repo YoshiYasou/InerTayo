@@ -12,6 +12,7 @@ export default function LocationAutocomplete({
   required = false,
   autoFocus = false,
   filterType = 'ALL', // 'ALL' | 'LOCATION' | 'ROUTE'
+  preventSubmitOnEnter = false,
 }) {
   const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
@@ -89,6 +90,15 @@ export default function LocationAutocomplete({
   };
 
   const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && preventSubmitOnEnter) {
+      e.preventDefault();
+      if (isOpen && suggestions.length > 0) {
+        const suggestionIndex = selectedIndex >= 0 && selectedIndex < suggestions.length ? selectedIndex : 0;
+        handleSelectSuggestion(suggestions[suggestionIndex]);
+      }
+      return;
+    }
+
     if (!isOpen || suggestions.length === 0) {
       if (e.key === 'ArrowDown') {
         setIsOpen(true);
