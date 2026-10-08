@@ -2,7 +2,7 @@ services:
   - type: web
     name: inertayo
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci && npm --prefix client ci && npm run build
     startCommand: npm start
     envVars:

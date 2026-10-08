@@ -108,10 +108,11 @@ Before deploying:
 4. Run `npm run seed` only against a new, empty database. It deletes existing
    collections before inserting the sample transit data and accounts.
 
-The Blueprint uses a paid Render Starter instance to avoid free-instance
-spin-downs. Review the selected instance and pricing in Render before creating
-the service. Configure Gmail or SMTP environment variables in Render if the
-password-reset email feature is needed.
+The Blueprint uses Render's free instance tier, which may spin down when idle
+and feel slow on the first request after inactivity. Upgrade the instance in
+Render if you need consistently responsive production access. Configure Gmail
+or SMTP environment variables in Render if the password-reset email feature is
+needed.
 
 ---
 
