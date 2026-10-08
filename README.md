@@ -19,6 +19,11 @@ InerTayo is a dedicated public transportation route information system built spe
 
 ## Default Accounts
 
+These seeded accounts are for development only. Change their passwords before
+making a deployed instance publicly accessible. The seed script replaces all
+existing application data, so do not run it against a database containing live
+data.
+
 | Role | Username | Email | Password | Access Level |
 |---|---|---|---|---|
 | **Administrator** | `admin` | `admin@inertayo.ph` | `AdminPassword123!` | Full Admin Portal (`/admin`), Route/Advisory/Fare CRUD |
@@ -82,6 +87,31 @@ ORIGIN=http://localhost:3000
 ```
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
+
+### Deploy to Render
+
+The repository includes a Render Blueprint in `render.yaml`. In Render, create a
+Blueprint Instance from this repository and provide `MONGODB_URI` when prompted.
+The Blueprint builds the Vite client and starts the Express server, which serves
+both the frontend and `/api` from the same origin. Render generates `JWT_SECRET`
+and supplies the service URL for CORS automatically.
+
+Before deploying:
+
+1. Create a MongoDB Atlas database and configure Network Access to allow the
+   outbound IP addresses listed for your Render service.
+2. Set `MONGODB_URI` to the Atlas connection string, including the `inertayo`
+   database name.
+3. Change the seeded admin and commuter passwords in the database before
+   making the app publicly accessible. If you add a custom domain, set `ORIGIN`
+   in Render to include that full HTTPS origin.
+4. Run `npm run seed` only against a new, empty database. It deletes existing
+   collections before inserting the sample transit data and accounts.
+
+The Blueprint uses a paid Render Starter instance to avoid free-instance
+spin-downs. Review the selected instance and pricing in Render before creating
+the service. Configure Gmail or SMTP environment variables in Render if the
+password-reset email feature is needed.
 
 ---
 

@@ -57,6 +57,7 @@ const frontendOrigins = process.env.ORIGIN
     : defaultOrigins;
 const allowedOrigins = [...new Set([
     ...frontendOrigins,
+    ...(process.env.RENDER_EXTERNAL_URL ? [process.env.RENDER_EXTERNAL_URL] : []),
     `http://localhost:${PORT}`,
     `http://127.0.0.1:${PORT}`
 ])];
