@@ -6,6 +6,7 @@ const { Counter } = require('./counter');
 const User = require('../models/User');
 const TransportMode = require('../models/TransportMode');
 const Route = require('../models/Route');
+const RouteDraft = require('../models/RouteDraft');
 const Stop = require('../models/Stop');
 const RouteStep = require('../models/RouteStep');
 const Fare = require('../models/Fare');
@@ -33,6 +34,7 @@ async function seed() {
         User.deleteMany({}),
         TransportMode.deleteMany({}),
         Route.deleteMany({}),
+        RouteDraft.deleteMany({}),
         Stop.deleteMany({}),
         RouteStep.deleteMany({}),
         Fare.deleteMany({}),

@@ -13,6 +13,8 @@ const RouteSchema = new mongoose.Schema({
     maximum_fare: { type: Number, required: true, min: 0 },
     status: { type: String, required: true, enum: ['CLEAR', 'DETOUR_ACTIVE', 'UNAVAILABLE', 'ADVISORY'], default: 'CLEAR', index: true },
     description: { type: String, default: null },
+    operating_status: { type: String, enum: ['ACTIVE', 'SUSPENDED', 'UNAVAILABLE'], default: 'ACTIVE' },
+    service_notes: { type: String, default: null },
     geometry: { type: String, default: null },
     walking_geometry: { type: String, default: null },
     geometry_corrected: { type: String, default: null },

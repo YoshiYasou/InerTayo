@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const TransportMode = require('../models/TransportMode');
 const Route = require('../models/Route');
+const RouteDraft = require('../models/RouteDraft');
 const Stop = require('../models/Stop');
 const RouteStep = require('../models/RouteStep');
 const Fare = require('../models/Fare');
@@ -34,6 +35,7 @@ const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECR
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
 const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
+const { validateGeometry } = require('../utils/geometryValidator');
 const { planJourney } = require('../services/journeyEngine');
 const { haversineDistance } = require('../utils/geoUtils');
 
@@ -88,6 +90,109 @@ router.get('/health', (req, res) => {
         database: 'MongoDB',
         connected: mongoose.connection.readyState === 1
     });
+});
+
+router.get('/admin/route-drafts/:draftKey', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const draftKey = req.params.draftKey;
+        if (!/^(new|route-\d+)$/.test(draftKey)) {
+            return res.status(400).json({ error: 'Invalid route draft key.' });
+        }
+        const draft = await RouteDraft.findOne({ user_id: req.user.id, draft_key: draftKey }).lean();
+        if (!draft) return res.status(404).json({ error: 'No saved draft was found.' });
+        res.json(draft);
+    } catch (err) {
+        console.error('Error loading route draft:', err);
+        res.status(500).json({ error: 'Failed to load route draft.' });
+    }
+});
+
+router.put('/admin/route-drafts/:draftKey', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const draftKey = req.params.draftKey;
+        const { form_data, route_steps = [] } = req.body;
+        if (!/^(new|route-\d+)$/.test(draftKey) || !form_data || typeof form_data !== 'object' || Array.isArray(form_data) || !Array.isArray(route_steps)) {
+            return res.status(400).json({ error: 'A valid draft key, route form, and route steps are required.' });
+        }
+        const routeId = draftKey === 'new' ? null : Number(draftKey.slice(6));
+        if (routeId !== null && !(await Route.exists({ id: routeId }))) {
+            return res.status(404).json({ error: 'Route not found.' });
+        }
+        const now = new Date();
+        await RouteDraft.findOneAndUpdate(
+            { user_id: req.user.id, draft_key: draftKey },
+            {
+                $set: { route_id: routeId, form_data, route_steps, updated_at: now },
+                $setOnInsert: { id: await nextId('RouteDraft'), user_id: req.user.id, draft_key: draftKey, created_at: now }
+            },
+            { upsert: true, returnDocument: 'after', runValidators: true }
+        );
+        res.json({ message: 'Route draft saved.' });
+    } catch (err) {
+        console.error('Error saving route draft:', err);
+        res.status(500).json({ error: 'Failed to save route draft.' });
+    }
+});
+
+router.delete('/admin/route-drafts/:draftKey', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const draftKey = req.params.draftKey;
+        if (!/^(new|route-\d+)$/.test(draftKey)) {
+            return res.status(400).json({ error: 'Invalid route draft key.' });
+        }
+        await RouteDraft.deleteOne({ user_id: req.user.id, draft_key: draftKey });
+        res.json({ message: 'Route draft discarded.' });
+    } catch (err) {
+        console.error('Error discarding route draft:', err);
+        res.status(500).json({ error: 'Failed to discard route draft.' });
+    }
+});
+
+router.post('/admin/routes/validate-geometry', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { geometry, mode = 'road' } = req.body;
+        if (!geometry) {
+            return res.json({ valid: false, errors: [], warnings: ['Route geometry is missing.'], stats: {} });
+        }
+        const validation = validateGeometry(geometry, { mode: mode === 'boat' ? 'boat' : 'road' });
+        let parsedGeometry = geometry;
+        if (typeof parsedGeometry === 'string') {
+            try {
+                parsedGeometry = JSON.parse(parsedGeometry);
+            } catch {
+                parsedGeometry = null;
+            }
+        }
+        const coordinates = Array.isArray(parsedGeometry) ? parsedGeometry : parsedGeometry?.coordinates;
+        const outsideBoundary = [];
+        const outsideSegments = [];
+        if (Array.isArray(coordinates)) {
+            coordinates.forEach((coordinate, index) => {
+                if (!Array.isArray(coordinate) || coordinate.length < 2 || !coordinate.every(Number.isFinite)) return;
+                if (!isInsideDagupanCity(coordinate[1], coordinate[0])) outsideBoundary.push(index + 1);
+                if (index === 0) return;
+                const previous = coordinates[index - 1];
+                if (!Array.isArray(previous) || previous.length < 2 || !previous.every(Number.isFinite)) return;
+                const distance = haversineDistance(previous[1], previous[0], coordinate[1], coordinate[0]);
+                const samples = Math.max(1, Math.ceil(distance / 250));
+                for (let sampleIndex = 1; sampleIndex < samples; sampleIndex += 1) {
+                    const fraction = sampleIndex / samples;
+                    const latitude = previous[1] + (coordinate[1] - previous[1]) * fraction;
+                    const longitude = previous[0] + (coordinate[0] - previous[0]) * fraction;
+                    if (!isInsideDagupanCity(latitude, longitude)) {
+                        outsideSegments.push(index);
+                        break;
+                    }
+                }
+            });
+        }
+        const warnings = [...validation.warnings];
+        if (outsideBoundary.length) warnings.push(`Points outside Dagupan City boundary: ${outsideBoundary.join(', ')}.`);
+        if (outsideSegments.length) warnings.push(`Route segments leave Dagupan City between points: ${outsideSegments.join(', ')}.`);
+        res.json({ ...validation, warnings, outsideBoundary, outsideSegments });
+    } catch (err) {
+        res.status(500).json({ error: 'Could not validate route geometry.' });
+    }
 });
 
 // GET /api/transport-modes - List all transport modes
@@ -810,6 +915,8 @@ router.get('/routes', async (req, res) => {
                 maximum_fare: r.maximum_fare,
                 status,
                 description: r.description,
+                operating_status: boat?.operating_status || r.operating_status || 'ACTIVE',
+                service_notes: r.service_notes || boat?.notes || null,
                 geometry_original: r.geometry,
                 geometry_corrected: r.geometry_corrected,
                 walking_geometry: r.walking_geometry || null,
@@ -1074,6 +1181,8 @@ router.get('/routes/:id', async (req, res) => {
             maximum_fare: route.maximum_fare,
             status,
             description: route.description,
+            operating_status: boatDetail?.operating_status || route.operating_status || 'ACTIVE',
+            service_notes: route.service_notes || boatDetail?.notes || null,
             geometry_original: route.geometry,
             geometry_corrected: route.geometry_corrected,
             walking_geometry: route.walking_geometry || null,
@@ -2726,6 +2835,8 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             maximum_fare,
             status = 'CLEAR',
             description,
+            operating_status = 'ACTIVE',
+            service_notes,
             geometry,
             walking_geometry,
             geometry_corrected,
@@ -2759,6 +2870,9 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         if (!VALID_ROUTE_STATUSES.includes(routeStatus)) {
             return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_ROUTE_STATUSES.join(', ')}` });
         }
+        if (!['ACTIVE', 'SUSPENDED', 'UNAVAILABLE'].includes(operating_status)) {
+            return res.status(400).json({ error: 'Invalid operating_status.' });
+        }
 
         const geomString = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
         const walkingGeomString = walking_geometry ? (typeof walking_geometry === 'object' ? JSON.stringify(walking_geometry) : walking_geometry) : null;
@@ -2777,6 +2891,8 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             maximum_fare: parsedMaxFare,
             status: routeStatus,
             description: description ? description.trim() : null,
+            operating_status,
+            service_notes: service_notes ? String(service_notes).trim() : null,
             geometry: geomString,
             walking_geometry: walkingGeomString,
             geometry_corrected: correctedGeomString,
@@ -2833,6 +2949,8 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             maximum_fare,
             status,
             description,
+            operating_status,
+            service_notes,
             geometry,
             walking_geometry,
             geometry_corrected,
@@ -2896,6 +3014,16 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             description: description ? description.trim() : null,
             updated_at: new Date()
         };
+
+        if (operating_status !== undefined) {
+            if (!['ACTIVE', 'SUSPENDED', 'UNAVAILABLE'].includes(operating_status)) {
+                return res.status(400).json({ error: 'Invalid operating_status.' });
+            }
+            updateData.operating_status = operating_status;
+        }
+        if (service_notes !== undefined) {
+            updateData.service_notes = service_notes ? String(service_notes).trim() : null;
+        }
 
         if (geometry !== undefined) {
             updateData.geometry = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import RouteGeometryEditor from '../components/RouteGeometryEditor';
+import RouteMap from '../components/RouteMap';
 import LocationPinPicker from '../components/LocationPinPicker';
 import LocationAutocomplete from '../components/LocationAutocomplete';
 import { 
@@ -28,6 +29,19 @@ import {
   FileSpreadsheet,
   Search
 } from 'lucide-react';
+
+function hasPreviewableGeometry(value) {
+  try {
+    const geometry = typeof value === 'string' ? JSON.parse(value) : value;
+    return geometry?.type === 'LineString' && Array.isArray(geometry.coordinates) &&
+      geometry.coordinates.length >= 2 && geometry.coordinates.every((point) =>
+        Array.isArray(point) && point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+        point[0] >= -180 && point[0] <= 180 && point[1] >= -90 && point[1] <= 90
+      );
+  } catch {
+    return false;
+  }
+}
 
 export default function Admin() {
   const { navigate } = useRouter();
@@ -85,6 +99,10 @@ export default function Admin() {
   const [editingRoute, setEditingRoute] = useState(null);
   const [routeSteps, setRouteSteps] = useState([]);
   const [originalRouteSteps, setOriginalRouteSteps] = useState([]);
+  const [availableRouteDraft, setAvailableRouteDraft] = useState(null);
+  const [routePreviewOpen, setRoutePreviewOpen] = useState(false);
+  const [geometryValidation, setGeometryValidation] = useState(null);
+  const [routeValidationWarnings, setRouteValidationWarnings] = useState([]);
   const [routeFormData, setRouteFormData] = useState({
     route_name: '',
     transport_mode_id: 1,
@@ -96,6 +114,8 @@ export default function Admin() {
     maximum_fare: 25.00,
     status: 'CLEAR',
     description: '',
+    operating_status: 'ACTIVE',
+    service_notes: '',
     geometry: '',
     walking_geometry: '',
     waterway: '',
@@ -236,10 +256,25 @@ export default function Admin() {
   };
 
   // Route Handlers
+  const checkRouteDraft = async (draftKey) => {
+    setAvailableRouteDraft(null);
+    try {
+      const response = await fetch(`/api/admin/route-drafts/${draftKey}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) setAvailableRouteDraft(await response.json());
+    } catch (error) {
+      console.error('Could not check for a saved route draft:', error);
+    }
+  };
+
   const openNewRouteModal = () => {
     setEditingRoute(null);
     setRouteSteps([]);
     setOriginalRouteSteps([]);
+    setRoutePreviewOpen(false);
+    setGeometryValidation(null);
+    setRouteValidationWarnings([]);
     setRouteFormData({
       route_name: '',
       transport_mode_id: modes[0]?.id || 1,
@@ -251,6 +286,8 @@ export default function Admin() {
       maximum_fare: 25.00,
       status: 'CLEAR',
       description: '',
+      operating_status: 'ACTIVE',
+      service_notes: '',
       geometry: '',
       walking_geometry: '',
       waterway: 'Pantal River',
@@ -260,12 +297,16 @@ export default function Admin() {
       boat_notes: ''
     });
     setRouteModalOpen(true);
+    checkRouteDraft('new');
   };
 
   const openEditRouteModal = async (route) => {
     setEditingRoute(route);
     setRouteSteps([]);
     setOriginalRouteSteps([]);
+    setRoutePreviewOpen(false);
+    setGeometryValidation(null);
+    setRouteValidationWarnings([]);
     let waterway = route.waterway || '';
     let origin_river_stop_id = route.origin_river_stop_id || '';
     let destination_river_stop_id = route.destination_river_stop_id || '';
@@ -312,6 +353,8 @@ export default function Admin() {
       maximum_fare: route.maximum_fare,
       status: route.status,
       description: route.description || '',
+      operating_status: route.operating_status || route.boat_operating_status || 'ACTIVE',
+      service_notes: route.service_notes || route.notes || '',
       geometry: typeof route.geometry === 'object' ? JSON.stringify(route.geometry) : (route.geometry || ''),
       walking_geometry: typeof route.walking_geometry === 'object' ? JSON.stringify(route.walking_geometry) : (route.walking_geometry || ''),
       waterway,
@@ -321,6 +364,7 @@ export default function Admin() {
       boat_notes
     });
     setRouteModalOpen(true);
+    checkRouteDraft(`route-${route.id}`);
   };
 
   const saveRouteSteps = async (routeId) => {
@@ -356,6 +400,67 @@ export default function Admin() {
     }
   };
 
+  const routeDraftKey = editingRoute ? `route-${editingRoute.id}` : 'new';
+
+  const saveRouteDraft = async () => {
+    try {
+      const response = await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ form_data: routeFormData, route_steps: routeSteps }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not save this draft.');
+      setAvailableRouteDraft({ form_data: routeFormData, route_steps: routeSteps });
+    } catch (error) {
+      alert(`Failed to save draft: ${error.message}`);
+    }
+  };
+
+  const restoreRouteDraft = () => {
+    if (!availableRouteDraft?.form_data) return;
+    setRouteFormData((current) => ({ ...current, ...availableRouteDraft.form_data }));
+    setRouteSteps(Array.isArray(availableRouteDraft.route_steps) ? availableRouteDraft.route_steps : []);
+    setAvailableRouteDraft(null);
+  };
+
+  const discardRouteChanges = async () => {
+    if (!window.confirm('Discard the current route changes and any saved draft?')) return;
+    try {
+      const response = await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Could not discard the saved draft.');
+      setAvailableRouteDraft(null);
+      setRouteModalOpen(false);
+    } catch (error) {
+      alert(`Failed to discard changes: ${error.message}`);
+    }
+  };
+
+  const validateRouteBeforePublish = async () => {
+    const modeName = modes.find((mode) => mode.id === Number(routeFormData.transport_mode_id))?.name || '';
+    const response = await fetch('/api/admin/routes/validate-geometry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ geometry: routeFormData.geometry, mode: modeName.toLowerCase() === 'boat' ? 'boat' : 'road' }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Route geometry validation failed.');
+    const warnings = [...(result.warnings || [])];
+    if (!routeFormData.route_name.trim()) warnings.push('Route name is missing.');
+    if (!routeFormData.origin.trim() || !routeFormData.destination.trim()) warnings.push('Origin or destination is missing.');
+    if (!routeFormData.description.trim()) warnings.push('Route description is empty.');
+    if (!editingRoute || !routeStops.some((stop) => stop.route_id === editingRoute.id)) {
+      warnings.push('No designated stops are linked to this route. Configure stops in the existing stop-management section.');
+    }
+    if (!routeSteps.length) warnings.push('No passenger directions are configured.');
+    setGeometryValidation(result);
+    setRouteValidationWarnings(warnings);
+    return { errors: result.errors || [], warnings };
+  };
+
   const handleSaveRoute = async (e) => {
     e.preventDefault();
     const headers = {
@@ -364,6 +469,17 @@ export default function Admin() {
     };
 
     try {
+      const validation = await validateRouteBeforePublish();
+      if (validation.errors.length) {
+        alert(`Route cannot be published until geometry errors are fixed:\n${validation.errors.join('\n')}`);
+        return;
+      }
+      const warningText = validation.warnings.length
+        ? `\n\nReview these warnings before publishing:\n- ${validation.warnings.join('\n- ')}`
+        : '';
+      const action = editingRoute ? 'publish these changes' : 'publish this new route';
+      if (!window.confirm(`Are you sure you want to ${action}?${warningText}`)) return;
+
       let routeId;
       if (editingRoute) {
         routeId = editingRoute.id;
@@ -413,6 +529,11 @@ export default function Admin() {
       }
 
       await saveRouteSteps(routeId);
+
+      await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
 
       setRouteModalOpen(false);
       loadAdminData();
@@ -1950,6 +2071,15 @@ export default function Admin() {
               }}
               className="mx-auto max-w-7xl space-y-4 px-4 py-6 text-xs sm:px-6 sm:py-8 lg:px-8"
             >
+              {availableRouteDraft && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+                  <span>A saved draft is available for this route.</span>
+                  <button type="button" onClick={restoreRouteDraft} className="font-bold underline underline-offset-2">
+                    Restore draft
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Route Name</label>
                 <input
@@ -1977,7 +2107,7 @@ export default function Admin() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status</label>
+                  <label className="block font-bold text-slate-700 mb-1">Advisory Status</label>
                   <select
                     value={routeFormData.status}
                     onChange={(e) => setRouteFormData({ ...routeFormData, status: e.target.value })}
@@ -1989,6 +2119,21 @@ export default function Admin() {
                   </select>
                 </div>
               </div>
+
+              {modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat' && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Operating Status</label>
+                  <select
+                    value={routeFormData.operating_status || 'ACTIVE'}
+                    onChange={(event) => setRouteFormData({ ...routeFormData, operating_status: event.target.value })}
+                    className="w-full max-w-sm p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="SUSPENDED">Suspended</option>
+                    <option value="UNAVAILABLE">Unavailable</option>
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -2145,6 +2290,85 @@ export default function Admin() {
                 ></textarea>
               </div>
 
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Passenger Service Notes</label>
+                <textarea
+                  rows="2"
+                  value={routeFormData.service_notes || ''}
+                  onChange={(event) => setRouteFormData({ ...routeFormData, service_notes: event.target.value })}
+                  placeholder="Optional operating or passenger information"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                />
+              </div>
+
+              <div className="border-y border-slate-200 py-3">
+                <button
+                  type="button"
+                  aria-expanded={routePreviewOpen}
+                  onClick={() => setRoutePreviewOpen((open) => !open)}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Eye className="h-4 w-4" />
+                  {routePreviewOpen ? 'Hide passenger preview' : 'Preview passenger view'}
+                </button>
+                {routePreviewOpen && (
+                  <section className="mt-3 max-w-3xl rounded-md border border-slate-200 bg-white p-4" aria-label="Passenger route preview">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase text-slate-500">
+                          {modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name || 'Transit'} route
+                        </p>
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">{routeFormData.route_name || 'Route name'}</h3>
+                        <p className="mt-1 text-sm text-slate-600">{routeFormData.origin || 'Origin'} to {routeFormData.destination || 'Destination'}</p>
+                      </div>
+                      <span className={`rounded px-2 py-1 text-xs font-bold ${routeFormData.operating_status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
+                        {modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat'
+                          ? routeFormData.boat_operating_status
+                          : routeFormData.operating_status}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-semibold text-slate-700">
+                      <span>{routeFormData.estimated_time || '—'} min</span>
+                      <span>₱{routeFormData.minimum_fare || '—'} – ₱{routeFormData.maximum_fare || '—'}</span>
+                    </div>
+                    {routeFormData.description && <p className="mt-3 text-sm text-slate-700">{routeFormData.description}</p>}
+                    {routeFormData.service_notes && <p className="mt-2 border-l-2 border-emerald-600 pl-3 text-sm text-slate-600">{routeFormData.service_notes}</p>}
+                    {hasPreviewableGeometry(routeFormData.geometry) ? (
+                      <div className="relative mt-4 h-52 overflow-hidden rounded-md border border-slate-200">
+                        <RouteMap
+                        routes={[{
+                          id: editingRoute?.id || 'route-preview',
+                          route_name: routeFormData.route_name,
+                          mode_name: modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name || '',
+                          status: routeFormData.status,
+                          minimum_fare: Number(routeFormData.minimum_fare) || 0,
+                          maximum_fare: Number(routeFormData.maximum_fare) || 0,
+                          estimated_time: Number(routeFormData.estimated_time) || 0,
+                          geometry: routeFormData.geometry,
+                          walking_geometry: routeFormData.walking_geometry,
+                          geometry_needs_review: false,
+                          map_preview_unavailable: routeFormData.operating_status !== 'ACTIVE',
+                        }]}
+                        interactive={false}
+                        showAdvisories={false}
+                        showStopClusterCounts={false}
+                        className="absolute inset-0 h-full w-full"
+                        />
+                      </div>
+                    ) : (
+                      <p className="mt-4 rounded-md border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
+                        A valid route path is needed for the map preview.
+                      </p>
+                    )}
+                    {routeSteps.length > 0 && (
+                      <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-slate-600">
+                        {routeSteps.filter(step => step.instruction?.trim()).map((step, index) => <li key={step.id || index}>{step.instruction}</li>)}
+                      </ol>
+                    )}
+                  </section>
+                )}
+              </div>
+
               <section className="space-y-3 border-t border-slate-200 pt-4" aria-labelledby="route-steps-heading">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -2253,6 +2477,14 @@ export default function Admin() {
                 ))}
               </section>
 
+              {(routeValidationWarnings.length > 0 || geometryValidation?.errors?.length > 0) && (
+                <div className={`rounded-md border p-3 ${geometryValidation?.errors?.length ? 'border-rose-200 bg-rose-50 text-rose-900' : 'border-amber-200 bg-amber-50 text-amber-950'}`} role="status">
+                  <p className="font-bold">Route review</p>
+                  {geometryValidation?.errors?.map((message, index) => <p key={`error-${index}`} className="mt-1">Error: {message}</p>)}
+                  {routeValidationWarnings.map((message, index) => <p key={`warning-${index}`} className="mt-1">Warning: {message}</p>)}
+                </div>
+              )}
+
               <RouteGeometryEditor
                 value={routeFormData.geometry}
                 onChange={(geometry) => setRouteFormData((current) => ({ ...current, geometry }))}
@@ -2275,10 +2507,24 @@ export default function Admin() {
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  onClick={discardRouteChanges}
+                  className="py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-xl"
+                >
+                  Discard changes
+                </button>
+                <button
+                  type="button"
+                  onClick={saveRouteDraft}
+                  className="py-2.5 px-4 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl"
+                >
+                  Save draft
+                </button>
+                <button
                   type="submit"
                   className="py-2.5 px-6 bg-slate-900 hover:bg-emerald-600 text-white font-bold rounded-xl shadow"
                 >
-                  Save Route
+                  Publish Route
                 </button>
               </div>
             </form>

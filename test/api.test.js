@@ -647,6 +647,28 @@ async function runTests() {
         assert(adminLogin.status === 200 && adminLogin.data.user.role === 'ADMIN', 'Admin login succeeds with ADMIN role');
         const adminToken = adminLogin.data.token;
 
+        const draftPayload = {
+            form_data: { route_name: 'Draft only route', description: 'Not published.' },
+            route_steps: []
+        };
+        const savedRouteDraft = await makeRequest('PUT', '/api/admin/route-drafts/new', draftPayload, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const loadedRouteDraft = await makeRequest('GET', '/api/admin/route-drafts/new', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const publicRoutesBeforePublish = await makeRequest('GET', '/api/routes');
+        assert(
+            savedRouteDraft.status === 200 && loadedRouteDraft.status === 200 &&
+                loadedRouteDraft.data.form_data.route_name === 'Draft only route' &&
+                !publicRoutesBeforePublish.data.some(route => route.route_name === 'Draft only route'),
+            'Admin route drafts persist privately without publishing route changes'
+        );
+        const discardedRouteDraft = await makeRequest('DELETE', '/api/admin/route-drafts/new', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(discardedRouteDraft.status === 200, 'Admin can discard a saved route draft');
+
         // Admin stats
         const adminStats = await makeRequest('GET', '/api/admin/stats', null, {
             'Authorization': `Bearer ${adminToken}`
@@ -704,6 +726,28 @@ async function runTests() {
             type: 'LineString',
             coordinates: [[120.334, 16.043], [120.337, 16.046], [120.340, 16.050]]
         });
+        const geometryValidation = await makeRequest('POST', '/api/admin/routes/validate-geometry', {
+            geometry: sampleGeom,
+            mode: 'road'
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(
+            geometryValidation.status === 200 && geometryValidation.data.valid &&
+                Array.isArray(geometryValidation.data.warnings),
+            'Admin route geometry validation accepts valid GeoJSON'
+        );
+        const outsideGeometryValidation = await makeRequest('POST', '/api/admin/routes/validate-geometry', {
+            geometry: { type: 'LineString', coordinates: [[120.334, 16.043], [120.230, 16.030]] },
+            mode: 'road'
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const malformedGeometryValidation = await makeRequest('POST', '/api/admin/routes/validate-geometry', {
+            geometry: '{invalid json',
+            mode: 'road'
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(
+            outsideGeometryValidation.status === 200 && outsideGeometryValidation.data.warnings.some(warning => warning.includes('Dagupan City')) &&
+                malformedGeometryValidation.status === 200 && !malformedGeometryValidation.data.valid,
+            'Route geometry validation warns about boundary crossings and handles malformed GeoJSON'
+        );
         const createRouteRes = await makeRequest('POST', '/api/admin/routes', {
             route_name: 'Downtown – Binloc Loop',
             transport_mode_id: modesRes.data[0].id,
@@ -715,6 +759,8 @@ async function runTests() {
             maximum_fare: 30.00,
             status: 'CLEAR',
             description: 'New test loop line.',
+            operating_status: 'ACTIVE',
+            service_notes: 'Test service note.',
             geometry: sampleGeom,
             walking_geometry: sampleWalkingGeom
         }, { 'Authorization': `Bearer ${adminToken}` });
@@ -755,7 +801,33 @@ async function runTests() {
         const updatedRouteInList = updatedRouteList.data.find(r => r.id === newRouteId);
         assert(updatedRouteInList?.walking_geometry === updatedWalkingGeom, 'Admin route updates persist separate walking geometry');
         const updatedRouteDetails = await makeRequest('GET', `/api/routes/${newRouteId}`);
-        assert(updatedRouteDetails.data.walking_geometry === updatedWalkingGeom, 'Route detail endpoint returns walking geometry for route previews');
+        assert(
+            updatedRouteDetails.data.walking_geometry === updatedWalkingGeom &&
+                updatedRouteDetails.data.service_notes === 'Test service note.' &&
+                updatedRouteDetails.data.operating_status === 'ACTIVE',
+            'Route detail endpoint returns walking geometry and passenger service metadata'
+        );
+
+        const serviceStatusUpdate = await makeRequest('PUT', `/api/admin/routes/${newRouteId}`, {
+            route_name: 'Downtown – Binloc Loop (Extended)',
+            transport_mode_id: modesRes.data[0].id,
+            origin: 'Downtown Plaza',
+            destination: 'Binloc Beach East',
+            estimated_time: 25,
+            minimum_fare: 15.00,
+            maximum_fare: 30.00,
+            status: 'CLEAR',
+            operating_status: 'SUSPENDED',
+            service_notes: 'Temporarily suspended for testing.',
+            geometry: updatedGeom,
+            walking_geometry: updatedWalkingGeom
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const suspendedRouteDetails = await makeRequest('GET', `/api/routes/${newRouteId}`);
+        assert(
+            serviceStatusUpdate.status === 200 && suspendedRouteDetails.data.operating_status === 'SUSPENDED' &&
+                suspendedRouteDetails.data.service_notes === 'Temporarily suspended for testing.',
+            'Route operating status and service notes update independently of advisory status'
+        );
 
         // Admin toggles advisory status
         const advisoryToToggle = advRes.data[0];

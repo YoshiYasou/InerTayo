@@ -183,6 +183,22 @@ export default function RouteDetails() {
           </div>
         )}
 
+        {route.operating_status && route.operating_status !== 'ACTIVE' && (
+          <div className="mt-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="status">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div>
+              <p className="text-sm font-bold">Service {route.operating_status.toLowerCase()}</p>
+              {route.service_notes && <p className="mt-1 text-xs leading-relaxed">{route.service_notes}</p>}
+            </div>
+          </div>
+        )}
+        {route.service_notes && route.operating_status === 'ACTIVE' && (
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-bold text-slate-900">Service notes</p>
+            <p className="mt-1 text-xs leading-relaxed">{route.service_notes}</p>
+          </div>
+        )}
+
         {/* Two-Column Layout matching Page 4 */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mt-10">
           
