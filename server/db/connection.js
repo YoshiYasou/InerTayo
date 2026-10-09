@@ -7,9 +7,18 @@ let _conn = null;
 async function connectDB(uri, maxRetries = 4, delayMs = 1000) {
     if (_conn && mongoose.connection.readyState === 1) return _conn;
 
-    const mongoUri = uri || process.env.MONGODB_URI;
+    let mongoUri = uri || process.env.MONGODB_URI;
     if (!mongoUri) {
         throw new Error('[FATAL] MONGODB_URI environment variable is not set.');
+    }
+
+    mongoUri = mongoUri.trim()
+        .replace(/^MONGODB_URI\s*=\s*/i, '')
+        .replace(/^(['"])(.*)\1$/, '$2')
+        .trim();
+
+    if (!/^mongodb(?:\+srv)?:\/\//.test(mongoUri)) {
+        throw new Error('[FATAL] MONGODB_URI must be a raw MongoDB URI starting with mongodb:// or mongodb+srv://. Do not include the MONGODB_URI= label.');
     }
 
     let lastError = null;

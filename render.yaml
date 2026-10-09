@@ -3,7 +3,7 @@ services:
     name: inertayo
     runtime: node
     plan: free
-    buildCommand: npm ci && npm --prefix client ci && npm run build
+    buildCommand: npm ci && npm --prefix client ci --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
