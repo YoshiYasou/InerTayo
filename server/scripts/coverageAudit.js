@@ -2,8 +2,8 @@
  * InerTayo — Routes Coverage Audit
  * READ-ONLY script. Does NOT mutate any data.
  *
- * For every school, barangay (locations type=BARANGAY), and boat stop (locations type=RIVER_STOP),
- * determines whether at least one existing route has a stop or geometry point within walkingRadius.
+ * Compares every saved Dagupan place with public-map route geometry and configured stops.
+ * Route-line proximity is straight-line distance and does not prove that service stops there.
  *
  * Usage: node server/scripts/coverageAudit.js
  */
@@ -14,17 +14,40 @@ const Route = require('../models/Route');
 const TransportMode = require('../models/TransportMode');
 const School = require('../models/School');
 const Location = require('../models/Location');
+const BoatRouteDetail = require('../models/BoatRouteDetail');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { haversineDistance } = require('../utils/geoUtils');
+const { getLineStringCoordinates, isDetailedRoadGeometry } = require('../utils/routeGeometryQuality');
+const nearestPointOnLine = require('@turf/nearest-point-on-line').default || require('@turf/nearest-point-on-line');
+const { lineString, point } = require('@turf/helpers');
 
 const RADIUS = ROUTING_CONFIG.walkingRadius; // 600m default
+const LOCATION_TYPES = [
+    'BARANGAY', 'DESTINATION', 'ESTABLISHMENT', 'INTERSECTION',
+    'LANDMARK', 'ROAD', 'STREET', 'TERMINAL', 'RIVER_STOP'
+];
+
+function distanceToRouteGeometryMeters(latitude, longitude, geometry) {
+    const coordinates = getLineStringCoordinates(geometry);
+    if (coordinates.length < 2 || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return Infinity;
+    }
+
+    try {
+        const nearest = nearestPointOnLine(lineString(coordinates), point([longitude, latitude]));
+        const [nearestLongitude, nearestLatitude] = nearest.geometry.coordinates;
+        return haversineDistance(latitude, longitude, nearestLatitude, nearestLongitude);
+    } catch {
+        return Infinity;
+    }
+}
 
 async function main() {
     await connectDB();
 
     console.log('='.repeat(80));
     console.log('InerTayo — Routes Coverage Audit (READ-ONLY)');
-    console.log(`Walking radius: ${RADIUS}m`);
+    console.log(`Proximity radius: ${RADIUS}m (straight-line; not walking distance)`);
     console.log('='.repeat(80));
 
     // Load all stops with lat/lng
@@ -34,18 +57,37 @@ async function main() {
     }).lean();
 
     // Load all routes with geometry
-    const [routes, modes] = await Promise.all([Route.find().lean(), TransportMode.find().lean()]);
+    const [routes, modes, boatDetails] = await Promise.all([
+        Route.find().lean(),
+        TransportMode.find().lean(),
+        BoatRouteDetail.find().lean()
+    ]);
     const modeNames = new Map(modes.map(mode => [mode.id, mode.name]));
-    const allRoutes = routes
-        .filter(route => modeNames.has(route.transport_mode_id))
-        .map(route => ({
-        id: route.id,
-        route_name: route.route_name,
-        mode_name: modeNames.get(route.transport_mode_id),
-        geometry: route.use_corrected_geometry === 1 && route.geometry_corrected
+    const boatDetailsByRoute = new Map(boatDetails.map(detail => [detail.route_id, detail]));
+    const allRoutes = routes.flatMap(route => {
+        const modeName = modeNames.get(route.transport_mode_id);
+        if (!modeName) return [];
+        const isBoat = /boat/i.test(modeName);
+        if (isBoat && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') return [];
+
+        const geometry = route.use_corrected_geometry === 1 && route.geometry_corrected
             ? route.geometry_corrected
-            : route.geometry
-        }));
+            : route.geometry;
+        const coordinates = getLineStringCoordinates(geometry);
+        if (coordinates.length < 2) return [];
+
+        const geometryNeedsReview = !isBoat && !isDetailedRoadGeometry(geometry);
+        if (geometryNeedsReview && route.allow_unverified_map_geometry !== true) return [];
+
+        return [{
+            id: route.id,
+            route_name: route.route_name,
+            mode_name: modeName,
+            status: route.status || 'UNKNOWN',
+            geometry,
+            geometryNeedsReview
+        }];
+    });
 
     // Helper: nearest stop distance from point
     function nearestStopDist(lat, lng) {
@@ -65,98 +107,110 @@ async function main() {
         return { minDist: Math.round(minDist), nearestStop, nearestRouteName };
     }
 
+    function nearestRouteGeometry(lat, lng) {
+        let minDist = Infinity;
+        let nearestRoute = null;
+        for (const route of allRoutes) {
+            const distance = distanceToRouteGeometryMeters(lat, lng, route.geometry);
+            if (distance < minDist) {
+                minDist = distance;
+                nearestRoute = route;
+            }
+        }
+        return {
+            distance: Number.isFinite(minDist) ? Math.round(minDist) : null,
+            route: nearestRoute
+        };
+    }
+
+    function addPlace(location, type, lat, lng, verified) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            rows.push({ location, type, verified, hasCoordinates: false });
+            return;
+        }
+
+        const nearestStop = nearestStopDist(lat, lng);
+        const nearestRoute = nearestRouteGeometry(lat, lng);
+        rows.push({
+            location,
+            type,
+            verified,
+            hasCoordinates: true,
+            nearestRoute: nearestRoute.route,
+            routeDistance: nearestRoute.distance,
+            nearestStop: nearestStop.nearestStop,
+            stopRoute: nearestStop.nearestRouteName,
+            stopDistance: Number.isFinite(nearestStop.minDist) ? nearestStop.minDist : null
+        });
+    }
+
     const rows = [];
 
     // --- Schools ---
     const schools = await School.find({ active: 1 }).lean();
     for (const sch of schools) {
-        const lat = sch.entrance_latitude || sch.latitude;
-        const lng = sch.entrance_longitude || sch.longitude;
-        if (!lat || !lng) {
-            rows.push({ location: sch.name, type: 'SCHOOL', nearestRoute: 'N/A', nearestStop: 'NO COORDS', distance: '—', served: 'NO DATA', verified: sch.verified ? 'YES' : 'NO' });
-            continue;
-        }
-        const { minDist, nearestStop, nearestRouteName } = nearestStopDist(lat, lng);
-        rows.push({
-            location: sch.name,
-            type: 'SCHOOL',
-            nearestRoute: nearestRouteName || '—',
-            nearestStop: nearestStop || '—',
-            distance: minDist,
-            served: minDist <= RADIUS ? 'YES' : 'NO',
-            verified: sch.verified ? 'YES' : 'NO'
-        });
+        const lat = sch.entrance_latitude ?? sch.latitude;
+        const lng = sch.entrance_longitude ?? sch.longitude;
+        addPlace(sch.name, 'SCHOOL', lat, lng, sch.verified ? 'YES' : 'NO');
     }
 
-    // --- Barangays ---
-    const barangays = await Location.find({
-        type: 'BARANGAY',
+    // --- Roads, landmarks, barangays, campuses, and other saved destinations ---
+    const places = await Location.find({
+        type: { $in: LOCATION_TYPES },
         status: 'ACTIVE',
-        latitude: { $ne: null }
+        latitude: { $ne: null },
+        longitude: { $ne: null }
     }).lean();
-    for (const brgy of barangays) {
-        const { minDist, nearestStop, nearestRouteName } = nearestStopDist(brgy.latitude, brgy.longitude);
-        rows.push({
-            location: brgy.name,
-            type: 'BARANGAY',
-            nearestRoute: nearestRouteName || '—',
-            nearestStop: nearestStop || '—',
-            distance: minDist,
-            served: minDist <= RADIUS ? 'YES' : 'NO',
-            verified: 'LOCATION DB'
-        });
-    }
-
-    // --- Boat Stops / River Stops ---
-    const riverStops = await Location.find({
-        type: 'RIVER_STOP',
-        status: 'ACTIVE',
-        latitude: { $ne: null }
-    }).lean();
-    for (const rs of riverStops) {
-        const { minDist, nearestStop, nearestRouteName } = nearestStopDist(rs.latitude, rs.longitude);
-        rows.push({
-            location: rs.name,
-            type: 'RIVER_STOP',
-            nearestRoute: nearestRouteName || '—',
-            nearestStop: nearestStop || '—',
-            distance: minDist,
-            served: minDist <= RADIUS ? 'YES' : 'NO',
-            verified: 'LOCATION DB'
-        });
+    for (const place of places) {
+        addPlace(place.name, place.type, place.latitude, place.longitude, 'LOCATION DB');
     }
 
     // --- Print table ---
-    const pad = (s, n) => String(s).substring(0, n).padEnd(n);
-    console.log('\n' + pad('Location', 40) + pad('Type', 12) + pad('Nearest Route', 35) + pad('Nearest Stop', 35) + pad('Dist(m)', 9) + pad('Served?', 9) + 'Verified?');
-    console.log('-'.repeat(145));
+    const pad = (value, length) => String(value ?? '—').substring(0, length).padEnd(length);
+    console.log('\n' + pad('Location', 34) + pad('Type', 15) + pad('Nearest map route', 38) + pad('Route m', 9) + pad('Review', 9) + pad('Nearest stop', 28) + pad('Stop m', 9) + 'Verified?');
+    console.log('-'.repeat(150));
 
-    let served = 0, total = 0;
+    let routeNearby = 0;
+    let stopNearby = 0;
+    let total = 0;
     for (const r of rows) {
         total++;
-        if (r.served === 'YES') served++;
-        const distStr = typeof r.distance === 'number' ? `${r.distance}m` : r.distance;
-        console.log(pad(r.location, 40) + pad(r.type, 12) + pad(r.nearestRoute, 35) + pad(r.nearestStop, 35) + pad(distStr, 9) + pad(r.served, 9) + r.verified);
+        if (r.routeDistance !== null && r.routeDistance <= RADIUS) routeNearby++;
+        if (r.stopDistance !== null && r.stopDistance <= RADIUS) stopNearby++;
+        const routeLabel = r.nearestRoute
+            ? `${r.nearestRoute.route_name} (${r.nearestRoute.mode_name})`
+            : '—';
+        const stopLabel = r.nearestStop
+            ? `${r.nearestStop} (${r.stopRoute || 'unknown route'})`
+            : '—';
+        console.log(
+            pad(r.location, 34) + pad(r.type, 15) + pad(routeLabel, 38) +
+            pad(r.routeDistance === null ? '—' : `${r.routeDistance}m`, 9) +
+            pad(r.nearestRoute?.geometryNeedsReview ? 'UNVERIFIED' : r.nearestRoute ? 'OK' : '—', 9) +
+            pad(stopLabel, 28) + pad(r.stopDistance === null ? '—' : `${r.stopDistance}m`, 9) +
+            (r.verified || 'NO COORDS')
+        );
     }
 
     console.log('\n' + '='.repeat(80));
-    console.log(`Coverage summary: ${served}/${total} locations served within ${RADIUS}m of a transit stop`);
+    console.log(`Route proximity: ${routeNearby}/${total} places are within ${RADIUS}m of a public-map route line.`);
+    console.log(`Configured-stop proximity: ${stopNearby}/${total} places are within ${RADIUS}m of a verified stop point.`);
+    console.log('Route-line proximity alone does not confirm that a vehicle stops at that place.');
 
-    // Identify data gaps vs potential bugs
-    const gaps = rows.filter(r => r.served === 'NO');
-    if (gaps.length > 0) {
-        console.log(`\nData gaps (${gaps.length} locations with no stop within ${RADIUS}m):`);
-        for (const g of gaps) {
-            console.log(`  [${g.type}] ${g.location} — nearest stop: ${g.nearestStop} (${typeof g.distance === 'number' ? g.distance + 'm' : g.distance})`);
-        }
+    const noNearbyRoute = rows.filter(row => row.routeDistance === null || row.routeDistance > RADIUS);
+    if (noNearbyRoute.length > 0) {
+        console.log(`\nPlaces with no map route line within ${RADIUS}m (${noNearbyRoute.length}):`);
+        for (const place of noNearbyRoute) console.log(`  [${place.type}] ${place.location}`);
     }
-    console.log('\nNote: This audit checks stop proximity only. For locations shown as served here');
-    console.log('but returning 0 results in the Routes Directory, the cause is a query bug (not a data gap).');
-
-    process.exit(0);
 }
 
-main().catch(err => {
-    console.error('Coverage audit error:', err);
-    process.exit(1);
-});
+if (require.main === module) {
+    main()
+        .then(() => process.exit(0))
+        .catch(err => {
+            console.error('Coverage audit error:', err);
+            process.exit(1);
+        });
+}
+
+module.exports = { distanceToRouteGeometryMeters, LOCATION_TYPES };

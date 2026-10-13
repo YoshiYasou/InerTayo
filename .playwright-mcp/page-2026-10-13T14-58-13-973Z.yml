@@ -1,0 +1,98 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=e8]
+        - generic [ref=e9]:
+          - generic [ref=e10]: InerTayo
+          - generic [ref=e11]: Dagupan Transit System
+      - navigation [ref=e12]:
+        - button "Routes" [ref=e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=e14] [cursor=pointer]
+        - button "About" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - button "Launch Web Map" [ref=e17] [cursor=pointer]
+        - generic [ref=e21]:
+          - button "Sign In" [ref=e22] [cursor=pointer]
+          - button "Register" [ref=e23] [cursor=pointer]
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - heading "Web Map & Journey Planner" [level=1] [ref=e33]
+          - paragraph [ref=e34]: Flood-aware commute guide, verified schools, and waterways for Dagupan City.
+        - generic [ref=e35]:
+          - button "All Modes" [ref=e36] [cursor=pointer]
+          - button "Jeepneys" [ref=e37] [cursor=pointer]
+          - button "Buses" [ref=e38] [cursor=pointer]
+          - button "Tricycles" [ref=e39] [cursor=pointer]
+          - button "🚤 River Boats" [ref=e40] [cursor=pointer]
+          - button "⚠️ Flood Zones" [ref=e41] [cursor=pointer]
+          - button "Schools ON" [ref=e138] [cursor=pointer]
+          - button "Places & Streets ON" [ref=e144] [cursor=pointer]
+          - button "Landmarks ON" [active] [ref=e150] [cursor=pointer]
+      - generic [ref=e54]:
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - generic [ref=e58]:
+              - heading "Journey Planner" [level=2] [ref=e61]
+              - generic [ref=e62]: Dagupan Transit
+            - generic [ref=e63]:
+              - 'textbox "Origin: e.g. City Plaza, UPang..." [ref=e68]'
+              - button "Swap origin and destination" [ref=e71] [cursor=pointer]
+              - 'textbox "Destination: e.g. Bonuan Beach, LNU..." [ref=e79]'
+            - generic [ref=e80]:
+              - generic [ref=e81]:
+                - generic [ref=e82]: Preferred Mode
+                - combobox [ref=e83]:
+                  - option "All Modes" [selected]
+                  - option "Jeepney Only"
+                  - option "Bus Only"
+                  - option "Tricycle Only"
+                  - option "🚤 River Boat Only"
+              - generic [ref=e84]:
+                - generic [ref=e85]: Departure
+                - generic [ref=e86]: Leaving Now
+            - generic [ref=e91]:
+              - generic [ref=e92]: "Quick:"
+              - button "PHINMA UPang" [ref=e93] [cursor=pointer]
+              - button "University of Luzon" [ref=e94] [cursor=pointer]
+              - button "Bonuan Beach" [ref=e95] [cursor=pointer]
+              - button "City Plaza" [ref=e96] [cursor=pointer]
+              - button "CSI Mall Lucao" [ref=e97] [cursor=pointer]
+            - button "Find Commute Routes" [disabled] [ref=e98]
+          - generic [ref=e103]:
+            - heading "Plan Your Commute" [level=3] [ref=e107]
+            - paragraph [ref=e108]: Enter your starting point and destination in Dagupan City to see flood-aware jeepney, bus, tricycle, and river boat routes.
+        - generic [ref=e109]:
+          - generic [ref=e122]:
+            - generic:
+              - generic [ref=e128]:
+                - button "Zoom in" [ref=e129] [cursor=pointer]: +
+                - button "Zoom out" [ref=e130] [cursor=pointer]: −
+              - generic [ref=e131]:
+                - link "Leaflet" [ref=e132] [cursor=pointer]:
+                  - /url: https://leafletjs.com
+                - text: "| ©"
+                - link "OpenStreetMap" [ref=e137] [cursor=pointer]:
+                  - /url: https://www.openstreetmap.org/copyright
+                - text: contributors
+          - generic [ref=e114]:
+            - button "Map key ⌄" [ref=e115] [cursor=pointer]:
+              - text: Map key
+              - generic [ref=e120]: ⌄
+            - generic [aria-hidden]:
+              - generic:
+                - generic: Jeepney Route
+                - generic: Bus Route
+                - generic: Tricycle Corridor
+                - generic: River Boat Crossing
+                - generic: Flood Hazard Zone
+                - generic:
+                  - generic: 🎓
+                  - generic: Schools & Universities
+                - generic:
+                  - generic: ★
+                  - generic: Reference Landmarks
+                - generic: River Stops / Places
+              - generic: Click routes and markers for details. Boat routes are sample data.

@@ -1440,6 +1440,20 @@ async function runTests() {
             Array.isArray(topJourney.legs) && topJourney.legs.length >= 2,
             'Journey itinerary contains detailed legs (walking and sliced transit polyline)'
         );
+        assert(
+            journeyDirect.data.itineraries.some(itinerary => itinerary.primaryMode === 'MULTI_MODAL'),
+            'POST /api/journey/plan includes a one-transfer option alongside direct routes'
+        );
+
+        const journeyNamedPlaces = await makeRequest('POST', '/api/journey/plan', {
+            origin: { name: 'Upang' },
+            destination: { name: 'Colegio de Dagupan' }
+        });
+        assert(
+            journeyNamedPlaces.status === 200 && journeyNamedPlaces.data.origin.name === 'PHINMA University of Pangasinan' &&
+            journeyNamedPlaces.data.destination.name === 'Colegio de Dagupan',
+            'POST /api/journey/plan resolves name-only place objects from autocomplete'
+        );
 
         const journeyBoat = await makeRequest('POST', '/api/journey/plan', {
             origin: { lat: 16.0390, lng: 120.3315, name: 'Downtown Market' },
@@ -1565,6 +1579,7 @@ async function runTests() {
 
         const osrmRouter = require('../server/services/osrmRouter');
         const roadGeometryRepair = require('../server/scripts/repairRoadGeometry');
+        const coverageAudit = require('../server/scripts/coverageAudit');
         const routeGeometryQuality = require('../server/utils/routeGeometryQuality');
         const coarseGeometry = {
             type: 'LineString',
@@ -1578,6 +1593,19 @@ async function runTests() {
         assert(!roadGeometryRepair.needsRoadGeometry({ geometry: JSON.stringify(detailedGeometry) }), 'Road geometry repair preserves detailed existing routes');
         assert(routeGeometryQuality.isDetailedRoadGeometry(detailedGeometry), 'Map geometry quality accepts dense road-following paths');
         assert(!routeGeometryQuality.isDetailedRoadGeometry(coarseGeometry), 'Map geometry quality rejects sparse straight-line paths');
+        const routeProximityMeters = coverageAudit.distanceToRouteGeometryMeters(16.001, 120.005, {
+            type: 'LineString',
+            coordinates: [[120, 16], [120.01, 16]],
+        });
+        assert(
+            Math.abs(routeProximityMeters - 111) < 2,
+            'Coverage audit measures nearest distance to the route segment, not only its vertices'
+        );
+        assert(
+            coverageAudit.distanceToRouteGeometryMeters(16, 120, null) === Infinity &&
+                coverageAudit.LOCATION_TYPES.includes('ROAD') && coverageAudit.LOCATION_TYPES.includes('LANDMARK'),
+            'Coverage audit safely handles missing geometry and includes road/landmark categories'
+        );
         assert(
             roadGeometryRepair.getRouteSkipReason({ transport_mode_id: 3, geometry: JSON.stringify(coarseGeometry) }, new Set([3])) === 'Boat routes use waterway geometry',
             'Road geometry repair leaves boat routes unchanged'

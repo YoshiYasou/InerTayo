@@ -11,6 +11,7 @@ import {
   AlertTriangle, 
   ChevronRight, 
   ChevronDown, 
+  ExternalLink,
   CheckCircle2, 
   Info, 
   X,
@@ -37,6 +38,32 @@ export default function JourneyPlanner({
   const [error, setError] = useState(null);
   const [itineraries, setItineraries] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
+
+  const mapsLocation = (location, fallback) => {
+    const latitude = Number(location?.latitude ?? location?.lat);
+    const longitude = Number(location?.longitude ?? location?.lng ?? location?.lon);
+    return Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? `${latitude},${longitude}`
+      : fallback;
+  };
+  const googleMapsParams = new URLSearchParams({
+    api: '1',
+    origin: mapsLocation(origin, originText),
+    destination: mapsLocation(destination, destText),
+    travelmode: 'transit'
+  });
+  const googleMapsDirectionsUrl = `https://www.google.com/maps/dir/?${googleMapsParams.toString()}`;
+
+  const getSearchLocation = (location, fallback) => {
+    const rawLatitude = location?.latitude ?? location?.lat;
+    const rawLongitude = location?.longitude ?? location?.lng ?? location?.lon;
+    const hasCoordinates = rawLatitude !== null && rawLatitude !== undefined &&
+      rawLongitude !== null && rawLongitude !== undefined &&
+      Number.isFinite(Number(rawLatitude)) && Number.isFinite(Number(rawLongitude));
+
+    if (hasCoordinates) return location;
+    return location?.name || fallback;
+  };
 
   // Sync external origin prop
   useEffect(() => {
@@ -85,8 +112,8 @@ export default function JourneyPlanner({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          origin: origin || originText,
-          destination: destination || destText,
+          origin: getSearchLocation(origin, originText),
+          destination: getSearchLocation(destination, destText),
           preferredModes: preferredMode,
           leaveNow
         })
@@ -305,8 +332,17 @@ export default function JourneyPlanner({
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                 Suggested Routes ({itineraries.length})
               </span>
-              <span className="text-[10px] text-slate-400 italic">Sorted by fastest</span>
+              <a
+                href={googleMapsDirectionsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Check Google Maps
+              </a>
             </div>
+            <p className="mb-2 text-[10px] text-slate-400">Sorted by fastest</p>
 
             <div className="space-y-3">
               {itineraries.map((itinerary, idx) => {

@@ -9,6 +9,7 @@ const { connectDB } = require('../db/connection');
 const Route = require('../models/Route');
 const TransportMode = require('../models/TransportMode');
 const { validateGeometry } = require('../utils/geometryValidator');
+const { isDetailedRoadGeometry } = require('../utils/routeGeometryQuality');
 
 async function auditRoadRoutes() {
     await connectDB();
@@ -32,16 +33,20 @@ async function auditRoadRoutes() {
     const report = [];
 
     for (const r of routes) {
+        const usesCorrectedGeometry = r.use_corrected_geometry === 1 && Boolean(r.geometry_corrected);
+        const activeGeometry = usesCorrectedGeometry ? r.geometry_corrected : r.geometry;
         console.log(`Route #${r.id}: "${r.route_name}" (${r.mode_name})`);
         console.log(`  Origin: ${r.origin}`);
         console.log(`  Destination: ${r.destination}`);
         console.log(`  Status: ${r.status}`);
+        console.log(`  Geometry source: ${usesCorrectedGeometry ? 'corrected (active)' : 'original'}`);
 
-        const res = validateGeometry(r.geometry, {
+        const res = validateGeometry(activeGeometry, {
             mode: 'road',
             maxSegmentLengthMeters: 1800,
             strictBounds: false
         });
+        const needsMapReview = !isDetailedRoadGeometry(activeGeometry);
 
         console.log(`  Vertices: ${res.stats.vertexCount || 0}`);
         console.log(`  Total Length: ${res.stats.totalLengthMeters || 0}m`);
@@ -50,6 +55,10 @@ async function auditRoadRoutes() {
         if (res.errors.length > 0) {
             console.log('  ❌ ERRORS:');
             res.errors.forEach(e => console.log(`    - ${e}`));
+        }
+
+        if (needsMapReview) {
+            console.log('  ⚠️ MAP REVIEW: active geometry does not meet the map detail threshold (20 points, max 500m between points).');
         }
 
         if (res.warnings.length > 0) {
@@ -67,7 +76,9 @@ async function auditRoadRoutes() {
             routeId: r.id,
             name: r.route_name,
             mode: r.mode_name,
-            valid: res.valid,
+            geometrySource: usesCorrectedGeometry ? 'corrected' : 'original',
+            valid: res.valid && !needsMapReview,
+            needsMapReview,
             errors: res.errors,
             warnings: res.warnings,
             stats: res.stats

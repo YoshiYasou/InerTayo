@@ -1,0 +1,238 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=e8]
+        - generic [ref=e9]:
+          - generic [ref=e10]: InerTayo
+          - generic [ref=e11]: Dagupan Transit System
+      - navigation [ref=e12]:
+        - button "Routes" [ref=e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=e14] [cursor=pointer]
+        - button "About" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - button "Launch Web Map" [ref=e17] [cursor=pointer]
+        - generic [ref=e21]:
+          - button "Sign In" [ref=e22] [cursor=pointer]
+          - button "Register" [ref=e23] [cursor=pointer]
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - heading "Web Map & Journey Planner" [level=1] [ref=e33]
+          - paragraph [ref=e34]: Flood-aware commute guide, verified schools, and waterways for Dagupan City.
+        - generic [ref=e35]:
+          - button "All Modes" [ref=e36] [cursor=pointer]
+          - button "Jeepneys" [ref=e37] [cursor=pointer]
+          - button "Buses" [ref=e38] [cursor=pointer]
+          - button "Tricycles" [ref=e39] [cursor=pointer]
+          - button "🚤 River Boats" [ref=e40] [cursor=pointer]
+          - button "⚠️ Flood Zones" [ref=e41] [cursor=pointer]
+          - button "Schools OFF" [ref=e43] [cursor=pointer]
+          - button "Places & Streets OFF" [ref=e47] [cursor=pointer]
+          - button "Landmarks OFF" [ref=e51] [cursor=pointer]
+      - generic [ref=e54]:
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - generic [ref=e58]:
+              - heading "Journey Planner" [level=2] [ref=e61]
+              - generic [ref=e62]: Dagupan Transit
+            - generic [ref=e63]:
+              - generic [ref=e67]:
+                - 'textbox "Origin: e.g. City Plaza, UPang..." [ref=e68]': PHINMA University of Pangasinan
+                - button "Clear" [ref=e138] [cursor=pointer]
+              - button "Swap origin and destination" [ref=e71] [cursor=pointer]
+              - generic [ref=e77]:
+                - generic [ref=e78]:
+                  - 'textbox "Destination: e.g. Bonuan Beach, LNU..." [active] [ref=e79]': Colegio de Dagupan
+                  - button "Clear" [ref=e180] [cursor=pointer]
+                - list [ref=e185]:
+                  - listitem [ref=e186] [cursor=pointer]:
+                    - generic [ref=e191]:
+                      - generic [ref=e192]: Colegio de Dagupan
+                      - generic [ref=e193]: Brgy. Pantal • CdD, Universidad de Dagupan, UdD
+                    - generic [ref=e194]: College
+                  - listitem [ref=e198] [cursor=pointer]:
+                    - generic [ref=e202]:
+                      - generic [ref=e203]: Colegio de Dagupan
+                      - generic [ref=e204]: Brgy. Tapuac
+                    - generic [ref=e205]: Landmark
+            - generic [ref=e80]:
+              - generic [ref=e81]:
+                - generic [ref=e82]: Preferred Mode
+                - combobox [ref=e83]:
+                  - option "All Modes" [selected]
+                  - option "Jeepney Only"
+                  - option "Bus Only"
+                  - option "Tricycle Only"
+                  - option "🚤 River Boat Only"
+              - generic [ref=e84]:
+                - generic [ref=e85]: Departure
+                - generic [ref=e86]: Leaving Now
+            - generic [ref=e91]:
+              - generic [ref=e92]: "Quick:"
+              - button "PHINMA UPang" [ref=e93] [cursor=pointer]
+              - button "University of Luzon" [ref=e94] [cursor=pointer]
+              - button "Bonuan Beach" [ref=e95] [cursor=pointer]
+              - button "City Plaza" [ref=e96] [cursor=pointer]
+              - button "CSI Mall Lucao" [ref=e97] [cursor=pointer]
+            - button "Find Commute Routes" [ref=e98] [cursor=pointer]
+          - generic [ref=e212]:
+            - generic [ref=e213]:
+              - generic [ref=e214]: Suggested Routes (6)
+              - link "Check Google Maps" [ref=e215] [cursor=pointer]:
+                - /url: https://www.google.com/maps/dir/?api=1&origin=16.0418%2C120.3362&destination=Colegio+de+Dagupan&travelmode=transit
+            - paragraph [ref=e220]: Sorted by fastest
+            - generic [ref=e221]:
+              - generic [ref=e222]:
+                - generic [ref=e223] [cursor=pointer]:
+                  - generic [ref=e224]:
+                    - generic [ref=e225]:
+                      - generic [ref=e226]:
+                        - generic [ref=e227]: approx. 12 min
+                        - generic [ref=e228]: ₱15.00
+                      - 'heading "Jeepney: Bonuan Gueset – City Center" [level=4] [ref=e229]'
+                    - button "Viewing" [ref=e230]
+                  - generic [ref=e231]:
+                    - generic [ref=e232]:
+                      - generic [ref=e236]: Walking
+                      - generic [ref=e237]: (4m)
+                    - generic [ref=e240]:
+                      - generic [ref=e244]: Jeepney
+                      - generic [ref=e245]: (7m)
+                - generic [ref=e246]:
+                  - generic [ref=e247]: Commute Steps
+                  - generic [ref=e248]:
+                    - generic [ref=e249]: "1"
+                    - generic [ref=e250]:
+                      - generic [ref=e251]: Walk 243m to designated transit stop
+                      - generic [ref=e252]: approx. 4 min • 243m
+                  - generic [ref=e253]:
+                    - generic [ref=e254]: "2"
+                    - generic [ref=e255]:
+                      - generic [ref=e256]: Ride Jeepney (Bonuan Gueset – City Center) from designated transit stop to alighting stop
+                      - generic [ref=e257]: approx. 7 min • 2052m • ₱15.00
+              - generic [ref=e259] [cursor=pointer]:
+                - generic [ref=e260]:
+                  - generic [ref=e261]:
+                    - generic [ref=e262]:
+                      - generic [ref=e263]: approx. 13 min
+                      - generic [ref=e264]: ₱13.00
+                    - 'heading "Jeepney: Dagupan Plaza – Pantal – Arellano-Bani" [level=4] [ref=e265]'
+                  - button "View Route" [ref=e266]
+                - generic [ref=e267]:
+                  - generic [ref=e268]:
+                    - generic [ref=e272]: Walking
+                    - generic [ref=e273]: (1m)
+                  - generic [ref=e276]:
+                    - generic [ref=e280]: Jeepney
+                    - generic [ref=e281]: (11m)
+              - generic [ref=e283] [cursor=pointer]:
+                - generic [ref=e284]:
+                  - generic [ref=e285]:
+                    - generic [ref=e286]:
+                      - generic [ref=e287]: approx. 15 min
+                      - generic [ref=e288]: ₱15.00
+                    - 'heading "Jeepney: Dagupan – Bonuan Binloc" [level=4] [ref=e289]'
+                  - button "View Route" [ref=e290]
+                - generic [ref=e291]:
+                  - generic [ref=e292]:
+                    - generic [ref=e296]: Walking
+                    - generic [ref=e297]: (6m)
+                  - generic [ref=e300]:
+                    - generic [ref=e304]: Jeepney
+                    - generic [ref=e305]: (8m)
+                  - generic [ref=e308]:
+                    - generic [ref=e312]: Walking
+                    - generic [ref=e313]: (1m)
+              - generic [ref=e315] [cursor=pointer]:
+                - generic [ref=e316]:
+                  - generic [ref=e317]:
+                    - generic [ref=e318]:
+                      - generic [ref=e319]: approx. 15 min
+                      - generic [ref=e320]: ₱13.00
+                    - 'heading "Jeepney: Magsaysay Market – Dagupan Plaza" [level=4] [ref=e321]'
+                  - button "View Route" [ref=e322]
+                - generic [ref=e323]:
+                  - generic [ref=e324]:
+                    - generic [ref=e328]: Walking
+                    - generic [ref=e329]: (1m)
+                  - generic [ref=e332]:
+                    - generic [ref=e336]: Jeepney
+                    - generic [ref=e337]: (6m)
+                  - generic [ref=e340]:
+                    - generic [ref=e344]: Walking
+                    - generic [ref=e345]: (8m)
+              - generic [ref=e347] [cursor=pointer]:
+                - generic [ref=e348]:
+                  - generic [ref=e349]:
+                    - generic [ref=e350]:
+                      - generic [ref=e351]: approx. 15 min
+                      - generic [ref=e352]: ₱15.00
+                    - 'heading "Jeepney: Dagupan – Bonuan Beach" [level=4] [ref=e353]'
+                  - button "View Route" [ref=e354]
+                - generic [ref=e355]:
+                  - generic [ref=e356]:
+                    - generic [ref=e360]: Walking
+                    - generic [ref=e361]: (6m)
+                  - generic [ref=e364]:
+                    - generic [ref=e368]: Jeepney
+                    - generic [ref=e369]: (8m)
+                  - generic [ref=e372]:
+                    - generic [ref=e376]: Walking
+                    - generic [ref=e377]: (1m)
+              - generic [ref=e379] [cursor=pointer]:
+                - generic [ref=e380]:
+                  - generic [ref=e381]:
+                    - generic [ref=e382]:
+                      - generic [ref=e383]: approx. 15 min
+                      - generic [ref=e384]: ₱15.00
+                    - 'heading "Jeepney: Dagupan – Bonuan Gueset / Tondaligan" [level=4] [ref=e385]'
+                  - button "View Route" [ref=e386]
+                - generic [ref=e387]:
+                  - generic [ref=e388]:
+                    - generic [ref=e392]: Walking
+                    - generic [ref=e393]: (6m)
+                  - generic [ref=e396]:
+                    - generic [ref=e400]: Jeepney
+                    - generic [ref=e401]: (8m)
+                  - generic [ref=e404]:
+                    - generic [ref=e408]: Walking
+                    - generic [ref=e409]: (1m)
+        - generic [ref=e109]:
+          - generic [ref=e122]:
+            - generic:
+              - generic:
+                - button "A" [ref=e417] [cursor=pointer]
+                - button "B" [ref=e419] [cursor=pointer]
+            - generic:
+              - generic [ref=e128]:
+                - button "Zoom in" [ref=e129] [cursor=pointer]: +
+                - button "Zoom out" [ref=e130] [cursor=pointer]: −
+              - generic [ref=e131]:
+                - link "Leaflet" [ref=e132] [cursor=pointer]:
+                  - /url: https://leafletjs.com
+                - text: "| ©"
+                - link "OpenStreetMap" [ref=e137] [cursor=pointer]:
+                  - /url: https://www.openstreetmap.org/copyright
+                - text: contributors
+          - generic [ref=e114]:
+            - button "Map key ⌄" [ref=e115] [cursor=pointer]:
+              - text: Map key
+              - generic [ref=e120]: ⌄
+            - generic [aria-hidden]:
+              - generic:
+                - generic: Selected Commute Path
+                - generic: Jeepney Route
+                - generic: Bus Route
+                - generic: Tricycle Corridor
+                - generic: River Boat Crossing
+                - generic: Flood Hazard Zone
+                - generic:
+                  - generic: 🎓
+                  - generic: Schools & Universities
+                - generic:
+                  - generic: ★
+                  - generic: Reference Landmarks
+                - generic: River Stops / Places
+              - generic: Click routes and markers for details. Boat routes are sample data.

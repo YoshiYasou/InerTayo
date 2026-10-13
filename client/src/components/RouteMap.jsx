@@ -417,10 +417,6 @@ function LayerManager({
     };
 
     // During an active journey, only show route lines of modes involved
-    const journeyModes = selectedJourney?.legs
-      ? new Set(selectedJourney.legs.map(l => (l.mode || '').toLowerCase()))
-      : null;
-
     for (const key of modeKeys) {
       const data = geo[key];
       const features = focusedRouteFeature
@@ -552,11 +548,16 @@ function LayerManager({
     }
 
     if (activeRouteId === null) {
-      // No selection: restore all to default
-      const routeStyle = defaultRouteStyle();
-      Object.values(flayers).forEach(l => {
+      const journeyRouteIds = new Set((selectedJourney?.legs || [])
+        .map(leg => leg.routeId)
+        .filter(routeId => routeId !== undefined && routeId !== null)
+        .map(String));
+      Object.entries(flayers).forEach(([id, layer]) => {
+        const routeStyle = journeyRouteIds.size === 0
+          ? defaultRouteStyle()
+          : journeyRouteIds.has(String(id)) ? STYLE_SELECTED : STYLE_DIMMED;
         try {
-          l.setStyle({
+          layer.setStyle({
             ...routeStyle,
             weight: zoomedLineWeight(routeStyle.weight, currentZoom.current),
           });
@@ -598,9 +599,15 @@ function LayerManager({
 
   function updateRouteLineWeights() {
     const activeRouteId = selectedRouteId ?? focusedRouteFeature?.properties.id ?? null;
+    const journeyRouteIds = new Set((selectedJourney?.legs || [])
+      .map(leg => leg.routeId)
+      .filter(routeId => routeId !== undefined && routeId !== null)
+      .map(String));
     Object.entries(layersRef.current.routeFeatureLayers).forEach(([id, layer]) => {
       const style = activeRouteId === null
-        ? defaultRouteStyle()
+        ? journeyRouteIds.size === 0
+          ? defaultRouteStyle()
+          : journeyRouteIds.has(String(id)) ? STYLE_SELECTED : STYLE_DIMMED
         : String(id) === String(activeRouteId) ? STYLE_SELECTED : STYLE_DIMMED;
       try {
         layer.setStyle({

@@ -36,15 +36,24 @@ async function resolveLocation(input) {
     if (!input) return null;
 
     if (typeof input === 'object') {
-        const lat = Number(input.latitude ?? input.lat);
-        const lng = Number(input.longitude ?? input.lng ?? input.lon);
-        if (!isNaN(lat) && !isNaN(lng)) {
+        const rawLat = input.latitude ?? input.lat;
+        const rawLng = input.longitude ?? input.lng ?? input.lon;
+        const lat = Number(rawLat);
+        const lng = Number(rawLng);
+        if (rawLat != null && rawLng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
             return {
                 lat,
                 lng,
                 name: input.name || input.address || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
             };
         }
+
+        const placeName = input.name || input.address;
+        if (typeof placeName === 'string' && placeName.trim()) {
+            return resolveLocation(placeName.trim());
+        }
+
+        return null;
     }
 
     if (typeof input === 'string') {
@@ -566,7 +575,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     }
 
     // 3. Multi-Modal / 1-Transfer Option (Route A -> Route B)
-    if (candidateItineraries.length < 3) {
+    if (routes.length > 1) {
+        const maxTransferItineraries = 4;
+        let transferItineraryCount = 0;
         const transferHubs = [
             { name: 'Perez Boulevard / Herrero', lat: 16.0425, lng: 120.3375 },
             { name: 'Downtown City Plaza', lat: 16.0433, lng: 120.3333 },
@@ -588,10 +599,12 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
         }
 
         for (const hub of allHubs) {
+            if (transferItineraryCount >= maxTransferItineraries) break;
             const hubLngLat = [hub.lng, hub.lat];
 
             // Find Route 1 near Origin that passes through Hub
             for (const r1 of routes) {
+                if (transferItineraryCount >= maxTransferItineraries) break;
                 if (!isModeAllowed(r1.mode_name) || r1.status === 'UNAVAILABLE') continue;
                 if (!r1.parsedCoordinates || r1.parsedCoordinates.length < 2) continue;
 
@@ -601,6 +614,7 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
 
                 // Find Route 2 near Hub that goes near Destination
                 for (const r2 of routes) {
+                    if (transferItineraryCount >= maxTransferItineraries) break;
                     if (r1.id === r2.id) continue;
                     if (!isModeAllowed(r2.mode_name) || r2.status === 'UNAVAILABLE') continue;
                     if (!r2.parsedCoordinates || r2.parsedCoordinates.length < 2) continue;
@@ -722,6 +736,7 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                         floodWarning: [getRouteFloodWarning(r1), getRouteFloodWarning(r2)].filter(Boolean).join(' '),
                         legs
                     });
+                    transferItineraryCount += 1;
                     break;
                 }
             }
@@ -780,7 +795,7 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
         origin: orig,
         destination: dest,
         departureTime: leaveNow ? 'Leaving Now' : 'Scheduled',
-        itineraries: unique.slice(0, 4)
+        itineraries: unique.slice(0, 6)
     };
 }
 
