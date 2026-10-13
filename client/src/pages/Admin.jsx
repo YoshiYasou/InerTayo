@@ -8,6 +8,7 @@ import LocationAutocomplete from '../components/LocationAutocomplete';
 import { 
   ShieldCheck, 
   Route, 
+  Compass,
   AlertTriangle, 
   MessageSquare, 
   DollarSign, 
@@ -24,6 +25,7 @@ import {
   ToggleRight,
   RefreshCw,
   Eye,
+  Bookmark,
   Layers,
   Ship,
   FileSpreadsheet,
@@ -43,12 +45,144 @@ function hasPreviewableGeometry(value) {
   }
 }
 
+function readLineStringCoordinates(value) {
+  try {
+    const geometry = typeof value === 'string' ? JSON.parse(value) : value;
+    return geometry?.type === 'LineString' && Array.isArray(geometry.coordinates)
+      ? geometry.coordinates
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeDetourSteps(steps, instructions = '') {
+  if (Array.isArray(steps) && steps.length > 0) {
+    return steps.map((step) => ({
+      mode: step.mode || 'Transit',
+      instruction: step.instruction || '',
+      location_info: step.location_info || ''
+    }));
+  }
+  return String(instructions || '').split(/\r?\n/).map((instruction) => instruction.trim()).filter(Boolean)
+    .map((instruction) => ({ mode: 'Transit', instruction, location_info: '' }));
+}
+
+function detourInstructionText(steps = []) {
+  return steps.map((step) => step.instruction?.trim()).filter(Boolean).join('\n');
+}
+
+function DetourStepsEditor({ steps = [], onChange, modes = [] }) {
+  const updateStep = (stepIndex, updates) => {
+    onChange(steps.map((step, index) => index === stepIndex ? { ...step, ...updates } : step));
+  };
+
+  const moveStep = (stepIndex, offset) => {
+    const nextSteps = [...steps];
+    const targetIndex = stepIndex + offset;
+    [nextSteps[stepIndex], nextSteps[targetIndex]] = [nextSteps[targetIndex], nextSteps[stepIndex]];
+    onChange(nextSteps);
+  };
+
+  const availableModes = [...new Set(['Walk', ...modes.map((mode) => mode.name), ...steps.map((step) => step.mode).filter(Boolean)])];
+
+  return (
+    <section className="space-y-3" aria-label="Flood detour steps and directions">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h5 className="text-sm font-bold text-slate-800">Detour steps & directions</h5>
+          <p className="mt-0.5 text-xs text-slate-500">Shown instead of the normal steps when this detour is active.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange([...steps, { mode: 'Walk', instruction: '', location_info: '' }])}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add step
+        </button>
+      </div>
+      {steps.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-6 text-center text-xs text-slate-500">
+          No detour directions yet. Add a step to describe the flooded-route detour.
+        </p>
+      ) : steps.map((step, index) => (
+        <div key={step.id || `detour-step-${index}`} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-700 text-xs font-bold text-white shadow-sm">
+            {index + 1}
+          </div>
+          <div className="min-w-0 space-y-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+              <select
+                aria-label={`Detour step ${index + 1} mode`}
+                value={step.mode || 'Walk'}
+                onChange={(event) => updateStep(index, { mode: event.target.value })}
+                className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs"
+              >
+                {availableModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+              </select>
+              <input
+                type="text"
+                aria-label={`Detour step ${index + 1} instruction`}
+                value={step.instruction || ''}
+                onChange={(event) => updateStep(index, { instruction: event.target.value })}
+                placeholder="e.g. Board the jeepney toward Calasiao via the bypass"
+                className="w-full rounded-md border border-slate-300 px-2 py-2 text-xs"
+              />
+            </div>
+            <input
+              type="text"
+              aria-label={`Detour step ${index + 1} details`}
+              value={step.location_info || ''}
+              onChange={(event) => updateStep(index, { location_info: event.target.value })}
+              placeholder="Optional location details"
+              className="w-full rounded-md border border-slate-300 px-2 py-2 text-xs"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              title="Move detour step up"
+              aria-label={`Move detour step ${index + 1} up`}
+              disabled={index === 0}
+              onClick={() => moveStep(index, -1)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Move detour step down"
+              aria-label={`Move detour step ${index + 1} down`}
+              disabled={index === steps.length - 1}
+              onClick={() => moveStep(index, 1)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              title="Remove detour step"
+              aria-label={`Remove detour step ${index + 1}`}
+              onClick={() => onChange(steps.filter((_, stepIndex) => stepIndex !== index))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 transition hover:bg-rose-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export default function Admin() {
   const { navigate } = useRouter();
   const { user, token, isAdmin, openAuth } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'advisories', 'locations', 'modes', 'fares', 'feedback'
+  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'web-map', 'advisories', 'saved-routes', 'locations', 'modes', 'fares', 'feedback'
   const [stats, setStats] = useState(null);
+  const [savedRouteInsights, setSavedRouteInsights] = useState({ total_saved: 0, routes: [] });
   const [routes, setRoutes] = useState([]);
   const [advisories, setAdvisories] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
@@ -97,6 +231,8 @@ export default function Admin() {
   // Form Modal States
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState(null);
+  const [selectedWebMapRouteId, setSelectedWebMapRouteId] = useState(null);
+  const [routeMapEditorTab, setRouteMapEditorTab] = useState('normal');
   const [routeSteps, setRouteSteps] = useState([]);
   const [originalRouteSteps, setOriginalRouteSteps] = useState([]);
   const [availableRouteDraft, setAvailableRouteDraft] = useState(null);
@@ -118,22 +254,26 @@ export default function Admin() {
     service_notes: '',
     geometry: '',
     walking_geometry: '',
+    allow_unverified_map_geometry: false,
     waterway: '',
     origin_river_stop_id: '',
     destination_river_stop_id: '',
     boat_operating_status: 'ACTIVE',
-    boat_notes: ''
+    boat_notes: '',
+    advisory_detours: {}
   });
 
   const [advisoryModalOpen, setAdvisoryModalOpen] = useState(false);
   const [editingAdvisory, setEditingAdvisory] = useState(null);
+  const [advisorySaveError, setAdvisorySaveError] = useState('');
   const [advisoryFormData, setAdvisoryFormData] = useState({
     title: '',
     affected_road: '',
     condition: 'FLOODED',
     description: '',
     status: 'ACTIVE',
-    route_ids: []
+    route_ids: [],
+    route_detours: {}
   });
 
   const [locationModalOpen, setLocationModalOpen] = useState(false);
@@ -170,6 +310,10 @@ export default function Admin() {
   const searchedRoutes = routes.filter(route => matchesAdminSearch([
     route.route_name, route.mode_name, route.origin, route.destination, route.status, route.description
   ]));
+  const selectedWebMapRoute = routes.find((route) => route.id === selectedWebMapRouteId) || null;
+  const searchedSavedRouteInsights = savedRouteInsights.routes.filter(route => matchesAdminSearch([
+    route.route_name, route.mode_name, route.origin, route.destination
+  ]));
   const searchedAdvisories = advisories.filter(advisory => matchesAdminSearch([
     advisory.title, advisory.affected_road, advisory.condition, advisory.description, advisory.status,
     ...(advisory.routes || []).map(route => route.route_name)
@@ -186,6 +330,23 @@ export default function Admin() {
     stop.description,
     routes.find(route => route.id === stop.route_id)?.route_name,
   ]));
+  const linkedRouteAdvisories = editingRoute ? advisories.flatMap((advisory) => {
+    if (!['FLOODED', 'HIGH_TIDE', 'DETOUR'].includes(advisory.condition)) return [];
+    const routeConfig = advisory.routes?.find((route) => route.id === editingRoute.id);
+    return routeConfig ? [{ ...advisory, routeConfig }] : [];
+  }) : [];
+  const selectedPreviewAdvisory = routeMapEditorTab.startsWith('detour-')
+    ? linkedRouteAdvisories.find((advisory) => `detour-${advisory.id}` === routeMapEditorTab)
+    : null;
+  const selectedPreviewDetour = selectedPreviewAdvisory
+    ? routeFormData.advisory_detours?.[selectedPreviewAdvisory.id] || selectedPreviewAdvisory.routeConfig
+    : null;
+  const passengerPreviewGeometry = selectedPreviewDetour
+    ? selectedPreviewDetour.detour_geometry
+    : routeFormData.geometry;
+  const passengerPreviewSteps = selectedPreviewDetour
+    ? normalizeDetourSteps(selectedPreviewDetour.detour_steps, selectedPreviewDetour.detour_instructions)
+    : routeSteps.filter((step) => step.instruction?.trim());
   const searchedModes = modes.filter(mode => matchesAdminSearch([
     mode.name, mode.description, mode.icon, mode.status
   ]));
@@ -216,8 +377,9 @@ export default function Admin() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [statsRes, routesRes, advRes, feedRes, modesRes, locsRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
+      const [statsRes, savedRouteInsightsRes, routesRes, advRes, feedRes, modesRes, locsRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
+        fetch('/api/admin/saved-routes', { headers }).then(r => r.json()),
         fetch('/api/routes').then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
@@ -239,6 +401,9 @@ export default function Admin() {
       }
 
       setStats(statsRes);
+      setSavedRouteInsights(Array.isArray(savedRouteInsightsRes.routes)
+        ? savedRouteInsightsRes
+        : { total_saved: 0, routes: [] });
       setRoutes(routesRes);
       setAdvisories(advRes);
       setFeedbackList(feedRes);
@@ -270,6 +435,7 @@ export default function Admin() {
 
   const openNewRouteModal = () => {
     setEditingRoute(null);
+    setRouteMapEditorTab('normal');
     setRouteSteps([]);
     setOriginalRouteSteps([]);
     setRoutePreviewOpen(false);
@@ -290,11 +456,13 @@ export default function Admin() {
       service_notes: '',
       geometry: '',
       walking_geometry: '',
+      allow_unverified_map_geometry: false,
       waterway: 'Pantal River',
       origin_river_stop_id: '',
       destination_river_stop_id: '',
       boat_operating_status: 'ACTIVE',
-      boat_notes: ''
+      boat_notes: '',
+      advisory_detours: {}
     });
     setRouteModalOpen(true);
     checkRouteDraft('new');
@@ -302,11 +470,26 @@ export default function Admin() {
 
   const openEditRouteModal = async (route) => {
     setEditingRoute(route);
+    setRouteMapEditorTab('normal');
     setRouteSteps([]);
     setOriginalRouteSteps([]);
     setRoutePreviewOpen(false);
     setGeometryValidation(null);
     setRouteValidationWarnings([]);
+    const advisoryDetours = Object.fromEntries(advisories.flatMap((advisory) => {
+      if (!['FLOODED', 'HIGH_TIDE', 'DETOUR'].includes(advisory.condition)) return [];
+      const routeConfig = advisory.routes?.find((item) => item.id === route.id);
+      if (!routeConfig) return [];
+      return [[advisory.id, {
+        detour_enabled: routeConfig.detour_enabled ?? null,
+        flooded_geometry: routeConfig.flooded_geometry || '',
+        detour_geometry: routeConfig.detour_geometry || '',
+        detour_steps: normalizeDetourSteps(routeConfig.detour_steps, routeConfig.detour_instructions),
+        detour_instructions: routeConfig.detour_instructions || '',
+        detour_time: routeConfig.detour_time || route.detour_time || '',
+        dirty: false
+      }]];
+    }));
     let waterway = route.waterway || '';
     let origin_river_stop_id = route.origin_river_stop_id || '';
     let destination_river_stop_id = route.destination_river_stop_id || '';
@@ -357,11 +540,13 @@ export default function Admin() {
       service_notes: route.service_notes || route.notes || '',
       geometry: typeof route.geometry === 'object' ? JSON.stringify(route.geometry) : (route.geometry || ''),
       walking_geometry: typeof route.walking_geometry === 'object' ? JSON.stringify(route.walking_geometry) : (route.walking_geometry || ''),
+      allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
       waterway,
       origin_river_stop_id,
       destination_river_stop_id,
       boat_operating_status,
-      boat_notes
+      boat_notes,
+      advisory_detours: advisoryDetours
     });
     setRouteModalOpen(true);
     checkRouteDraft(`route-${route.id}`);
@@ -401,6 +586,20 @@ export default function Admin() {
   };
 
   const routeDraftKey = editingRoute ? `route-${editingRoute.id}` : 'new';
+
+  const updateRouteAdvisoryDetour = (advisoryId, updates) => {
+    setRouteFormData((current) => ({
+      ...current,
+      advisory_detours: {
+        ...current.advisory_detours,
+        [advisoryId]: {
+          ...current.advisory_detours?.[advisoryId],
+          ...updates,
+          dirty: true
+        }
+      }
+    }));
+  };
 
   const saveRouteDraft = async () => {
     try {
@@ -477,6 +676,17 @@ export default function Admin() {
       const warningText = validation.warnings.length
         ? `\n\nReview these warnings before publishing:\n- ${validation.warnings.join('\n- ')}`
         : '';
+      const invalidDetour = linkedRouteAdvisories.find((advisory) => {
+        const config = routeFormData.advisory_detours?.[advisory.id];
+        return config?.dirty && config.detour_enabled === true &&
+          (!hasPreviewableGeometry(config.flooded_geometry) || !hasPreviewableGeometry(config.detour_geometry) ||
+            !config.detour_steps?.length || config.detour_steps.some((step) => !step.instruction?.trim()));
+      });
+      if (invalidDetour) {
+        alert(`Complete both map paths and every detour step for ${invalidDetour.title} before saving.`);
+        return;
+      }
+
       const action = editingRoute ? 'publish these changes' : 'publish this new route';
       if (!window.confirm(`Are you sure you want to ${action}?${warningText}`)) return;
 
@@ -530,6 +740,20 @@ export default function Admin() {
 
       await saveRouteSteps(routeId);
 
+      if (editingRoute) {
+        for (const advisory of linkedRouteAdvisories) {
+          const config = routeFormData.advisory_detours?.[advisory.id];
+          if (!config?.dirty) continue;
+          const response = await fetch(`/api/admin/routes/${routeId}/advisories/${advisory.id}/detour`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(config)
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || `Could not save the ${advisory.title} detour.`);
+        }
+      }
+
       await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -571,55 +795,77 @@ export default function Admin() {
 
   const openNewAdvisoryModal = () => {
     setEditingAdvisory(null);
+    setAdvisorySaveError('');
     setAdvisoryFormData({
       title: 'HIGH TIDE ADVISORY',
       affected_road: '',
       condition: 'FLOODED',
       description: '',
       status: 'ACTIVE',
-      route_ids: []
+      route_ids: [],
+      route_detours: {}
     });
     setAdvisoryModalOpen(true);
   };
 
   const openEditAdvisoryModal = (adv) => {
     setEditingAdvisory(adv);
+    setAdvisorySaveError('');
     setAdvisoryFormData({
       title: adv.title,
       affected_road: adv.affected_road,
       condition: adv.condition,
       description: adv.description,
       status: adv.status,
-      route_ids: adv.routes ? adv.routes.map(r => r.id) : []
+      route_ids: adv.routes ? adv.routes.map(r => r.id) : [],
+      route_detours: Object.fromEntries((adv.routes || []).map((route) => [route.id, {
+        detour_enabled: route.detour_enabled ?? null,
+        flooded_geometry: route.flooded_geometry || '',
+        detour_geometry: route.detour_geometry || '',
+        detour_steps: normalizeDetourSteps(route.detour_steps, route.detour_instructions),
+        detour_instructions: route.detour_instructions || '',
+        detour_time: route.detour_time || ''
+      }]))
     });
     setAdvisoryModalOpen(true);
   };
 
   const handleSaveAdvisory = async (e) => {
     e.preventDefault();
+    setAdvisorySaveError('');
     const headers = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     };
+    const payload = {
+      ...advisoryFormData,
+      route_detours: Object.entries(advisoryFormData.route_detours || {}).map(([routeId, config]) => ({
+        route_id: Number(routeId),
+        ...config
+      }))
+    };
 
     try {
+      let response;
       if (editingAdvisory) {
-        await fetch(`/api/admin/advisories/${editingAdvisory.id}`, {
+        response = await fetch(`/api/admin/advisories/${editingAdvisory.id}`, {
           method: 'PUT',
           headers,
-          body: JSON.stringify(advisoryFormData)
+          body: JSON.stringify(payload)
         });
       } else {
-        await fetch('/api/admin/advisories', {
+        response = await fetch('/api/admin/advisories', {
           method: 'POST',
           headers,
-          body: JSON.stringify(advisoryFormData)
+          body: JSON.stringify(payload)
         });
       }
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Failed to save advisory.');
       setAdvisoryModalOpen(false);
       loadAdminData();
     } catch (err) {
-      alert('Failed to save advisory: ' + err.message);
+      setAdvisorySaveError(err.message || 'Failed to save advisory.');
     }
   };
 
@@ -1022,7 +1268,9 @@ export default function Admin() {
         <div className="flex border-b border-slate-200 mb-6 space-x-2 overflow-x-auto pb-px [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {[
             { key: 'routes', label: 'Routes & Travel Times', icon: Route },
+            { key: 'web-map', label: 'Web Map', icon: Compass },
             { key: 'advisories', label: 'Flood Advisories & Detours', icon: AlertTriangle },
+            { key: 'saved-routes', label: 'Saved Routes', icon: Bookmark },
             { key: 'locations', label: 'Places & Stops', icon: Layers },
             { key: 'modes', label: 'Transport Modes', icon: Ship },
             { key: 'fares', label: 'Fare Matrix', icon: DollarSign },
@@ -1141,6 +1389,94 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'web-map' && (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
+            <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 p-4">
+                <h3 className="text-base font-bold text-slate-900">Web Map Routes</h3>
+                <p className="mt-1 text-xs text-slate-500">Select a route on the list or map, then open its editor.</p>
+                <div className="mt-3">{renderAdminSearch('Search routes...')}</div>
+              </div>
+              <div className="max-h-[64vh] overflow-y-auto p-2">
+                {searchedRoutes.length === 0 ? (
+                  <p className="px-3 py-8 text-center text-xs text-slate-500">
+                    {routes.length ? 'No routes match your search.' : 'No routes configured yet.'}
+                  </p>
+                ) : searchedRoutes.map((route) => (
+                  <div
+                    key={route.id}
+                    className={`mb-1 flex items-center gap-2 rounded-lg border p-2 ${selectedWebMapRouteId === route.id ? 'border-emerald-200 bg-emerald-50' : 'border-transparent hover:bg-slate-50'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWebMapRouteId(route.id)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-xs font-semibold text-slate-900">{route.route_name}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                        {route.mode_name} · {route.origin} to {route.destination}
+                      </span>
+                      {route.allow_unverified_map_geometry && (
+                        <span className="mt-1 inline-flex rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-900">
+                          Unverified map bypass
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      title={`Edit ${route.route_name}`}
+                      aria-label={`Edit ${route.route_name}`}
+                      onClick={() => openEditRouteModal(route)}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-bold text-slate-900">
+                    {selectedWebMapRoute?.route_name || 'Dagupan transit map'}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {selectedWebMapRoute
+                      ? `${selectedWebMapRoute.mode_name} · ${selectedWebMapRoute.origin} to ${selectedWebMapRoute.destination}`
+                      : 'Select a route to edit its map geometry.'}
+                  </p>
+                </div>
+                {selectedWebMapRoute && (
+                  <button
+                    type="button"
+                    onClick={() => openEditRouteModal(selectedWebMapRoute)}
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-800"
+                  >
+                    <Edit className="h-3.5 w-3.5" />
+                    Edit Route
+                  </button>
+                )}
+              </div>
+              <div className="h-[64vh] min-h-[420px]">
+                <RouteMap
+                  routes={routes}
+                  interactive
+                  showAdvisories
+                  showLocations
+                  locations={locations}
+                  showStopClusterCounts={false}
+                  onSelect={(type, item) => {
+                    if (type === 'route') setSelectedWebMapRouteId(item.id);
+                  }}
+                  className="h-full w-full"
+                />
+              </div>
+            </section>
           </div>
         )}
 
@@ -1302,6 +1638,57 @@ export default function Admin() {
               )}
             </div>
           </div>
+        )}
+
+        {activeTab === 'saved-routes' && (
+          <section className="overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Bookmark className="h-5 w-5 text-emerald-700" />
+                  <h3 className="text-lg font-bold text-slate-900">Saved Route Popularity</h3>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Aggregate commuter bookmarks by route. Individual commuter accounts are not shown.</p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                  {savedRouteInsights.total_saved} total bookmarks
+                </div>
+                {renderAdminSearch('Search saved routes...')}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Route</th>
+                    <th className="px-4 py-3">Mode</th>
+                    <th className="px-4 py-3">Origin</th>
+                    <th className="px-4 py-3">Destination</th>
+                    <th className="px-4 py-3 text-right">Bookmarks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {searchedSavedRouteInsights.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="px-4 py-10 text-center text-slate-400">
+                        {savedRouteInsights.routes.length ? 'No saved routes match your search.' : 'Commuters have not saved any routes yet.'}
+                      </td>
+                    </tr>
+                  ) : searchedSavedRouteInsights.map((route) => (
+                    <tr key={route.id} className="transition-colors hover:bg-slate-50/70">
+                      <td className="px-4 py-3.5 font-semibold text-slate-900">{route.route_name}</td>
+                      <td className="px-4 py-3.5">{route.mode_name || '—'}</td>
+                      <td className="px-4 py-3.5 text-slate-500">{route.origin}</td>
+                      <td className="px-4 py-3.5 text-slate-500">{route.destination}</td>
+                      <td className="px-4 py-3.5 text-right tabular-nums font-bold text-slate-900">{route.saved_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
       {/* ========================================================================= */}
@@ -2301,22 +2688,22 @@ export default function Admin() {
                 />
               </div>
 
-              <div className="border-y border-slate-200 py-3">
+              <div className="border-y border-slate-200 py-4">
                 <button
                   type="button"
                   aria-expanded={routePreviewOpen}
                   onClick={() => setRoutePreviewOpen((open) => !open)}
-                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
                 >
                   <Eye className="h-4 w-4" />
                   {routePreviewOpen ? 'Hide passenger preview' : 'Preview passenger view'}
                 </button>
                 {routePreviewOpen && (
-                  <section className="mt-3 max-w-3xl rounded-md border border-slate-200 bg-white p-4" aria-label="Passenger route preview">
+                  <section className="mt-3 max-w-3xl space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-label="Passenger route preview">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-bold uppercase text-slate-500">
-                          {modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name || 'Transit'} route
+                          {selectedPreviewDetour ? 'Flood detour passenger preview' : `${modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name || 'Transit'} route`}
                         </p>
                         <h3 className="mt-1 text-lg font-bold text-slate-900">{routeFormData.route_name || 'Route name'}</h3>
                         <p className="mt-1 text-sm text-slate-600">{routeFormData.origin || 'Origin'} to {routeFormData.destination || 'Destination'}</p>
@@ -2328,13 +2715,18 @@ export default function Admin() {
                       </span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-semibold text-slate-700">
-                      <span>{routeFormData.estimated_time || '—'} min</span>
+                      <span>{selectedPreviewDetour?.detour_time || routeFormData.estimated_time || '—'} min</span>
                       <span>₱{routeFormData.minimum_fare || '—'} – ₱{routeFormData.maximum_fare || '—'}</span>
                     </div>
+                    {selectedPreviewDetour && selectedPreviewAdvisory && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-medium leading-relaxed text-amber-900">
+                        Draft preview for {selectedPreviewAdvisory.title} around {selectedPreviewAdvisory.affected_road}. This does not activate the detour.
+                      </p>
+                    )}
                     {routeFormData.description && <p className="mt-3 text-sm text-slate-700">{routeFormData.description}</p>}
                     {routeFormData.service_notes && <p className="mt-2 border-l-2 border-emerald-600 pl-3 text-sm text-slate-600">{routeFormData.service_notes}</p>}
-                    {hasPreviewableGeometry(routeFormData.geometry) ? (
-                      <div className="relative mt-4 h-52 overflow-hidden rounded-md border border-slate-200">
+                    {hasPreviewableGeometry(passengerPreviewGeometry) ? (
+                      <div className="relative h-56 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                         <RouteMap
                         routes={[{
                           id: editingRoute?.id || 'route-preview',
@@ -2344,11 +2736,16 @@ export default function Admin() {
                           minimum_fare: Number(routeFormData.minimum_fare) || 0,
                           maximum_fare: Number(routeFormData.maximum_fare) || 0,
                           estimated_time: Number(routeFormData.estimated_time) || 0,
-                          geometry: routeFormData.geometry,
+                          geometry: passengerPreviewGeometry,
                           walking_geometry: routeFormData.walking_geometry,
                           geometry_needs_review: false,
                           map_preview_unavailable: routeFormData.operating_status !== 'ACTIVE',
                         }]}
+                        selectedJourney={selectedPreviewDetour ? { legs: [{
+                          coordinates: [],
+                          floodedCoordinates: readLineStringCoordinates(selectedPreviewDetour.flooded_geometry),
+                          advisoryTitle: selectedPreviewAdvisory?.title
+                        }] } : null}
                         interactive={false}
                         showAdvisories={false}
                         showStopClusterCounts={false}
@@ -2356,24 +2753,74 @@ export default function Admin() {
                         />
                       </div>
                     ) : (
-                      <p className="mt-4 rounded-md border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
-                        A valid route path is needed for the map preview.
+                      <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-8 text-center text-xs text-slate-500">
+                        {selectedPreviewDetour ? 'Add a valid alternate route path to preview this flood detour.' : 'A valid route path is needed for the map preview.'}
                       </p>
                     )}
-                    {routeSteps.length > 0 && (
+                    {passengerPreviewSteps.length > 0 ? (
                       <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-slate-600">
-                        {routeSteps.filter(step => step.instruction?.trim()).map((step, index) => <li key={step.id || index}>{step.instruction}</li>)}
+                        {passengerPreviewSteps.map((step, index) => (
+                          <li key={`detour-step-${index}`}>
+                            <span className="font-semibold">{step.mode}:</span> {step.instruction}
+                            {step.location_info && <span className="block text-slate-500">{step.location_info}</span>}
+                          </li>
+                        ))}
                       </ol>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">
+                        {selectedPreviewDetour ? 'Add detour steps to preview passenger directions.' : 'No normal route directions are configured.'}
+                      </p>
                     )}
                   </section>
                 )}
               </div>
 
-              <section className="space-y-3 border-t border-slate-200 pt-4" aria-labelledby="route-steps-heading">
+              {editingRoute && (
+                <section className="space-y-4 border-t border-slate-200 pt-5" aria-labelledby="flooded-route-heading">
+                  <div>
+                    <h4 id="flooded-route-heading" className="text-base font-bold text-slate-900">Route version</h4>
+                    <p className="mt-1 text-xs text-slate-500">Choose the normal route or a linked flood detour. Your edits stay separate when you switch.</p>
+                  </div>
+                  <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Route map to edit">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={routeMapEditorTab === 'normal'}
+                      onClick={() => setRouteMapEditorTab('normal')}
+                      className={`inline-flex h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold transition ${routeMapEditorTab === 'normal' ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'}`}
+                    >
+                      <Route className="h-3.5 w-3.5" />
+                      Normal route
+                    </button>
+                    {linkedRouteAdvisories.map((advisory) => {
+                      const tabId = `detour-${advisory.id}`;
+                      return (
+                        <button
+                          key={advisory.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={routeMapEditorTab === tabId}
+                          onClick={() => setRouteMapEditorTab(tabId)}
+                          className={`inline-flex h-9 max-w-full items-center gap-2 truncate rounded-md px-3 text-xs font-semibold transition ${routeMapEditorTab === tabId ? 'bg-white text-rose-800 shadow-sm ring-1 ring-rose-200' : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'}`}
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">Flood detour: {advisory.title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {linkedRouteAdvisories.length === 0 && (
+                    <p className="text-xs text-slate-500">This route is not linked to a flood, high-tide, or detour advisory.</p>
+                  )}
+                </section>
+              )}
+
+              {(!editingRoute || routeMapEditorTab === 'normal') && (
+                <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5" aria-labelledby="route-steps-heading">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h4 id="route-steps-heading" className="text-sm font-bold text-slate-800">Route steps & directions</h4>
-                    <p className="text-xs text-slate-500">These instructions appear on the public route page.</p>
+                    <h4 id="route-steps-heading" className="text-sm font-bold text-slate-900">Normal route directions</h4>
+                    <p className="mt-0.5 text-xs text-slate-500">Used whenever no flood detour is active.</p>
                   </div>
                   <button
                     type="button"
@@ -2382,7 +2829,7 @@ export default function Admin() {
                       instruction: '',
                       location_info: '',
                     }])}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Add step
@@ -2390,12 +2837,12 @@ export default function Admin() {
                 </div>
 
                 {routeSteps.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-center text-xs text-slate-500">
+                  <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-xs text-slate-500">
                     No directions yet. Add a step to describe the route.
                   </p>
                 ) : routeSteps.map((step, index) => (
-                  <div key={step.id || `new-step-${index}`} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-2 rounded-md border border-slate-200 p-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold text-white">
+                  <div key={step.id || `new-step-${index}`} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold text-white shadow-sm">
                       {index + 1}
                     </div>
                     <div className="min-w-0 space-y-2">
@@ -2475,7 +2922,8 @@ export default function Admin() {
                     </div>
                   </div>
                 ))}
-              </section>
+                </section>
+              )}
 
               {(routeValidationWarnings.length > 0 || geometryValidation?.errors?.length > 0) && (
                 <div className={`rounded-md border p-3 ${geometryValidation?.errors?.length ? 'border-rose-200 bg-rose-50 text-rose-900' : 'border-amber-200 bg-amber-50 text-amber-950'}`} role="status">
@@ -2485,18 +2933,107 @@ export default function Admin() {
                 </div>
               )}
 
-              <RouteGeometryEditor
-                value={routeFormData.geometry}
-                onChange={(geometry) => setRouteFormData((current) => ({ ...current, geometry }))}
-                walkingValue={routeFormData.walking_geometry}
-                onWalkingChange={(walking_geometry) => setRouteFormData((current) => ({ ...current, walking_geometry }))}
-                token={token}
-                allowRoadSnap={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat'}
-                color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'
-                  : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'bus' ? '#10b981'
-                  : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'tricycle' ? '#06b6d4'
-                  : '#ec4899'}
-              />
+              {editingRoute && (
+                <section className="space-y-3" aria-label="Selected flood detour editor">
+                  {linkedRouteAdvisories.map((advisory) => {
+                    if (routeMapEditorTab !== `detour-${advisory.id}`) return null;
+                    const config = routeFormData.advisory_detours?.[advisory.id] || advisory.routeConfig;
+                    return (
+                      <div key={advisory.id} role="tabpanel" className="space-y-4 rounded-xl border border-rose-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{advisory.title}</p>
+                            <p className="mt-1 text-xs text-slate-500">{advisory.affected_road}</p>
+                          </div>
+                          <label className="inline-flex min-h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={config.detour_enabled === true}
+                              onChange={(event) => updateRouteAdvisoryDetour(advisory.id, { detour_enabled: event.target.checked })}
+                              className="rounded text-emerald-600 focus:ring-emerald-500"
+                            />
+                            Enable detour for this advisory
+                          </label>
+                        </div>
+                        <label className="block max-w-xs text-xs font-semibold text-slate-700">
+                          Detour travel time (minutes)
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={config.detour_time || ''}
+                            onChange={(event) => updateRouteAdvisoryDetour(advisory.id, { detour_time: event.target.value })}
+                            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                          />
+                        </label>
+                        <RouteGeometryEditor
+                          key={`route-${editingRoute.id}-advisory-${advisory.id}`}
+                          value={config.detour_geometry || ''}
+                          onChange={(detour_geometry) => updateRouteAdvisoryDetour(advisory.id, { detour_geometry })}
+                          walkingValue={config.flooded_geometry || ''}
+                          onWalkingChange={(flooded_geometry) => updateRouteAdvisoryDetour(advisory.id, { flooded_geometry })}
+                          token={token}
+                          color="#0f766e"
+                          walkingColor="#dc2626"
+                          routeLabel="Alternate detour"
+                          walkingLabel="Flooded road"
+                        />
+                        <DetourStepsEditor
+                          steps={config.detour_steps || []}
+                          modes={modes}
+                          onChange={(detour_steps) => updateRouteAdvisoryDetour(advisory.id, {
+                            detour_steps,
+                            detour_instructions: detourInstructionText(detour_steps)
+                          })}
+                        />
+                        {config.detour_enabled === true && (!config.flooded_geometry || !config.detour_geometry ||
+                          !config.detour_steps?.length || config.detour_steps.some((step) => !step.instruction?.trim())) && (
+                          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                            Add both map paths and complete every detour step before publishing.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </section>
+              )}
+
+              {(!editingRoute || routeMapEditorTab === 'normal') && (
+                <RouteGeometryEditor
+                  value={routeFormData.geometry}
+                  onChange={(geometry) => setRouteFormData((current) => ({ ...current, geometry }))}
+                  walkingValue={routeFormData.walking_geometry}
+                  onWalkingChange={(walking_geometry) => setRouteFormData((current) => ({ ...current, walking_geometry }))}
+                  token={token}
+                  allowRoadSnap={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat'}
+                  color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'
+                    : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'bus' ? '#10b981'
+                    : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'tricycle' ? '#06b6d4'
+                    : '#ec4899'}
+                />
+              )}
+
+              <section className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="max-w-2xl">
+                  <h4 className="text-sm font-bold text-amber-950">Web Map review bypass</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-900">
+                    Allow this valid route line to appear on the Web Map even if it is too sparse for the detail check. Its public route page will still show the unverified warning.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-pressed={routeFormData.allow_unverified_map_geometry === true}
+                  disabled={!hasPreviewableGeometry(routeFormData.geometry)}
+                  onClick={() => setRouteFormData((current) => ({
+                    ...current,
+                    allow_unverified_map_geometry: !current.allow_unverified_map_geometry
+                  }))}
+                  className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${routeFormData.allow_unverified_map_geometry ? 'border-amber-700 bg-amber-700 text-white hover:bg-amber-800' : 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'}`}
+                >
+                  <Eye className="h-4 w-4" />
+                  {routeFormData.allow_unverified_map_geometry ? 'Bypass enabled' : 'Allow unverified map display'}
+                </button>
+              </section>
 
               <div className="pt-2 flex justify-end gap-3">
                 <button
@@ -2550,6 +3087,11 @@ export default function Admin() {
             </h3>
 
             <form onSubmit={handleSaveAdvisory} className="space-y-4 text-xs">
+              {advisorySaveError && (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800" role="alert">
+                  {advisorySaveError}
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Advisory Title</label>
                 <input
@@ -2618,17 +3160,26 @@ export default function Admin() {
                           type="checkbox"
                           checked={checked}
                           onChange={(e) => {
-                            if (e.target.checked) {
-                              setAdvisoryFormData({
-                                ...advisoryFormData,
-                                route_ids: [...advisoryFormData.route_ids, r.id]
-                              });
-                            } else {
-                              setAdvisoryFormData({
-                                ...advisoryFormData,
-                                route_ids: advisoryFormData.route_ids.filter(id => id !== r.id)
-                              });
-                            }
+                            const isChecked = e.target.checked;
+                            setAdvisoryFormData((current) => {
+                              const routeDetours = { ...(current.route_detours || {}) };
+                              const routeIds = isChecked
+                                ? [...new Set([...current.route_ids, r.id])]
+                                : current.route_ids.filter(id => id !== r.id);
+                              if (isChecked) {
+                                routeDetours[r.id] ||= {
+                                  detour_enabled: false,
+                                  flooded_geometry: '',
+                                  detour_geometry: '',
+                                  detour_steps: [],
+                                  detour_instructions: '',
+                                  detour_time: r.detour_time || ''
+                                };
+                              } else {
+                                delete routeDetours[r.id];
+                              }
+                              return { ...current, route_ids: routeIds, route_detours: routeDetours };
+                            });
                           }}
                           className="rounded text-emerald-600 focus:ring-emerald-500"
                         />
@@ -2638,6 +3189,12 @@ export default function Admin() {
                   })}
                 </div>
               </div>
+
+              {advisoryFormData.route_ids.length > 0 && (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
+                  Affected routes are linked here. To edit a route's flooded path, detour map, and passenger directions, use that route's editor under Routes &amp; Travel Times.
+                </p>
+              )}
 
               <div className="pt-2 flex justify-end gap-3">
                 <button

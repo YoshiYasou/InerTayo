@@ -16,6 +16,17 @@ import {
 } from 'lucide-react';
 import RouteMap from '../components/RouteMap';
 
+function readLineStringCoordinates(value) {
+  try {
+    const geometry = typeof value === 'string' ? JSON.parse(value) : value;
+    return geometry?.type === 'LineString' && Array.isArray(geometry.coordinates)
+      ? geometry.coordinates
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function RouteDetails() {
   const { currentPath, navigate } = useRouter();
   const { user, isCommuter, isSaved, toggleSaveRoute, openAuth } = useAuth();
@@ -88,7 +99,25 @@ export default function RouteDetails() {
     );
   }
 
-  const isDetour = route.status === 'DETOUR_ACTIVE';
+  const isDetour = Boolean(route.active_detour) || route.status === 'DETOUR_ACTIVE';
+  const hasActiveAdvisory = Array.isArray(route.advisories) && route.advisories.length > 0;
+  const visibleSteps = route.active_detour?.detour_steps?.length
+    ? route.active_detour.detour_steps.map((step, index) => ({
+      id: `active-detour-step-${index}`,
+      step_number: index + 1,
+      mode: step.mode || route.mode_name || 'Transit',
+      instruction: step.instruction,
+      location_info: step.location_info || ''
+    }))
+    : route.active_detour?.detour_instructions
+      ? route.active_detour.detour_instructions.split(/\r?\n/).filter(Boolean).map((instruction, index) => ({
+      id: `active-detour-step-${index}`,
+      step_number: index + 1,
+      mode: route.mode_name || 'Transit',
+      instruction,
+      location_info: index === 0 ? `Detour around ${route.active_detour.affected_road}.` : ''
+      }))
+      : route.steps;
 
   const renderStepIcon = (mode) => {
     const m = (mode || '').toLowerCase();
@@ -143,6 +172,11 @@ export default function RouteDetails() {
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                   <span>Detour Active — High Tide / Flood Advisory</span>
                 </div>
+              ) : hasActiveAdvisory ? (
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                  <span>Flood advisory — normal route shown</span>
+                </div>
               ) : (
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-semibold text-emerald-700">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -177,7 +211,9 @@ export default function RouteDetails() {
             <div>
               <p className="font-bold">{route.advisories[0].title}: {route.advisories[0].affected_road}</p>
               <p className="text-xs mt-1 text-amber-800 leading-relaxed">
-                {route.advisories[0].description} Estimated travel time has been updated to {route.active_travel_time} mins to reflect the detour bypass.
+                {route.active_detour
+                  ? `${route.active_detour.title}: ${route.active_detour.affected_road}. Follow the alternate path and instructions below; estimated travel time is ${route.active_travel_time} mins.`
+                  : `${route.advisories[0].description} Estimated travel time has been updated to ${route.active_travel_time} mins to reflect the advisory.`}
               </p>
             </div>
           </div>
@@ -209,8 +245,8 @@ export default function RouteDetails() {
             </h2>
 
             <div className="relative pl-6 sm:pl-8 space-y-8 before:absolute before:left-3.5 sm:before:left-4.5 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200">
-              {route.steps && route.steps.length > 0 ? (
-                route.steps.map((step) => (
+              {visibleSteps && visibleSteps.length > 0 ? (
+                visibleSteps.map((step) => (
                   <div key={step.id} className="relative group">
                     
                     {/* Step Number Circle */}
@@ -300,6 +336,11 @@ export default function RouteDetails() {
                   <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
                     <RouteMap
                       routes={[route]}
+                      selectedJourney={route.active_detour ? { legs: [{
+                        coordinates: [],
+                        floodedCoordinates: readLineStringCoordinates(route.active_detour.flooded_geometry),
+                        advisoryTitle: route.active_detour.title
+                      }] } : null}
                       interactive={true}
                       showAdvisories={true}
                       showStopClusterCounts={false}

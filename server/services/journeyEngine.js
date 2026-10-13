@@ -19,6 +19,13 @@ const ROUTING_CONFIG = require('../config/routingConfig');
 const { sliceTransitRoute } = require('../utils/transitSlicer');
 const { getWalkingRoute } = require('./walkingRouter');
 const { pointDistanceMeters, lngLatToLatLng, latLngToLngLat } = require('../utils/geoUtils');
+const {
+    findActiveRouteDetour,
+    hasExplicitRouteDetour,
+    hasLegacyActiveDetour,
+    readDetourSteps,
+    readLineString
+} = require('../utils/routeDetour');
 const nearestPointOnLine = require('@turf/nearest-point-on-line').default || require('@turf/nearest-point-on-line');
 const { point, lineString } = require('@turf/helpers');
 
@@ -159,6 +166,42 @@ function distanceToRoutePolyline(routeCoords, pointLngLat) {
     }
 }
 
+function parseLineStringCoordinates(value) {
+    if (!value) return [];
+    try {
+        const geometry = typeof value === 'string' ? JSON.parse(value) : value;
+        if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates)) return [];
+        return geometry.coordinates.every(coordinate =>
+            Array.isArray(coordinate) && coordinate.length >= 2 &&
+            Number.isFinite(coordinate[0]) && Number.isFinite(coordinate[1])
+        ) ? geometry.coordinates : [];
+    } catch {
+        return [];
+    }
+}
+
+function getAdvisoryTimeBuffer(route) {
+    if (!route.activeDetour && !route.legacyDetourActive) return 0;
+    const detourTime = route.activeDetour?.detourTime || route.detour_time;
+    if (detourTime && route.estimated_time && detourTime > route.estimated_time) {
+        return Math.round(detourTime - route.estimated_time);
+    }
+    return 5;
+}
+
+function getRouteFloodWarning(route) {
+    if (!route.advisories?.length) return null;
+    const advisory = route.activeDetour || route.advisories[0];
+    if (route.activeDetour || route.legacyDetourActive) {
+        return `Route adjusted because a flood-affected road segment was detected (${advisory.affected_road}: ${advisory.title}).`;
+    }
+    return `Flood advisory active for ${advisory.affected_road}: ${advisory.title}. No detour is configured for this route.`;
+}
+
+function routeHasDetour(route) {
+    return Boolean(route.activeDetour || route.legacyDetourActive);
+}
+
 /**
  * Main Journey Planner function
  * @param {object} params - { origin, destination, preferredModes, leaveNow }
@@ -219,7 +262,10 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     for (const ar of advisoryRoutes) {
         if (advMap.has(ar.advisory_id)) {
             if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
-            advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+            advisoriesByRoute.get(ar.route_id).push({
+                ...advMap.get(ar.advisory_id),
+                routeAdvisory: ar
+            });
         }
     }
 
@@ -253,13 +299,19 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     for (const r of rawRoutes) {
         const mode = modeMap.get(r.transport_mode_id) || {};
         const boat = boatMap.get(r.id);
-        const geom = (r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+        const routeAdvisories = advisoriesByRoute.get(r.id) || [];
+        const routeLinks = routeAdvisories.map(advisory => advisory.routeAdvisory);
+        const activeDetourMatch = findActiveRouteDetour(routeLinks, routeAdvisories);
+        const activeDetour = activeDetourMatch ? {
+            ...activeDetourMatch.advisory,
+            routeAdvisory: activeDetourMatch.link
+        } : null;
+        const hasExplicitDetour = hasExplicitRouteDetour(routeLinks);
+        const legacyDetourActive = hasLegacyActiveDetour(r, routeLinks, routeAdvisories);
+        const normalGeometry = (r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+        const geom = activeDetour?.routeAdvisory.detour_geometry || normalGeometry;
 
-        let coords = [];
-        try {
-            const parsed = typeof geom === 'string' ? JSON.parse(geom) : geom;
-            if (parsed && parsed.coordinates) coords = parsed.coordinates;
-        } catch (e) {}
+        const coords = parseLineStringCoordinates(geom);
 
         routes.push({
             ...r,
@@ -270,7 +322,17 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
             geometry: geom,
             parsedCoordinates: coords,
             stops: stopsByRoute.get(r.id) || [],
-            advisories: advisoriesByRoute.get(r.id) || []
+            advisories: routeAdvisories,
+            hasExplicitDetour,
+            legacyDetourActive,
+            activeDetour: activeDetour ? {
+                title: activeDetour.title,
+                affectedRoad: activeDetour.affected_road,
+                floodedCoordinates: readLineString(activeDetour.routeAdvisory.flooded_geometry).coordinates,
+                detourTime: activeDetour.routeAdvisory.detour_time,
+                detourSteps: readDetourSteps(activeDetour.routeAdvisory),
+                detourInstructions: activeDetour.routeAdvisory.detour_instructions || ''
+            } : null
         });
     }
 
@@ -310,18 +372,12 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
             const walk2Mins = ROUTING_CONFIG.estimateDurationMinutes(walk2.distanceMeters, 'walk');
             let transitMins = sliced.durationMinutes;
 
-            // Check flood advisories and detour
             let floodStatus = 'CLEAR';
             let floodWarning = null;
             if (route.advisories && route.advisories.length > 0) {
-                floodStatus = route.status === 'DETOUR_ACTIVE' ? 'DETOUR_ACTIVE' : 'ADVISORY';
-                const adv = route.advisories[0];
-                floodWarning = `Route adjusted because a flood-affected road segment was detected (${adv.affected_road}: ${adv.title}).`;
-                if (route.detour_time && route.detour_time > route.estimated_time) {
-                    transitMins += Math.round(route.detour_time - route.estimated_time);
-                } else {
-                    transitMins += 5; // standard advisory buffer
-                }
+                floodStatus = routeHasDetour(route) ? 'DETOUR_ACTIVE' : 'ADVISORY';
+                floodWarning = getRouteFloodWarning(route);
+                transitMins += getAdvisoryTimeBuffer(route);
             }
 
             const totalDurationMinutes = walk1Mins + transitMins + walk2Mins;
@@ -363,10 +419,14 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                 durationMinutes: transitMins,
                 durationFormatted: ROUTING_CONFIG.formatDuration(transitMins),
                 distanceMeters: sliced.distanceMeters,
-                instruction: `Ride ${route.mode_name} (${route.route_name}) from ${boardName} to ${alightName}`,
+                instruction: `Ride ${route.mode_name} (${route.route_name}) from ${boardName} to ${alightName}${route.activeDetour ? ` via the detour around ${route.activeDetour.affectedRoad}` : ''}`,
                 fare: route.minimum_fare || 15.0,
                 coordinates: sliced.coordinates,
                 geometry: { type: 'LineString', coordinates: sliced.coordinates },
+                detourActive: Boolean(route.activeDetour),
+                floodedCoordinates: route.activeDetour?.floodedCoordinates || [],
+                advisoryTitle: route.activeDetour?.title || null,
+                detourInstructions: route.activeDetour?.detourInstructions || '',
                 boardStopName: boardName,
                 alightStopName: alightName,
                 boardCoordinates: sliced.snappedBoarding,
@@ -559,9 +619,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                     const walk2 = await getWalkingRoute(slice2.snappedAlighting, destLngLat, walkOptions);
 
                     const walk1Mins = ROUTING_CONFIG.estimateDurationMinutes(walk1.distanceMeters, 'walk');
-                    const r1Mins = slice1.durationMinutes;
+                    const r1Mins = slice1.durationMinutes + getAdvisoryTimeBuffer(r1);
                     const transferWaitMins = 5 + ROUTING_CONFIG.estimateDurationMinutes(transferWalk.distanceMeters, 'walk');
-                    const r2Mins = slice2.durationMinutes;
+                    const r2Mins = slice2.durationMinutes + getAdvisoryTimeBuffer(r2);
                     const walk2Mins = ROUTING_CONFIG.estimateDurationMinutes(walk2.distanceMeters, 'walk');
 
                     const totalMins = walk1Mins + r1Mins + transferWaitMins + r2Mins + walk2Mins;
@@ -591,10 +651,14 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                             durationMinutes: r1Mins,
                             durationFormatted: ROUTING_CONFIG.formatDuration(r1Mins),
                             distanceMeters: slice1.distanceMeters,
-                            instruction: `Ride ${r1.mode_name} (${r1.route_name}) to ${hub.name}`,
+                            instruction: `Ride ${r1.mode_name} (${r1.route_name}) to ${hub.name}${r1.activeDetour ? ` via the detour around ${r1.activeDetour.affectedRoad}` : ''}`,
                             fare: r1.minimum_fare || 15.0,
                             coordinates: slice1.coordinates,
-                            geometry: { type: 'LineString', coordinates: slice1.coordinates }
+                            geometry: { type: 'LineString', coordinates: slice1.coordinates },
+                            detourActive: Boolean(r1.activeDetour),
+                            floodedCoordinates: r1.activeDetour?.floodedCoordinates || [],
+                            advisoryTitle: r1.activeDetour?.title || null,
+                            detourInstructions: r1.activeDetour?.detourInstructions || ''
                         },
                         {
                             id: `transfer-walk-hub`,
@@ -618,10 +682,14 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                             durationMinutes: r2Mins,
                             durationFormatted: ROUTING_CONFIG.formatDuration(r2Mins),
                             distanceMeters: slice2.distanceMeters,
-                            instruction: `Ride ${r2.mode_name} (${r2.route_name}) toward destination`,
+                            instruction: `Ride ${r2.mode_name} (${r2.route_name}) toward destination${r2.activeDetour ? ` via the detour around ${r2.activeDetour.affectedRoad}` : ''}`,
                             fare: r2.minimum_fare || 15.0,
                             coordinates: slice2.coordinates,
-                            geometry: { type: 'LineString', coordinates: slice2.coordinates }
+                            geometry: { type: 'LineString', coordinates: slice2.coordinates },
+                            detourActive: Boolean(r2.activeDetour),
+                            floodedCoordinates: r2.activeDetour?.floodedCoordinates || [],
+                            advisoryTitle: r2.activeDetour?.title || null,
+                            detourInstructions: r2.activeDetour?.detourInstructions || ''
                         },
                         {
                             id: `transfer-walk2`,
@@ -648,8 +716,10 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
                         totalDistanceMeters: totalDist,
                         totalFare,
                         totalFareFormatted: `₱${totalFare.toFixed(2)}`,
-                        floodStatus: (r1.status === 'DETOUR_ACTIVE' || r2.status === 'DETOUR_ACTIVE') ? 'DETOUR_ACTIVE' : 'CLEAR',
-                        floodWarning: null,
+                        floodStatus: routeHasDetour(r1) || routeHasDetour(r2)
+                            ? 'DETOUR_ACTIVE'
+                            : (r1.advisories.length || r2.advisories.length) ? 'ADVISORY' : 'CLEAR',
+                        floodWarning: [getRouteFloodWarning(r1), getRouteFloodWarning(r2)].filter(Boolean).join(' '),
                         legs
                     });
                     break;

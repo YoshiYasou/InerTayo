@@ -344,6 +344,11 @@ export default function JourneyPlanner({
                           <h4 className="text-xs font-bold text-slate-700 mt-1">
                             {itinerary.title}
                           </h4>
+                          {itinerary.floodStatus && itinerary.floodStatus !== 'CLEAR' && (
+                            <span className={`mt-1 inline-flex rounded px-2 py-0.5 text-[10px] font-bold ${isDetour ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-800'}`}>
+                              {isDetour ? 'Active detour' : 'Flood advisory'}
+                            </span>
+                          )}
                         </div>
 
                         <button
@@ -402,6 +407,16 @@ export default function JourneyPlanner({
                               <div className="font-semibold text-slate-800 text-[11px]">
                                 {leg.instruction}
                               </div>
+                              {leg.detourActive && (
+                                <div className="mt-1 space-y-1">
+                                  <span className="inline-flex rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-900">
+                                    Active detour
+                                  </span>
+                                  {leg.detourInstructions && (
+                                    <p className="whitespace-pre-line text-[10px] leading-relaxed text-slate-600">{leg.detourInstructions}</p>
+                                  )}
+                                </div>
+                              )}
                               <div className="text-[10px] text-slate-400 mt-0.5">
                                 {leg.durationFormatted} • {leg.distanceMeters}m
                                 {leg.fare > 0 && ` • ₱${leg.fare.toFixed(2)}`}

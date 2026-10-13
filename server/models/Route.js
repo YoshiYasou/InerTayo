@@ -19,6 +19,7 @@ const RouteSchema = new mongoose.Schema({
     walking_geometry: { type: String, default: null },
     geometry_corrected: { type: String, default: null },
     use_corrected_geometry: { type: Number, default: 1 },
+    allow_unverified_map_geometry: { type: Boolean, default: false },
     created_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: Date.now }
 }, { versionKey: false });

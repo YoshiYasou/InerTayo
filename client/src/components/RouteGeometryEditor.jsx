@@ -79,7 +79,18 @@ function RouteMapController({ isFullscreen, mapRef }) {
   return null;
 }
 
-export default function RouteGeometryEditor({ value, onChange, walkingValue = '', onWalkingChange, token, color = '#ec4899', allowRoadSnap = true }) {
+export default function RouteGeometryEditor({
+  value,
+  onChange,
+  walkingValue = '',
+  onWalkingChange,
+  token,
+  color = '#ec4899',
+  walkingColor = '#2563eb',
+  routeLabel = 'Transit path',
+  walkingLabel = 'Walking path',
+  allowRoadSnap = true,
+}) {
   const [activePath, setActivePath] = useState('route');
   const activeValue = activePath === 'walking' ? walkingValue : value;
   const changeActivePath = activePath === 'walking' ? onWalkingChange : onChange;
@@ -371,8 +382,8 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
           </p>
           <div className="mt-2 inline-flex rounded-md border border-slate-200 p-0.5">
             {[
-              { id: 'route', label: 'Transit path' },
-              { id: 'walking', label: 'Walking path' },
+              { id: 'route', label: routeLabel },
+              { id: 'walking', label: walkingLabel },
             ].map((path) => (
               <button
                 key={path.id}
@@ -386,7 +397,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
                 className={`rounded px-2.5 py-1 text-xs font-semibold ${activePath === path.id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {path.label}
-                {path.id === 'walking' && <span className="ml-1 text-sky-500">- - -</span>}
+                {path.id === 'walking' && <span className="ml-1" style={{ color: walkingColor }}>- - -</span>}
               </button>
             ))}
           </div>
@@ -548,7 +559,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
             <Polyline
               positions={secondaryPositions}
               pathOptions={{
-                color: activePath === 'walking' ? color : '#2563eb',
+                color: activePath === 'walking' ? color : walkingColor,
                 weight: 5,
                 opacity: 0.6,
                 dashArray: activePath === 'walking' ? undefined : '8 8',
@@ -566,7 +577,7 @@ export default function RouteGeometryEditor({ value, onChange, walkingValue = ''
             <Polyline
               positions={positions}
               pathOptions={{
-                color: activePath === 'walking' ? '#2563eb' : color,
+                color: activePath === 'walking' ? walkingColor : color,
                 weight: 7,
                 opacity: 0.95,
                 dashArray: activePath === 'walking' ? '8 8' : undefined,

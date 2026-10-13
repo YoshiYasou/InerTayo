@@ -228,6 +228,7 @@ function routeEndpointIcon(label) {
 function routePopupHtml(props) {
   const detour  = props.status === 'DETOUR_ACTIVE';
   const unavail = props.status === 'UNAVAILABLE';
+  const unverified = props.geometry_needs_review === true;
   return `<div style="font-family:sans-serif;min-width:185px">
     <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:2px">${props.mode}</div>
     <div style="font-size:13px;font-weight:bold;color:#0f172a;margin-bottom:4px">${props.route_name}</div>
@@ -237,6 +238,7 @@ function routePopupHtml(props) {
     </div>
     ${unavail ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#dc2626;background:#fee2e2;padding:2px 6px;border-radius:4px">🚫 Suspended</span>` : ''}
     ${detour  ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#b45309;background:#fef3c7;padding:2px 6px;border-radius:4px">⚠️ Detour</span>` : ''}
+    ${unverified ? `<span style="display:inline-block;margin-top:6px;font-size:10px;font-weight:bold;color:#92400e;background:#fef3c7;padding:2px 6px;border-radius:4px">Unverified route path</span>` : ''}
   </div>`;
 }
 
@@ -355,6 +357,9 @@ function LayerManager({
       const pts = [];
       selectedJourney.legs.forEach(leg => {
         (leg.coordinates || leg.geometry?.coordinates || []).forEach(c => {
+          if (Array.isArray(c) && c.length >= 2) pts.push([c[1], c[0]]);
+        });
+        (leg.floodedCoordinates || []).forEach(c => {
           if (Array.isArray(c) && c.length >= 2) pts.push([c[1], c[0]]);
         });
       });
@@ -486,16 +491,30 @@ function LayerManager({
             walkingGeometry = null;
           }
         }
-        if (walkingGeometry?.type !== 'LineString' || !Array.isArray(walkingGeometry.coordinates) || walkingGeometry.coordinates.length < 2) return;
-        L.polyline(walkingGeometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]), {
-          renderer: L.canvas(),
-          color: '#2563eb',
-          weight: 4,
-          opacity: 0.95,
-          dashArray: '6 8',
-          lineCap: 'round',
-          interactive: false,
-        }).addTo(layerGroup);
+        if (walkingGeometry?.type === 'LineString' && Array.isArray(walkingGeometry.coordinates) && walkingGeometry.coordinates.length >= 2) {
+          L.polyline(walkingGeometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]), {
+            renderer: L.canvas(),
+            color: '#2563eb',
+            weight: 4,
+            opacity: 0.95,
+            dashArray: '6 8',
+            lineCap: 'round',
+            interactive: false,
+          }).addTo(layerGroup);
+        }
+
+        const floodedGeometry = feature.properties.flooded_geometry;
+        if (floodedGeometry?.type === 'LineString' && Array.isArray(floodedGeometry.coordinates) && floodedGeometry.coordinates.length >= 2) {
+          L.polyline(floodedGeometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]), {
+            renderer: L.canvas(),
+            color: '#dc2626',
+            weight: 9,
+            opacity: 0.9,
+            dashArray: '3 7',
+            lineCap: 'round',
+            interactive: false,
+          }).addTo(layerGroup);
+        }
       });
 
       refs.routeLayers[key] = layerGroup;
@@ -847,6 +866,23 @@ function LayerManager({
     const group = L.layerGroup();
 
     selectedJourney.legs.forEach((leg, i) => {
+      const floodedCoords = (leg.floodedCoordinates || []).map(c => [c[1], c[0]]);
+      if (floodedCoords.length >= 2) {
+        L.polyline(floodedCoords, {
+          renderer: L.canvas(),
+          color: '#dc2626',
+          weight: 10,
+          opacity: 0.85,
+          dashArray: '3 7',
+          lineCap: 'round',
+        })
+          .bindPopup(`<div style="font-family:sans-serif;min-width:150px">
+            <div style="font-size:10px;font-weight:bold;color:#b91c1c;text-transform:uppercase">Flooded road</div>
+            <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${leg.advisoryTitle || 'Active flood advisory'}</div>
+          </div>`)
+          .addTo(group);
+      }
+
       const coords = (leg.coordinates || leg.geometry?.coordinates || []).map(c => [c[1], c[0]]);
       if (coords.length < 2) return;
 
@@ -855,7 +891,7 @@ function LayerManager({
 
       L.polyline(coords, {
         renderer: L.canvas(),
-        color:    isWalk ? '#3b82f6' : color,
+        color:    isWalk ? '#3b82f6' : leg.detourActive ? '#0f766e' : color,
         weight:   isWalk ? 5 : 8,
         opacity:  0.95,
         dashArray: isWalk ? '6 8' : undefined,

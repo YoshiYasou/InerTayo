@@ -5,6 +5,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { connectDB, disconnectDB } = require('../server/db/connection');
 const app = require('../server/server');
 const { seed } = require('../server/db/seed');
+const Route = require('../server/models/Route');
 
 let server;
 let baseUrl;
@@ -514,6 +515,8 @@ async function runTests() {
         // ── Test 4.2: No JWT → 401 Unauthorized (unauthenticated admin access)
         const noAuthAdmin = await makeRequest('GET', '/api/admin/stats');
         assert(noAuthAdmin.status === 401, 'Accessing /api/admin/stats without token returns 401 Unauthorized');
+        const noAuthSavedRoutes = await makeRequest('GET', '/api/admin/saved-routes');
+        assert(noAuthSavedRoutes.status === 401, 'Admin saved-route insights reject unauthenticated requests');
 
         const noAuthRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] });
         assert(noAuthRoadMatch.status === 401, 'Road map matching rejects unauthenticated requests');
@@ -526,6 +529,10 @@ async function runTests() {
             'Authorization': `Bearer ${commuterToken}`
         });
         assert(commuterAdmin.status === 403, 'Commuter role accessing admin endpoint returns 403 Forbidden (Broken Function-Level Auth)');
+        const commuterSavedRoutesAdmin = await makeRequest('GET', '/api/admin/saved-routes', null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(commuterSavedRoutesAdmin.status === 403, 'Admin saved-route insights reject commuter credentials');
 
         const commuterRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] }, {
             'Authorization': `Bearer ${commuterToken}`
@@ -646,6 +653,16 @@ async function runTests() {
         });
         assert(adminLogin.status === 200 && adminLogin.data.user.role === 'ADMIN', 'Admin login succeeds with ADMIN role');
         const adminToken = adminLogin.data.token;
+        const adminSavedRoutes = await makeRequest('GET', '/api/admin/saved-routes', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(
+            adminSavedRoutes.status === 200 && Number.isInteger(adminSavedRoutes.data.total_saved) &&
+                Array.isArray(adminSavedRoutes.data.routes) && adminSavedRoutes.data.routes.every(route =>
+                    Number.isInteger(route.saved_count) && !Object.hasOwn(route, 'user_id') && !Object.hasOwn(route, 'email')
+                ),
+            'Admin saved-route insights return route-level bookmark counts without commuter identities'
+        );
 
         const draftPayload = {
             form_data: { route_name: 'Draft only route', description: 'Not published.' },
@@ -845,6 +862,153 @@ async function runTests() {
 
         // Re-activate advisory
         await makeRequest('POST', `/api/admin/advisories/${advisoryToToggle.id}/toggle-status`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+
+        const seededAffectedRouteIds = new Set(advRes.data.flatMap(advisory =>
+            (advisory.affected_routes || []).map(route => route.id)
+        ));
+        const detourTestRoute = routesRes.data.find(route =>
+            route.mode_name !== 'Boat' && !seededAffectedRouteIds.has(route.id) &&
+            route.geometry
+        );
+        const detourBaseCoordinates = JSON.parse(detourTestRoute.geometry).coordinates;
+        const detourCoordinates = [];
+        const minimumSubdivisions = Math.ceil(20 / Math.max(1, detourBaseCoordinates.length - 1));
+        for (let index = 0; index < detourBaseCoordinates.length - 1; index += 1) {
+            const [startLongitude, startLatitude] = detourBaseCoordinates[index];
+            const [endLongitude, endLatitude] = detourBaseCoordinates[index + 1];
+            const midpointLatitude = (startLatitude + endLatitude) / 2;
+            const longitudeMeters = (endLongitude - startLongitude) * 111000 * Math.cos(midpointLatitude * Math.PI / 180);
+            const latitudeMeters = (endLatitude - startLatitude) * 111000;
+            const segmentCount = Math.max(minimumSubdivisions, Math.ceil(Math.hypot(longitudeMeters, latitudeMeters) / 150));
+            for (let pointIndex = 0; pointIndex < segmentCount; pointIndex += 1) {
+                const ratio = pointIndex / segmentCount;
+                detourCoordinates.push([
+                    startLongitude + (endLongitude - startLongitude) * ratio + 0.00003,
+                    startLatitude + (endLatitude - startLatitude) * ratio + 0.00002
+                ]);
+            }
+        }
+        const [lastLongitude, lastLatitude] = detourBaseCoordinates.at(-1);
+        detourCoordinates.push([lastLongitude + 0.00003, lastLatitude + 0.00002]);
+        const floodedCoordinates = detourBaseCoordinates.slice(0, Math.max(2, Math.ceil(detourBaseCoordinates.length / 3)));
+        const detourTestPaths = {
+            flooded_geometry: JSON.stringify({ type: 'LineString', coordinates: floodedCoordinates }),
+            detour_geometry: JSON.stringify({ type: 'LineString', coordinates: detourCoordinates }),
+            detour_steps: [
+                { mode: 'Jeepney', instruction: 'Board via the alternate road.', location_info: 'Use the Calasiao-bound stop.' },
+                { mode: 'Walk', instruction: 'Rejoin the route after the flooded section.', location_info: '' }
+            ],
+            detour_time: 32
+        };
+        const detourAdvisoryPayload = {
+            title: 'TEST FLOOD DETOUR',
+            affected_road: 'Test Flood Road',
+            condition: 'FLOODED',
+            description: 'Test-only flood detour advisory.',
+            status: 'ACTIVE',
+            route_ids: [detourTestRoute.id],
+            route_detours: [{ route_id: detourTestRoute.id, ...detourTestPaths, detour_enabled: false }]
+        };
+        const invalidDetourAdvisory = await makeRequest('POST', '/api/admin/advisories', {
+            ...detourAdvisoryPayload,
+            route_detours: [{ route_id: detourTestRoute.id, detour_enabled: true }]
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(
+            invalidDetourAdvisory.status === 400,
+            'Enabled detours reject incomplete flood paths, alternate paths, or instructions'
+        );
+
+        const createdDetourAdvisory = await makeRequest('POST', '/api/admin/advisories', detourAdvisoryPayload, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const configuredAdvisory = await makeRequest('GET', '/api/admin/advisories', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const configuredRoute = configuredAdvisory.data.find(advisory => advisory.id === createdDetourAdvisory.data.advisoryId)?.routes?.[0];
+        assert(
+            createdDetourAdvisory.status === 201 && configuredRoute?.detour_enabled === false &&
+                configuredRoute.flooded_geometry === detourTestPaths.flooded_geometry &&
+                configuredRoute.detour_geometry === detourTestPaths.detour_geometry &&
+                configuredRoute.detour_steps?.length === detourTestPaths.detour_steps.length,
+            'Advisory stores route-specific flood and detour paths while leaving the detour disabled'
+        );
+
+        const detourJourneyEndpoints = {
+            origin: { lat: detourCoordinates[0][1], lng: detourCoordinates[0][0], name: 'Test route start' },
+            destination: { lat: detourCoordinates.at(-1)[1], lng: detourCoordinates.at(-1)[0], name: 'Test route end' }
+        };
+        const disabledDetourJourney = await makeRequest('POST', '/api/journey/plan', detourJourneyEndpoints);
+        const disabledDetourLeg = disabledDetourJourney.data.itineraries
+            .flatMap(itinerary => itinerary.legs)
+            .find(leg => leg.routeId === detourTestRoute.id);
+        assert(
+            disabledDetourJourney.status === 200 && disabledDetourLeg && !disabledDetourLeg.detourActive &&
+                disabledDetourJourney.data.itineraries.some(itinerary => itinerary.floodStatus === 'ADVISORY'),
+            'Active flood advisory keeps the normal route until its detour is explicitly enabled'
+        );
+
+        await Route.updateOne({ id: detourTestRoute.id }, { status: 'DETOUR_ACTIVE' });
+        const staleStatusRoutePreview = await makeRequest('GET', `/api/routes/${detourTestRoute.id}`);
+        assert(
+            staleStatusRoutePreview.status === 200 && staleStatusRoutePreview.data.status === 'ADVISORY' &&
+                staleStatusRoutePreview.data.active_travel_time === detourTestRoute.estimated_time &&
+                staleStatusRoutePreview.data.geometry === detourTestRoute.geometry &&
+                !staleStatusRoutePreview.data.active_detour,
+            'An explicit disabled detour ignores stale DETOUR_ACTIVE status and keeps normal map and time'
+        );
+
+        const enabledRouteDetour = await makeRequest('PUT', `/api/admin/routes/${detourTestRoute.id}/advisories/${createdDetourAdvisory.data.advisoryId}/detour`, {
+            ...detourTestPaths,
+            detour_enabled: true
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const enabledDetourJourney = await makeRequest('POST', '/api/journey/plan', detourJourneyEndpoints);
+        const enabledDetourLeg = enabledDetourJourney.data.itineraries
+            .flatMap(itinerary => itinerary.legs)
+            .find(leg => leg.routeId === detourTestRoute.id);
+        assert(
+            enabledRouteDetour.status === 200 && enabledDetourLeg?.detourActive === true &&
+                enabledDetourLeg.floodedCoordinates.length === floodedCoordinates.length &&
+                enabledDetourLeg.instruction.includes('via the detour around Test Flood Road'),
+            'Enabled route-specific detour supplies alternate journey geometry, flood overlay, and directions'
+        );
+        const activeRoutePreview = await makeRequest('GET', `/api/routes/${detourTestRoute.id}`);
+        assert(
+            activeRoutePreview.status === 200 && activeRoutePreview.data.active_detour?.detour_steps?.[0]?.mode === 'Jeepney' &&
+                activeRoutePreview.data.geometry === detourTestPaths.detour_geometry,
+            'Public route preview switches to the configured map and instructions during an active detour'
+        );
+        const detourLayerName = detourTestRoute.mode_name.toLowerCase().includes('jeep') ? 'jeepneys'
+            : detourTestRoute.mode_name.toLowerCase().includes('bus') ? 'buses' : 'tricycles';
+        const activeDetourLayer = await makeRequest('GET', `/api/map/layers/${detourLayerName}`);
+        const detourFeature = activeDetourLayer.data.features.find(feature => feature.properties.id === detourTestRoute.id);
+        assert(
+            activeDetourLayer.status === 200 &&
+                JSON.stringify(detourFeature?.geometry.coordinates) === JSON.stringify(detourCoordinates) &&
+                detourFeature?.properties.flooded_geometry?.coordinates?.length === floodedCoordinates.length,
+            `Standalone map layer draws the enabled detour and includes its flooded-road overlay (status ${activeDetourLayer.status}, feature ${Boolean(detourFeature)}, coordinates ${detourFeature?.geometry?.coordinates?.length || 0}, flooded ${detourFeature?.properties?.flooded_geometry?.coordinates?.length || 0})`
+        );
+
+        await makeRequest('POST', `/api/admin/advisories/${createdDetourAdvisory.data.advisoryId}/toggle-status`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const inactiveDetourJourney = await makeRequest('POST', '/api/journey/plan', detourJourneyEndpoints);
+        const inactiveDetourLeg = inactiveDetourJourney.data.itineraries
+            .flatMap(itinerary => itinerary.legs)
+            .find(leg => leg.routeId === detourTestRoute.id);
+        assert(
+            inactiveDetourJourney.status === 200 && inactiveDetourLeg && !inactiveDetourLeg.detourActive &&
+                !inactiveDetourLeg.floodedCoordinates?.length,
+            'Deactivating the advisory immediately restores the normal route geometry'
+        );
+        const inactiveRoutePreview = await makeRequest('GET', `/api/routes/${detourTestRoute.id}`);
+        assert(
+            inactiveRoutePreview.status === 200 && !inactiveRoutePreview.data.active_detour &&
+                inactiveRoutePreview.data.geometry === detourTestRoute.geometry,
+            'Public route preview returns to its normal map when the flood advisory is inactive'
+        );
+        await makeRequest('DELETE', `/api/admin/advisories/${createdDetourAdvisory.data.advisoryId}`, null, {
             'Authorization': `Bearer ${adminToken}`
         });
 
@@ -1425,6 +1589,60 @@ async function runTests() {
             ),
             'Road map layers omit sparse, unverified straight-line route geometry'
         );
+
+        const bypassMode = modesRes.data.find(mode => mode.name.toLowerCase().includes('jeep'));
+        const bypassRouteGeometry = JSON.stringify(coarseGeometry);
+        const bypassRouteCreated = await makeRequest('POST', '/api/admin/routes', {
+            route_name: 'Unverified Web Map Bypass Test',
+            transport_mode_id: bypassMode.id,
+            origin: 'Dagupan Plaza',
+            destination: 'Calasiao Town Plaza',
+            estimated_time: 20,
+            minimum_fare: 15,
+            maximum_fare: 25,
+            status: 'CLEAR',
+            operating_status: 'ACTIVE',
+            geometry: bypassRouteGeometry,
+            geometry_corrected: bypassRouteGeometry,
+            use_corrected_geometry: 1,
+            allow_unverified_map_geometry: false
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const bypassRouteId = bypassRouteCreated.data?.routeId;
+        const hiddenBypassCandidateLayer = await makeRequest('GET', '/api/map/layers/jeepneys');
+        assert(
+            bypassRouteCreated.status === 201 &&
+                !hiddenBypassCandidateLayer.data.features.some(feature => feature.properties.id === bypassRouteId),
+            'Low-detail route stays off the Web Map until an admin bypass is enabled'
+        );
+
+        const bypassRouteUpdate = await makeRequest('PUT', `/api/admin/routes/${bypassRouteId}`, {
+            route_name: 'Unverified Web Map Bypass Test',
+            transport_mode_id: bypassMode.id,
+            origin: 'Dagupan Plaza',
+            destination: 'Calasiao Town Plaza',
+            estimated_time: 20,
+            minimum_fare: 15,
+            maximum_fare: 25,
+            status: 'CLEAR',
+            operating_status: 'ACTIVE',
+            geometry: bypassRouteGeometry,
+            geometry_corrected: bypassRouteGeometry,
+            use_corrected_geometry: 1,
+            allow_unverified_map_geometry: true
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        const visibleBypassCandidateLayer = await makeRequest('GET', '/api/map/layers/jeepneys');
+        const bypassedRouteDetails = await makeRequest('GET', `/api/routes/${bypassRouteId}`);
+        const bypassedRouteFeature = visibleBypassCandidateLayer.data.features.find(feature => feature.properties.id === bypassRouteId);
+        assert(
+            bypassRouteUpdate.status === 200 && bypassedRouteFeature?.properties.geometry_needs_review === true &&
+                bypassedRouteDetails.data.geometry_needs_review === true &&
+                bypassedRouteDetails.data.allow_unverified_map_geometry === true,
+            'Admin bypass displays structurally valid low-detail geometry while preserving its unverified warning'
+        );
+        await makeRequest('DELETE', `/api/admin/routes/${bypassRouteId}`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+
         const floodMapLayer = await makeRequest('GET', '/api/map/layers/flood-zones');
         assert(
             floodMapLayer.status === 200 && Array.isArray(floodMapLayer.data.features) && floodMapLayer.data.features.length === 0,

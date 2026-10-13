@@ -36,6 +36,14 @@ const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
 const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
 const { validateGeometry } = require('../utils/geometryValidator');
+const {
+    DETOUR_CONDITIONS,
+    findActiveRouteDetour,
+    hasExplicitRouteDetour,
+    hasLegacyActiveDetour,
+    readDetourSteps,
+    readLineString
+} = require('../utils/routeDetour');
 const { planJourney } = require('../services/journeyEngine');
 const { haversineDistance } = require('../utils/geoUtils');
 
@@ -62,10 +70,13 @@ async function syncRouteAdvisoryStatus(routeId) {
         );
         if (hasUnavailable) {
             newStatus = 'UNAVAILABLE';
-        } else if (activeAdvisories.some(a => a.condition === 'RIVER_ADVISORY' || a.condition === 'ADVISORY')) {
-            newStatus = 'ADVISORY';
-        } else {
+        } else if (findActiveRouteDetour(advRoutes, activeAdvisories) || activeAdvisories.some(advisory => {
+            const link = advRoutes.find(route => route.advisory_id === advisory.id);
+            return DETOUR_CONDITIONS.has(advisory.condition) && link?.detour_enabled == null;
+        })) {
             newStatus = 'DETOUR_ACTIVE';
+        } else {
+            newStatus = 'ADVISORY';
         }
     }
 
@@ -75,6 +86,7 @@ async function syncRouteAdvisoryStatus(routeId) {
     }
 
     await Route.updateOne({ id: routeId }, { status: newStatus, updated_at: new Date() });
+    invalidateMapCache();
     return newStatus;
 }
 
@@ -885,7 +897,7 @@ router.get('/routes', async (req, res) => {
         for (const ar of advisoryRoutes) {
             if (advMap.has(ar.advisory_id)) {
                 if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
-                advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+                advisoriesByRoute.get(ar.route_id).push({ ...advMap.get(ar.advisory_id), routeAdvisory: ar });
             }
         }
 
@@ -893,12 +905,22 @@ router.get('/routes', async (req, res) => {
         const results = filteredRoutes.map(r => {
             const m = modeMap.get(r.transport_mode_id) || {};
             const boat = boatMap.get(r.id);
-            const active_travel_time = (r.status === 'DETOUR_ACTIVE' && r.detour_time != null) ? r.detour_time : r.estimated_time;
+            const routeAdvisories = advisoriesByRoute.get(r.id) || [];
+            const routeLinks = routeAdvisories.map(advisory => advisory.routeAdvisory);
+            const activeDetourMatch = findActiveRouteDetour(routeLinks, routeAdvisories);
+            const hasExplicitDetour = hasExplicitRouteDetour(routeLinks);
+            const legacyDetourActive = hasLegacyActiveDetour(r, routeLinks, routeAdvisories);
+            const detourTime = activeDetourMatch?.link.detour_time || (legacyDetourActive ? r.detour_time : null);
+            const active_travel_time = detourTime || r.estimated_time;
             let status = r.status;
+            if (status !== 'UNAVAILABLE' && hasExplicitDetour) {
+                status = activeDetourMatch ? 'DETOUR_ACTIVE' : routeAdvisories.length > 0 ? 'ADVISORY' : 'CLEAR';
+            }
             if (boat && (boat.operating_status === 'SUSPENDED' || boat.operating_status === 'UNAVAILABLE')) {
                 status = 'UNAVAILABLE';
             }
-            const geometry = (useCorrected && r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+            const normalGeometry = (useCorrected && r.use_corrected_geometry === 1 && r.geometry_corrected) ? r.geometry_corrected : r.geometry;
+            const geometry = activeDetourMatch?.link.detour_geometry || normalGeometry;
 
             return {
                 id: r.id,
@@ -921,14 +943,24 @@ router.get('/routes', async (req, res) => {
                 geometry_corrected: r.geometry_corrected,
                 walking_geometry: r.walking_geometry || null,
                 use_corrected_geometry: r.use_corrected_geometry,
+                allow_unverified_map_geometry: r.allow_unverified_map_geometry === true,
                 geometry,
                 geometry_needs_review: !/boat/i.test(m.name || '') && !isDetailedRoadGeometry(geometry),
                 map_preview_unavailable: /boat/i.test(m.name || '') && boat?.operating_status !== 'ACTIVE',
+                active_detour: activeDetourMatch ? {
+                    advisory_id: activeDetourMatch.advisory.id,
+                    title: activeDetourMatch.advisory.title,
+                    affected_road: activeDetourMatch.advisory.affected_road,
+                    detour_time: detourTime,
+                    flooded_geometry: readLineString(activeDetourMatch.link.flooded_geometry),
+                    detour_geometry: readLineString(activeDetourMatch.link.detour_geometry),
+                    detour_steps: readDetourSteps(activeDetourMatch.link)
+                } : null,
                 created_at: r.created_at,
                 updated_at: r.updated_at,
                 waterway: boat ? boat.waterway : null,
                 boat_operating_status: boat ? boat.operating_status : null,
-                advisories: advisoriesByRoute.get(r.id) || []
+                advisories: routeAdvisories.map(({ routeAdvisory, ...advisory }) => advisory)
             };
         });
 
@@ -1010,7 +1042,7 @@ router.get('/routes/nearby', async (req, res) => {
         for (const ar of advisoryRoutes) {
             if (advMap.has(ar.advisory_id)) {
                 if (!advisoriesByRoute.has(ar.route_id)) advisoriesByRoute.set(ar.route_id, []);
-                advisoriesByRoute.get(ar.route_id).push(advMap.get(ar.advisory_id));
+                advisoriesByRoute.get(ar.route_id).push({ ...advMap.get(ar.advisory_id), routeAdvisory: ar });
             }
         }
 
@@ -1036,10 +1068,19 @@ router.get('/routes/nearby', async (req, res) => {
                 const m = modeMap.get(route.transport_mode_id) || {};
                 const boat = boatMap.get(route.id);
                 let status = route.status;
+                const routeAdvisories = advisoriesByRoute.get(route.id) || [];
+                const routeLinks = routeAdvisories.map(advisory => advisory.routeAdvisory);
+                const activeDetour = findActiveRouteDetour(routeLinks, routeAdvisories);
+                const hasExplicitDetour = hasExplicitRouteDetour(routeLinks);
+                const legacyDetourActive = hasLegacyActiveDetour(route, routeLinks, routeAdvisories);
+                if (status !== 'UNAVAILABLE' && hasExplicitDetour) {
+                    status = activeDetour ? 'DETOUR_ACTIVE' : routeAdvisories.length > 0 ? 'ADVISORY' : 'CLEAR';
+                }
                 if (boat && (boat.operating_status === 'SUSPENDED' || boat.operating_status === 'UNAVAILABLE')) {
                     status = 'UNAVAILABLE';
                 }
-                const active_travel_time = (route.status === 'DETOUR_ACTIVE' && route.detour_time != null) ? route.detour_time : route.estimated_time;
+                const active_travel_time = activeDetour?.link.detour_time ||
+                    (legacyDetourActive ? route.detour_time : null) || route.estimated_time;
 
                 results.push({
                     id: route.id,
@@ -1057,7 +1098,7 @@ router.get('/routes/nearby', async (req, res) => {
                     status,
                     description: route.description,
                     geometry: geom,
-                    advisories: advisoriesByRoute.get(route.id) || [],
+                    advisories: routeAdvisories.map(({ routeAdvisory, ...advisory }) => advisory),
                     walkDistanceMeters: Math.round(walkDistanceMeters),
                     nearestStop: nearestStop ? {
                         id: nearestStop.id,
@@ -1119,8 +1160,7 @@ router.get('/routes/:id', async (req, res) => {
             status = 'UNAVAILABLE';
         }
 
-        const active_travel_time = (route.status === 'DETOUR_ACTIVE' && route.detour_time != null) ? route.detour_time : route.estimated_time;
-        const geometry = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected) ? route.geometry_corrected : route.geometry;
+        const normalGeometry = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected) ? route.geometry_corrected : route.geometry;
 
         const stops = await Stop.find({ route_id: routeId }, {
             id: 1, stop_name: 1, stop_order: 1, description: 1, is_transfer_point: 1, latitude: 1, longitude: 1, _id: 0
@@ -1139,6 +1179,28 @@ router.get('/routes/:id', async (req, res) => {
         const advisories = await Advisory.find({ id: { $in: advIds }, status: 'ACTIVE' }, {
             id: 1, title: 1, affected_road: 1, condition: 1, description: 1, status: 1, _id: 0
         }).lean();
+        const activeDetourMatch = findActiveRouteDetour(advRoutes, advisories);
+        const activeDetourAdvisory = activeDetourMatch?.advisory;
+        const activeDetourLink = activeDetourMatch?.link;
+        const hasExplicitDetour = hasExplicitRouteDetour(advRoutes);
+        const legacyDetourActive = hasLegacyActiveDetour(route, advRoutes, advisories);
+        const activeDetour = activeDetourAdvisory && activeDetourLink ? {
+            advisory_id: activeDetourAdvisory.id,
+            title: activeDetourAdvisory.title,
+            affected_road: activeDetourAdvisory.affected_road,
+            detour_time: activeDetourLink.detour_time || route.detour_time,
+            flooded_geometry: readLineString(activeDetourLink.flooded_geometry),
+            detour_geometry: readLineString(activeDetourLink.detour_geometry),
+            detour_steps: readDetourSteps(activeDetourLink),
+            detour_instructions: activeDetourLink.detour_instructions || ''
+        } : null;
+        const geometry = activeDetourLink?.detour_geometry || normalGeometry;
+        const active_travel_time = activeDetour
+            ? activeDetour.detour_time
+            : legacyDetourActive && route.detour_time != null ? route.detour_time : route.estimated_time;
+        if (status !== 'UNAVAILABLE' && hasExplicitDetour) {
+            status = activeDetour ? 'DETOUR_ACTIVE' : advisories.length > 0 ? 'ADVISORY' : 'CLEAR';
+        }
 
         const rawSegments = await RouteSegment.find({ route_id: routeId }).sort({ segment_order: 1 }).lean();
         const locIds = [...new Set(rawSegments.flatMap(s => [s.start_location_id, s.end_location_id]).filter(Boolean))];
@@ -1187,7 +1249,9 @@ router.get('/routes/:id', async (req, res) => {
             geometry_corrected: route.geometry_corrected,
             walking_geometry: route.walking_geometry || null,
             use_corrected_geometry: route.use_corrected_geometry,
+            allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
             geometry,
+            active_detour: activeDetour,
             geometry_needs_review: !/boat/i.test(mode?.name || '') && !isDetailedRoadGeometry(geometry),
             map_preview_unavailable: /boat/i.test(mode?.name || '') && boatDetail?.operating_status !== 'ACTIVE',
             created_at: route.created_at,
@@ -2256,6 +2320,43 @@ router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => 
     }
 });
 
+router.get('/admin/saved-routes', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const counts = await SavedRoute.aggregate([
+            { $group: { _id: '$route_id', saved_count: { $sum: 1 } } },
+            { $sort: { saved_count: -1, _id: 1 } }
+        ]);
+        const routeIds = counts.map(item => item._id);
+        const [routes, modes] = await Promise.all([
+            Route.find({ id: { $in: routeIds } }).lean(),
+            TransportMode.find().lean()
+        ]);
+        const routeMap = new Map(routes.map(route => [route.id, route]));
+        const modeMap = new Map(modes.map(mode => [mode.id, mode]));
+        const savedRoutes = counts.map(item => {
+            const route = routeMap.get(item._id);
+            if (!route) return null;
+            const mode = modeMap.get(route.transport_mode_id);
+            return {
+                id: route.id,
+                route_name: route.route_name,
+                mode_name: mode?.name || null,
+                origin: route.origin,
+                destination: route.destination,
+                saved_count: item.saved_count
+            };
+        }).filter(Boolean);
+
+        res.json({
+            total_saved: savedRoutes.reduce((total, route) => total + route.saved_count, 0),
+            routes: savedRoutes
+        });
+    } catch (err) {
+        console.error('Error fetching saved route insights:', err);
+        res.status(500).json({ error: 'Failed to retrieve saved route insights.' });
+    }
+});
+
 // ============================================================================
 // ADMIN LOCATIONS CRUD
 // ============================================================================
@@ -2840,7 +2941,8 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             geometry,
             walking_geometry,
             geometry_corrected,
-            use_corrected_geometry = 1
+            use_corrected_geometry = 1,
+            allow_unverified_map_geometry = false
         } = req.body;
 
         if (!route_name || !transport_mode_id || !origin || !destination ||
@@ -2896,7 +2998,8 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             geometry: geomString,
             walking_geometry: walkingGeomString,
             geometry_corrected: correctedGeomString,
-            use_corrected_geometry: Number(use_corrected_geometry)
+            use_corrected_geometry: Number(use_corrected_geometry),
+            allow_unverified_map_geometry: allow_unverified_map_geometry === true
         });
 
         // Seed default fares for this new route
@@ -2954,7 +3057,8 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             geometry,
             walking_geometry,
             geometry_corrected,
-            use_corrected_geometry
+            use_corrected_geometry,
+            allow_unverified_map_geometry
         } = req.body;
 
         if (!route_name || typeof route_name !== 'string' || route_name.trim() === '') {
@@ -3040,6 +3144,12 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
         }
         if (use_corrected_geometry !== undefined) {
             updateData.use_corrected_geometry = Number(use_corrected_geometry);
+        }
+        if (allow_unverified_map_geometry !== undefined) {
+            if (typeof allow_unverified_map_geometry !== 'boolean') {
+                return res.status(400).json({ error: 'allow_unverified_map_geometry must be a boolean.' });
+            }
+            updateData.allow_unverified_map_geometry = allow_unverified_map_geometry;
         }
 
         await Route.updateOne({ id: routeId }, updateData);
@@ -3862,7 +3972,16 @@ router.get('/admin/advisories', authenticateToken, requireAdmin, async (req, res
             const links = allAdvisoryRoutes.filter(ar => ar.advisory_id === adv.id);
             adv.routes = links.map(ar => {
                 const r = routeMap.get(ar.route_id);
-                return r ? { id: r.id, route_name: r.route_name } : null;
+                return r ? {
+                    id: r.id,
+                    route_name: r.route_name,
+                    detour_enabled: ar.detour_enabled == null ? null : ar.detour_enabled === true,
+                    flooded_geometry: ar.flooded_geometry || '',
+                    detour_geometry: ar.detour_geometry || '',
+                    detour_steps: ar.detour_steps || [],
+                    detour_instructions: ar.detour_instructions || '',
+                    detour_time: ar.detour_time || r.detour_time || ''
+                } : null;
             }).filter(Boolean);
         }
 
@@ -3878,10 +3997,139 @@ const VALID_ADVISORY_CONDITIONS = [
     'RIVER_ADVISORY', 'ROUTE_CLEAR'
 ];
 
+function normalizeAdvisoryGeometry(value, fieldName) {
+    if (value == null || value === '') return null;
+
+    let geometry;
+    try {
+        geometry = typeof value === 'string' ? JSON.parse(value) : value;
+    } catch {
+        const error = new Error(`${fieldName} must be valid GeoJSON.`);
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates)) {
+        const error = new Error(`${fieldName} must be a GeoJSON LineString.`);
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const validation = validateGeometry(geometry, { mode: 'road', minVertices: 2 });
+    if (!validation.valid) {
+        const error = new Error(`${fieldName} is invalid: ${validation.errors.join(' ')}`);
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return JSON.stringify({ type: 'LineString', coordinates: geometry.coordinates });
+}
+
+async function prepareAdvisoryRouteLinks(routeIds, routeDetours = []) {
+    if (!Array.isArray(routeIds) || !Array.isArray(routeDetours)) {
+        const error = new Error('route_ids and route_detours must be arrays.');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const normalizedIds = [...new Set(routeIds.map(Number))];
+    if (normalizedIds.some(id => !Number.isInteger(id) || id <= 0)) {
+        const error = new Error('Affected route IDs must be valid positive integers.');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const existingRoutes = await Route.find({ id: { $in: normalizedIds } }).select('id').lean();
+    if (existingRoutes.length !== normalizedIds.length) {
+        const error = new Error('One or more affected routes could not be found.');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const configByRoute = new Map(routeDetours.map(config => [Number(config.route_id), config]));
+    return normalizedIds.map(routeId => {
+        const hasConfig = configByRoute.has(routeId);
+        const config = configByRoute.get(routeId) || {};
+        const floodedGeometry = normalizeAdvisoryGeometry(config.flooded_geometry, 'Flooded road path');
+        const detourGeometry = normalizeAdvisoryGeometry(config.detour_geometry, 'Detour path');
+        const detourEnabled = hasConfig && config.detour_enabled == null
+            ? null
+            : config.detour_enabled === true;
+        const legacyInstructions = typeof config.detour_instructions === 'string'
+            ? config.detour_instructions.split(/\r?\n/).map(instruction => instruction.trim()).filter(Boolean)
+            : [];
+        const detourSteps = Array.isArray(config.detour_steps)
+            ? config.detour_steps.map(step => ({
+                mode: typeof step.mode === 'string' && step.mode.trim() ? step.mode.trim() : 'Transit',
+                instruction: typeof step.instruction === 'string' ? step.instruction.trim() : '',
+                location_info: typeof step.location_info === 'string' ? step.location_info.trim() : ''
+            }))
+            : legacyInstructions.map(instruction => ({ mode: 'Transit', instruction, location_info: '' }));
+        const detourInstructions = Array.isArray(config.detour_steps)
+            ? detourSteps.map(step => step.instruction).filter(Boolean).join('\n')
+            : legacyInstructions.join('\n');
+        const detourTime = config.detour_time === '' || config.detour_time == null
+            ? null
+            : Number(config.detour_time);
+
+        if (detourTime !== null && (!Number.isFinite(detourTime) || detourTime < 1)) {
+            const error = new Error('Detour time must be a positive number of minutes.');
+            error.statusCode = 400;
+            throw error;
+        }
+        if (detourEnabled && (!floodedGeometry || !detourGeometry || !detourSteps.length || detourSteps.some(step => !step.instruction))) {
+            const error = new Error('An enabled detour requires flooded and alternate route paths, plus complete detour steps.');
+            error.statusCode = 400;
+            throw error;
+        }
+
+        return {
+            route_id: routeId,
+            detour_enabled: detourEnabled,
+            flooded_geometry: floodedGeometry,
+            detour_geometry: detourGeometry,
+            detour_steps: detourSteps,
+            detour_instructions: detourInstructions || null,
+            detour_time: detourTime
+        };
+    });
+}
+
+router.put('/admin/routes/:id/advisories/:advisoryId/detour', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const routeId = parseId(req.params.id);
+        const advisoryId = parseId(req.params.advisoryId);
+        if (routeId === null || advisoryId === null) {
+            return res.status(400).json({ error: 'Invalid route or advisory ID format.' });
+        }
+
+        const [route, advisory, existingLink] = await Promise.all([
+            Route.findOne({ id: routeId }).lean(),
+            Advisory.findOne({ id: advisoryId }).lean(),
+            AdvisoryRoute.findOne({ route_id: routeId, advisory_id: advisoryId }).lean()
+        ]);
+        if (!route || !advisory || !existingLink) {
+            return res.status(404).json({ error: 'Linked route advisory was not found.' });
+        }
+
+        const [routeConfig] = await prepareAdvisoryRouteLinks([routeId], [{ ...req.body, route_id: routeId }]);
+        await AdvisoryRoute.updateOne(
+            { route_id: routeId, advisory_id: advisoryId },
+            { $set: routeConfig }
+        );
+        await syncRouteAdvisoryStatus(routeId);
+        res.json({ message: 'Route detour updated successfully.' });
+    } catch (err) {
+        console.error('Error updating route advisory detour:', err);
+        if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+        res.status(500).json({ error: 'Failed to update route detour.' });
+    }
+});
+
 // POST /api/admin/advisories - Create advisory and link affected routes
 router.post('/admin/advisories', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { title, affected_road, condition, description, status = 'ACTIVE', route_ids = [] } = req.body;
+        const { title, affected_road, condition, description, status = 'ACTIVE', route_ids = [], route_detours = [] } = req.body;
 
         if (!title || typeof title !== 'string' || title.trim() === '' ||
             !affected_road || typeof affected_road !== 'string' || affected_road.trim() === '' ||
@@ -3897,6 +4145,8 @@ router.post('/admin/advisories', authenticateToken, requireAdmin, async (req, re
             });
         }
 
+        const routeLinks = await prepareAdvisoryRouteLinks(route_ids, route_detours);
+
         const validStatus = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
         const advisoryId = await nextId('Advisory');
 
@@ -3909,15 +4159,16 @@ router.post('/admin/advisories', authenticateToken, requireAdmin, async (req, re
             status: validStatus
         });
 
-        for (const rId of route_ids) {
+        for (const routeLink of routeLinks) {
             const arId = await nextId('AdvisoryRoute');
-            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, route_id: rId });
-            await syncRouteAdvisoryStatus(rId);
+            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, ...routeLink });
+            await syncRouteAdvisoryStatus(routeLink.route_id);
         }
 
         res.status(201).json({ message: 'Advisory created successfully.', advisoryId });
     } catch (err) {
         console.error('Error creating advisory:', err);
+        if (err.statusCode === 400) return res.status(400).json({ error: err.message });
         res.status(500).json({ error: 'Failed to create advisory.' });
     }
 });
@@ -3930,7 +4181,7 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
             return res.status(400).json({ error: 'Invalid advisory ID format.' });
         }
 
-        const { title, affected_road, condition, description, status, route_ids = [] } = req.body;
+        const { title, affected_road, condition, description, status, route_ids = [], route_detours = [] } = req.body;
 
         if (!title || typeof title !== 'string' || title.trim() === '' ||
             !affected_road || typeof affected_road !== 'string' || affected_road.trim() === '' ||
@@ -3944,6 +4195,8 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
                 error: `Invalid condition. Must be one of: ${VALID_ADVISORY_CONDITIONS.join(', ')}`
             });
         }
+
+        const routeLinks = await prepareAdvisoryRouteLinks(route_ids, route_detours);
 
         const existing = await Advisory.findOne({ id: advisoryId });
         if (!existing) {
@@ -3967,14 +4220,14 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
         const previousLinks = await AdvisoryRoute.find({ advisory_id: advisoryId }).lean();
         await AdvisoryRoute.deleteMany({ advisory_id: advisoryId });
 
-        for (const rId of route_ids) {
+        for (const routeLink of routeLinks) {
             const arId = await nextId('AdvisoryRoute');
-            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, route_id: rId });
+            await AdvisoryRoute.create({ id: arId, advisory_id: advisoryId, ...routeLink });
         }
 
         const allRoutesToSync = new Set([
             ...previousLinks.map(p => p.route_id),
-            ...route_ids
+            ...routeLinks.map(routeLink => routeLink.route_id)
         ]);
         for (const rId of allRoutesToSync) {
             await syncRouteAdvisoryStatus(rId);
@@ -3983,6 +4236,7 @@ router.put('/admin/advisories/:id', authenticateToken, requireAdmin, async (req,
         res.json({ message: 'Advisory updated successfully.' });
     } catch (err) {
         console.error('Error updating advisory:', err);
+        if (err.statusCode === 400) return res.status(400).json({ error: err.message });
         res.status(500).json({ error: 'Failed to update advisory.' });
     }
 });
@@ -4141,6 +4395,14 @@ async function handleRouteLayer(req, res, modeKeyword) {
 
     try {
         const { allRoutes, modeMap, boatDetailsByRoute } = await buildMapDataset();
+        const activeAdvisories = await Advisory.find({ status: 'ACTIVE' }).lean();
+        const activeAdvisoriesById = new Map(activeAdvisories.map(advisory => [advisory.id, advisory]));
+        const advisoryRoutes = await AdvisoryRoute.find({ route_id: { $in: allRoutes.map(route => route.id) } }).lean();
+        const advisoryLinksByRoute = new Map();
+        for (const link of advisoryRoutes) {
+            if (!advisoryLinksByRoute.has(link.route_id)) advisoryLinksByRoute.set(link.route_id, []);
+            advisoryLinksByRoute.get(link.route_id).push(link);
+        }
         const features = [];
 
         for (const route of allRoutes) {
@@ -4149,11 +4411,19 @@ async function handleRouteLayer(req, res, modeKeyword) {
             if (!modeName.toLowerCase().includes(modeKeyword)) continue;
             if (modeKeyword === 'boat' && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') continue;
 
-            const routeGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
+            const routeLinks = advisoryLinksByRoute.get(route.id) || [];
+            const routeAdvisories = routeLinks
+                .map(link => activeAdvisoriesById.get(link.advisory_id))
+                .filter(Boolean);
+            const activeDetour = findActiveRouteDetour(routeLinks, routeAdvisories);
+            const hasExplicitDetour = hasExplicitRouteDetour(routeLinks);
+            const legacyDetourActive = hasLegacyActiveDetour(route, routeLinks, routeAdvisories);
+            const normalGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
                 && route.use_corrected_geometry === 1
                 && route.geometry_corrected)
                 ? route.geometry_corrected
                 : route.geometry;
+            const routeGeometry = activeDetour?.link.detour_geometry || normalGeometry;
 
             let geomObj = null;
             if (routeGeometry) {
@@ -4173,11 +4443,18 @@ async function handleRouteLayer(req, res, modeKeyword) {
                 walkingGeomObj = null;
             }
             if (!geomObj || geomObj.type !== 'LineString' || !Array.isArray(geomObj.coordinates) || geomObj.coordinates.length < 2) continue;
-            if (!/boat/i.test(modeName) && !isDetailedRoadGeometry(geomObj)) continue;
+            const geometryNeedsReview = !/boat/i.test(modeName) && !isDetailedRoadGeometry(geomObj);
+            if (geometryNeedsReview && !(
+                route.allow_unverified_map_geometry === true &&
+                validateGeometry(geomObj, { mode: 'road' }).valid
+            )) continue;
 
             const color     = layerModeColor(modeName);
-            const isDetour  = route.status === 'DETOUR_ACTIVE';
+            const isDetour  = Boolean(activeDetour || legacyDetourActive);
             const isUnavail = route.status === 'UNAVAILABLE';
+            const status = route.status !== 'UNAVAILABLE' && hasExplicitDetour
+                ? activeDetour ? 'DETOUR_ACTIVE' : routeAdvisories.length ? 'ADVISORY' : 'CLEAR'
+                : route.status;
 
             features.push({
                 type: 'Feature',
@@ -4186,9 +4463,12 @@ async function handleRouteLayer(req, res, modeKeyword) {
                     id:             route.id,
                     route_name:     route.route_name,
                     mode:           modeName,
-                    status:         route.status,
+                    status,
                     origin:         route.origin,
                     destination:    route.destination,
+                    geometry_needs_review: geometryNeedsReview,
+                    allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
+                    flooded_geometry: activeDetour ? readLineString(activeDetour.link.flooded_geometry) : null,
                     walking_geometry: walkingGeomObj,
                     minimum_fare:   route.minimum_fare,
                     maximum_fare:   route.maximum_fare,
@@ -4197,7 +4477,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
                         color:     isUnavail ? '#94a3b8' : color,
                         weight:    2,
                         opacity:   0.5,
-                        dashArray: isDetour ? '8 6' : null,
+                        dashArray: isDetour || geometryNeedsReview ? '8 6' : null,
                         lineCap:   'round'
                     }
                 }
