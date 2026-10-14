@@ -183,6 +183,22 @@ npm run map:repair-roads -- --apply
 
 After applying corrections, restart the API server or wait for its 90-second map-layer cache to expire.
 
+### Auditing route geometry against ordered stops
+
+Preview road-snapped geometry for configured route stops. The dry run is the default; it uses the OSRM public driving router, skips boat and test/sample routes, and reports stop-distance, detour, and Dagupan-boundary warnings:
+
+```bash
+npm run map:fix-routes
+```
+
+Apply eligible results only after reviewing the report:
+
+```bash
+npm run map:fix-routes -- --apply
+```
+
+Applying writes a timestamped backup of current route geometry under `server/data` first. This command does not create or reorder stops; routes without at least two valid ordered stops are reported and left unchanged.
+
 ---
 
 ### 6. Run Automated Test Suite

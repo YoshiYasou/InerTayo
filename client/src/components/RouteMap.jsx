@@ -47,6 +47,7 @@ function modeColor(modeName = '') {
 }
 
 function routeFeature(route, allowUnverifiedPreview = false) {
+  if (!route) return null;
   if (route.geometry_needs_review && !allowUnverifiedPreview) return null;
   let geometry = route.geometry;
   if (typeof geometry === 'string') {
@@ -472,8 +473,9 @@ function LayerManager({
             }
           });
           layer.on('click', () => {
-            setSelectedRouteId(id === selectedRouteId ? null : id);
-            onSelect?.('route', f.properties);
+            const nextRouteId = String(id) === String(selectedRouteId) ? null : id;
+            setSelectedRouteId(nextRouteId);
+            onSelect?.('route', nextRouteId === null ? null : f.properties);
           });
         },
       }).addTo(map);
@@ -492,7 +494,7 @@ function LayerManager({
             renderer: L.canvas(),
             color: '#2563eb',
             weight: 4,
-            opacity: 0.95,
+            opacity: 0.6,
             dashArray: '6 8',
             lineCap: 'round',
             interactive: false,
@@ -505,7 +507,7 @@ function LayerManager({
             renderer: L.canvas(),
             color: '#dc2626',
             weight: 9,
-            opacity: 0.9,
+            opacity: 0.55,
             dashArray: '3 7',
             lineCap: 'round',
             interactive: false,
@@ -963,6 +965,7 @@ export default function RouteMap({
   showSchools   = false,
   schools       = [],
   selectedJourney = null,
+  selectedRouteId: controlledSelectedRouteId = null,
   locations     = [],
   showAdvisories = true,
   interactive   = true,
@@ -973,8 +976,17 @@ export default function RouteMap({
   onSelect      = null,
 }) {
   // selectedRouteId is owned here so LayerManager + parent can both react
-  const [selectedRouteId, setSelectedRouteId] = useState(null);
-  const focusedRouteFeature = routes.length === 1 ? routeFeature(routes[0], allowUnverifiedPreview) : null;
+  const [selectedRouteId, setSelectedRouteId] = useState(controlledSelectedRouteId ?? null);
+  useEffect(() => {
+    setSelectedRouteId(controlledSelectedRouteId ?? null);
+  }, [controlledSelectedRouteId]);
+
+  const focusedRouteFeature =
+    selectedRouteId != null
+      ? routeFeature(routes.find(route => String(route.id) === String(selectedRouteId)) || null, allowUnverifiedPreview)
+      : routes.length === 1
+        ? routeFeature(routes[0], allowUnverifiedPreview)
+        : null;
 
   const dagupanCenter = [16.0433, 120.3333];
 

@@ -8,6 +8,7 @@
     "server": "node server/server.js",
     "seed": "node server/db/seed.js",
     "map:repair-roads": "node server/scripts/repairRoadGeometry.js",
+    "map:fix-routes": "node server/scripts/fixRoutes.js",
     "build": "npm --prefix client run build",
     "client": "npm --prefix client run dev",
     "test": "node test/api.test.js"

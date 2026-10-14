@@ -81,7 +81,7 @@ export default function WebMap() {
 
   const handleSelect = (type, item) => {
     if (type === 'route') {
-      setSelectedItem({ type: 'route', data: item });
+      setSelectedItem(item ? { type: 'route', data: item } : null);
     } else if (type === 'stop') {
       setSelectedItem({ type: 'stop', data: item, routeName: item.routeName });
     } else if (type === 'location') {
@@ -250,6 +250,7 @@ export default function WebMap() {
               showSchools={showSchools}
               schools={schools}
               selectedJourney={selectedJourney}
+              selectedRouteId={selectedItem?.type === 'route' ? selectedItem.data.id : null}
               locations={locations}
               showAdvisories={true}
               interactive={true}

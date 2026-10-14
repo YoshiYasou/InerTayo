@@ -6,6 +6,8 @@ const { connectDB, disconnectDB } = require('../server/db/connection');
 const app = require('../server/server');
 const { seed } = require('../server/db/seed');
 const Route = require('../server/models/Route');
+const { auditRoadGeometry } = require('../server/utils/routeGeometryAudit');
+const { isTestOrSampleRoute } = require('../server/scripts/fixRoutes');
 
 let server;
 let baseUrl;
@@ -80,6 +82,67 @@ async function runTests() {
     }
 
     try {
+        assert(
+            isTestOrSampleRoute({ route_name: 'Dagupan Loop (TEST)' }) &&
+                isTestOrSampleRoute({ route_name: 'Sample River Crossing' }) &&
+                !isTestOrSampleRoute({ route_name: 'Dagupan Bonuan Route' }),
+            'Route repair skips routes labeled as tests or samples'
+        );
+
+        const validRoadAudit = auditRoadGeometry(
+            [
+                { stop_order: 1, stop_name: 'Start', latitude: 16.043, longitude: 120.334 },
+                { stop_order: 2, stop_name: 'End', latitude: 16.043, longitude: 120.340 }
+            ],
+            { type: 'LineString', coordinates: [[120.334, 16.043], [120.340, 16.043]] }
+        );
+        assert(validRoadAudit.warnings.length === 0, 'Road geometry audit accepts an in-bound path close to its ordered stops');
+
+        const farStopAudit = auditRoadGeometry(
+            [
+                { stop_order: 1, stop_name: 'Start', latitude: 16.043, longitude: 120.334 },
+                { stop_order: 2, stop_name: 'Far stop', latitude: 16.050, longitude: 120.337 }
+            ],
+            { type: 'LineString', coordinates: [[120.334, 16.043], [120.340, 16.043]] }
+        );
+        assert(
+            farStopAudit.warnings.some(warning => warning.includes('Far stop') && warning.includes('snapped path')),
+            'Road geometry audit flags a stop more than 100m from the snapped path'
+        );
+
+        const detourAudit = auditRoadGeometry(
+            [
+                { stop_order: 1, latitude: 16.043, longitude: 120.334 },
+                { stop_order: 2, latitude: 16.043, longitude: 120.340 }
+            ],
+            { type: 'LineString', coordinates: [[120.334, 16.043], [120.334, 16.050], [120.340, 16.050], [120.340, 16.043]] }
+        );
+        assert(
+            detourAudit.warnings.some(warning => warning.includes('endpoint straight-line distance')),
+            'Road geometry audit flags a path more than 1.5 times its straight-line distance'
+        );
+
+        const outsideAudit = auditRoadGeometry(
+            [
+                { stop_order: 1, latitude: 16.043, longitude: 120.334 },
+                { stop_order: 2, latitude: 16.043, longitude: 120.340 }
+            ],
+            { type: 'LineString', coordinates: [[120.334, 16.043], [120.230, 16.030]] }
+        );
+        assert(
+            outsideAudit.warnings.some(warning => warning.includes('Dagupan boundary')),
+            'Road geometry audit flags points outside the Dagupan boundary'
+        );
+
+        const emptyRouteAudit = await Route.deleteMany({});
+        assert(
+            emptyRouteAudit.deletedCount >= 0 && typeof emptyRouteAudit.deletedCount === 'number',
+            'Route audit can run cleanly against an empty route collection'
+        );
+        const emptyAuditReport = await require('../server/scripts/fixRoutes').fixRoutes({ apply: false });
+        assert(Array.isArray(emptyAuditReport) && emptyAuditReport.length === 0, 'Empty route collections produce an empty dry-run report instead of crashing');
+        await seed();
+
         // -------------------------------------------------------------
         // 1. PUBLIC COMMUTER ENDPOINTS
         // -------------------------------------------------------------
