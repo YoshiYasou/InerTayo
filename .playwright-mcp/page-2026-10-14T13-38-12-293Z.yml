@@ -1,0 +1,577 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e6]:
+      - generic [ref=f1e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=f1e8]
+        - generic [ref=f1e9]:
+          - generic [ref=f1e10]: InerTayo
+          - generic [ref=f1e11]: Dagupan Transit System
+      - navigation [ref=f1e12]:
+        - button "Routes" [ref=f1e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=f1e14] [cursor=pointer]
+        - button "About" [ref=f1e15] [cursor=pointer]
+      - generic [ref=f1e16]:
+        - button "Launch Web Map" [ref=f1e17] [cursor=pointer]
+        - generic [ref=f1e21]:
+          - button "Admin Portal" [ref=f1e117] [cursor=pointer]
+          - button "Change Password" [ref=f1e121] [cursor=pointer]
+          - button "Sign Out" [ref=f1e125] [cursor=pointer]
+  - main [ref=f1e24]:
+    - generic [ref=f1e25]:
+      - generic [ref=f1e27]:
+        - generic [ref=f1e129]:
+          - generic [ref=f1e130]: Staff Portal
+          - heading "InerTayo Transit Management" [level=1] [ref=f1e132]
+          - paragraph [ref=f1e133]: Live route updates, flood advisories, stops, and commuter feedback for Dagupan City.
+        - button "Refresh Data" [ref=f1e134] [cursor=pointer]
+      - generic [ref=f1e140]:
+        - generic [ref=f1e141]:
+          - generic [ref=f1e142]:
+            - generic [ref=f1e143]: Total Routes
+            - generic [ref=f1e149]: "23"
+          - generic [ref=f1e150]:
+            - generic [ref=f1e151]: Active Advisories
+            - generic [ref=f1e155]: "0"
+          - generic [ref=f1e156]:
+            - generic [ref=f1e157]: Total Stops
+            - generic [ref=f1e162]: "0"
+          - generic [ref=f1e163]:
+            - generic [ref=f1e164]: Pending Feedback
+            - generic [ref=f1e168]: "1"
+        - generic [ref=f1e169]:
+          - button "Routes & Travel Times" [ref=f1e170] [cursor=pointer]
+          - button "Web Map" [ref=f1e175] [cursor=pointer]
+          - button "Flood Advisories & Detours" [ref=f1e179] [cursor=pointer]
+          - button "Saved Routes" [ref=f1e182] [cursor=pointer]
+          - button "Places & Stops" [ref=f1e185] [cursor=pointer]
+          - button "Transport Modes" [ref=f1e190] [cursor=pointer]
+          - button "Fare Matrix" [ref=f1e195] [cursor=pointer]
+          - button "Commuter Reports" [ref=f1e198] [cursor=pointer]
+        - generic [ref=f1e201]:
+          - generic [ref=f1e202]:
+            - generic [ref=f1e203]:
+              - heading "Registered Transit Routes" [level=3] [ref=f1e204]
+              - paragraph [ref=f1e205]: Configure base time, detour time, and fares.
+            - generic [ref=f1e206]:
+              - searchbox "Search routes" [ref=f1e211]
+              - button "Add New Route" [ref=f1e212] [cursor=pointer]
+          - table [ref=f1e215]:
+            - rowgroup [ref=f1e216]:
+              - row [ref=f1e217]:
+                - columnheader "Route Name" [ref=f1e218]
+                - columnheader "Mode" [ref=f1e219]
+                - columnheader "Base / Detour Time" [ref=f1e220]
+                - columnheader "Fare Range" [ref=f1e221]
+                - columnheader "Current Status" [ref=f1e222]
+                - columnheader "Actions" [ref=f1e223]
+            - rowgroup [ref=f1e224]:
+              - row [ref=f1e225]:
+                - cell "CSI Mall Loop" [ref=f1e226]
+                - cell "Tricycle" [ref=f1e227]
+                - 'cell "10m(detour: 20m)" [ref=f1e228]':
+                  - generic [ref=f1e229]: 10m
+                  - generic [ref=f1e230]: "(detour: 20m)"
+                - cell "₱20 – ₱40" [ref=f1e231]
+                - cell "CLEAR" [ref=f1e232]
+                - cell [ref=f1e233]:
+                  - button "View Public Page" [ref=f1e234] [cursor=pointer]
+                  - button "Edit Route" [active] [ref=f1e238] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e242] [cursor=pointer]
+              - row [ref=f1e246]:
+                - cell "Magsaysay Market – Dagupan Plaza" [ref=f1e247]
+                - cell "Jeepney" [ref=f1e248]
+                - 'cell "12m(detour: 20m)" [ref=f1e249]':
+                  - generic [ref=f1e250]: 12m
+                  - generic [ref=f1e251]: "(detour: 20m)"
+                - cell "₱13 – ₱20" [ref=f1e252]
+                - cell "CLEAR" [ref=f1e253]
+                - cell [ref=f1e254]:
+                  - button "View Public Page" [ref=f1e255] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e259] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e263] [cursor=pointer]
+              - row [ref=f1e267]:
+                - cell "Dagupan – CSI Lucao" [ref=f1e268]
+                - cell "Jeepney" [ref=f1e269]
+                - 'cell "12m(detour: 20m)" [ref=f1e270]':
+                  - generic [ref=f1e271]: 12m
+                  - generic [ref=f1e272]: "(detour: 20m)"
+                - cell "₱15 – ₱25" [ref=f1e273]
+                - cell "CLEAR" [ref=f1e274]
+                - cell [ref=f1e275]:
+                  - button "View Public Page" [ref=f1e276] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e280] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e284] [cursor=pointer]
+              - row [ref=f1e288]:
+                - cell "Tapuac – Malued – Dagupan Market" [ref=f1e289]
+                - cell "Tricycle" [ref=f1e290]
+                - 'cell "12m(detour: 20m)" [ref=f1e291]':
+                  - generic [ref=f1e292]: 12m
+                  - generic [ref=f1e293]: "(detour: 20m)"
+                - cell "₱25 – ₱45" [ref=f1e294]
+                - cell "CLEAR" [ref=f1e295]
+                - cell [ref=f1e296]:
+                  - button "View Public Page" [ref=f1e297] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e301] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e305] [cursor=pointer]
+              - row [ref=f1e309]:
+                - cell "Market – Lucao District" [ref=f1e310]
+                - cell "Tricycle" [ref=f1e311]
+                - 'cell "12m(detour: 25m)" [ref=f1e312]':
+                  - generic [ref=f1e313]: 12m
+                  - generic [ref=f1e314]: "(detour: 25m)"
+                - cell "₱25 – ₱45" [ref=f1e315]
+                - cell "CLEAR" [ref=f1e316]
+                - cell [ref=f1e317]:
+                  - button "View Public Page" [ref=f1e318] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e322] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e326] [cursor=pointer]
+              - row [ref=f1e330]:
+                - cell "Dagupan – Calasiao" [ref=f1e331]
+                - cell "Jeepney" [ref=f1e332]
+                - 'cell "15m(detour: 25m)" [ref=f1e333]':
+                  - generic [ref=f1e334]: 15m
+                  - generic [ref=f1e335]: "(detour: 25m)"
+                - cell "₱12 – ₱20" [ref=f1e336]
+                - cell "CLEAR" [ref=f1e337]
+                - cell [ref=f1e338]:
+                  - button "View Public Page" [ref=f1e339] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e343] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e347] [cursor=pointer]
+              - row [ref=f1e351]:
+                - cell "Dagupan – Bonuan Boquig" [ref=f1e352]
+                - cell "Jeepney" [ref=f1e353]
+                - 'cell "15m(detour: 25m)" [ref=f1e354]':
+                  - generic [ref=f1e355]: 15m
+                  - generic [ref=f1e356]: "(detour: 25m)"
+                - cell "₱12 – ₱20" [ref=f1e357]
+                - cell "CLEAR" [ref=f1e358]
+                - cell [ref=f1e359]:
+                  - button "View Public Page" [ref=f1e360] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e364] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e368] [cursor=pointer]
+              - row [ref=f1e372]:
+                - cell "Dagupan Downtown Loop" [ref=f1e373]
+                - cell "Jeepney" [ref=f1e374]
+                - 'cell "15m(detour: 22m)" [ref=f1e375]':
+                  - generic [ref=f1e376]: 15m
+                  - generic [ref=f1e377]: "(detour: 22m)"
+                - cell "₱12 – ₱15" [ref=f1e378]
+                - cell "CLEAR" [ref=f1e379]
+                - cell [ref=f1e380]:
+                  - button "View Public Page" [ref=f1e381] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e385] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e389] [cursor=pointer]
+              - row [ref=f1e393]:
+                - cell "Pantal River Crossing" [ref=f1e394]
+                - cell "Boat" [ref=f1e395]
+                - 'cell "15m(detour: 25m)" [ref=f1e396]':
+                  - generic [ref=f1e397]: 15m
+                  - generic [ref=f1e398]: "(detour: 25m)"
+                - cell "₱20 – ₱20" [ref=f1e399]
+                - cell "UNAVAILABLE" [ref=f1e400]
+                - cell [ref=f1e401]:
+                  - button "View Public Page" [ref=f1e402] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e406] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e410] [cursor=pointer]
+              - row [ref=f1e414]:
+                - cell "Magsaysay – Lucao – Robinsons/Pantal" [ref=f1e415]
+                - cell "Tricycle" [ref=f1e416]
+                - 'cell "15m(detour: 25m)" [ref=f1e417]':
+                  - generic [ref=f1e418]: 15m
+                  - generic [ref=f1e419]: "(detour: 25m)"
+                - cell "₱25 – ₱50" [ref=f1e420]
+                - cell "CLEAR" [ref=f1e421]
+                - cell [ref=f1e422]:
+                  - button "View Public Page" [ref=f1e423] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e427] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e431] [cursor=pointer]
+              - row [ref=f1e435]:
+                - cell "Dagupan Plaza – Tapuac" [ref=f1e436]
+                - cell "Jeepney" [ref=f1e437]
+                - 'cell "16m(detour: 24m)" [ref=f1e438]':
+                  - generic [ref=f1e439]: 16m
+                  - generic [ref=f1e440]: "(detour: 24m)"
+                - cell "₱13 – ₱22" [ref=f1e441]
+                - cell "CLEAR" [ref=f1e442]
+                - cell [ref=f1e443]:
+                  - button "View Public Page" [ref=f1e444] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e448] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e452] [cursor=pointer]
+              - row [ref=f1e456]:
+                - cell "Dagupan Plaza – Pantal – Arellano-Bani" [ref=f1e457]
+                - cell "Jeepney" [ref=f1e458]
+                - 'cell "18m(detour: 28m)" [ref=f1e459]':
+                  - generic [ref=f1e460]: 18m
+                  - generic [ref=f1e461]: "(detour: 28m)"
+                - cell "₱13 – ₱25" [ref=f1e462]
+                - cell "CLEAR" [ref=f1e463]
+                - cell [ref=f1e464]:
+                  - button "View Public Page" [ref=f1e465] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e469] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e473] [cursor=pointer]
+              - row [ref=f1e477]:
+                - cell "Dagupan Plaza – Caranglaan – Bacayao Norte" [ref=f1e478]
+                - cell "Jeepney" [ref=f1e479]
+                - 'cell "18m(detour: 28m)" [ref=f1e480]':
+                  - generic [ref=f1e481]: 18m
+                  - generic [ref=f1e482]: "(detour: 28m)"
+                - cell "₱13 – ₱22" [ref=f1e483]
+                - cell "CLEAR" [ref=f1e484]
+                - cell [ref=f1e485]:
+                  - button "View Public Page" [ref=f1e486] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e490] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e494] [cursor=pointer]
+              - row [ref=f1e498]:
+                - cell "Bonuan Gueset – City Center" [ref=f1e499]
+                - cell "Jeepney" [ref=f1e500]
+                - 'cell "18m(detour: 28m)" [ref=f1e501]':
+                  - generic [ref=f1e502]: 18m
+                  - generic [ref=f1e503]: "(detour: 28m)"
+                - cell "₱15 – ₱25" [ref=f1e504]
+                - cell "CLEAR" [ref=f1e505]
+                - cell [ref=f1e506]:
+                  - button "View Public Page" [ref=f1e507] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e511] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e515] [cursor=pointer]
+              - row [ref=f1e519]:
+                - cell "Dagupan – Bonuan Binloc" [ref=f1e520]
+                - cell "Jeepney" [ref=f1e521]
+                - 'cell "18m(detour: 28m)" [ref=f1e522]':
+                  - generic [ref=f1e523]: 18m
+                  - generic [ref=f1e524]: "(detour: 28m)"
+                - cell "₱15 – ₱20" [ref=f1e525]
+                - cell "CLEAR" [ref=f1e526]
+                - cell [ref=f1e527]:
+                  - button "View Public Page" [ref=f1e528] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e532] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e536] [cursor=pointer]
+              - row [ref=f1e540]:
+                - cell "Pantal River Dock – Calmay/Carael" [ref=f1e541]
+                - cell "Boat" [ref=f1e542]
+                - 'cell "18m(detour: 30m)" [ref=f1e543]':
+                  - generic [ref=f1e544]: 18m
+                  - generic [ref=f1e545]: "(detour: 30m)"
+                - cell "₱20 – ₱30" [ref=f1e546]
+                - cell "CLEAR" [ref=f1e547]
+                - cell [ref=f1e548]:
+                  - button "View Public Page" [ref=f1e549] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e553] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e557] [cursor=pointer]
+              - row [ref=f1e561]:
+                - cell "Dagupan Plaza – Calmay – Carael" [ref=f1e562]
+                - cell "Jeepney" [ref=f1e563]
+                - 'cell "20m(detour: 30m)" [ref=f1e564]':
+                  - generic [ref=f1e565]: 20m
+                  - generic [ref=f1e566]: "(detour: 30m)"
+                - cell "₱15 – ₱25" [ref=f1e567]
+                - cell "CLEAR" [ref=f1e568]
+                - cell [ref=f1e569]:
+                  - button "View Public Page" [ref=f1e570] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e574] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e578] [cursor=pointer]
+              - row [ref=f1e582]:
+                - cell "Dagupan – Bonuan Beach" [ref=f1e583]
+                - cell "Jeepney" [ref=f1e584]
+                - 'cell "20m(detour: 35m)" [ref=f1e585]':
+                  - generic [ref=f1e586]: 20m
+                  - generic [ref=f1e587]: "(detour: 35m)"
+                - cell "₱15 – ₱25" [ref=f1e588]
+                - cell "CLEAR" [ref=f1e589]
+                - cell [ref=f1e590]:
+                  - button "View Public Page" [ref=f1e591] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e595] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e599] [cursor=pointer]
+              - row [ref=f1e603]:
+                - cell "Dagupan – Bonuan Gueset / Tondaligan" [ref=f1e604]
+                - cell "Jeepney" [ref=f1e605]
+                - 'cell "22m(detour: 35m)" [ref=f1e606]':
+                  - generic [ref=f1e607]: 22m
+                  - generic [ref=f1e608]: "(detour: 35m)"
+                - cell "₱15 – ₱25" [ref=f1e609]
+                - cell "CLEAR" [ref=f1e610]
+                - cell [ref=f1e611]:
+                  - button "View Public Page" [ref=f1e612] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e616] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e620] [cursor=pointer]
+              - row [ref=f1e624]:
+                - cell "Dagupan Plaza – Bacayao Sur – Lasip Grande" [ref=f1e625]
+                - cell "Jeepney" [ref=f1e626]
+                - 'cell "22m(detour: 32m)" [ref=f1e627]':
+                  - generic [ref=f1e628]: 22m
+                  - generic [ref=f1e629]: "(detour: 32m)"
+                - cell "₱15 – ₱25" [ref=f1e630]
+                - cell "CLEAR" [ref=f1e631]
+                - cell [ref=f1e632]:
+                  - button "View Public Page" [ref=f1e633] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e637] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e641] [cursor=pointer]
+              - row [ref=f1e645]:
+                - cell "Dagupan – Bolosan / Salisay / Tambac / Tebeng" [ref=f1e646]
+                - cell "Jeepney" [ref=f1e647]
+                - 'cell "25m(detour: 38m)" [ref=f1e648]':
+                  - generic [ref=f1e649]: 25m
+                  - generic [ref=f1e650]: "(detour: 38m)"
+                - cell "₱15 – ₱25" [ref=f1e651]
+                - cell "CLEAR" [ref=f1e652]
+                - cell [ref=f1e653]:
+                  - button "View Public Page" [ref=f1e654] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e658] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e662] [cursor=pointer]
+              - row [ref=f1e666]:
+                - cell "Dagupan – Mangaldan" [ref=f1e667]
+                - cell "Bus" [ref=f1e668]
+                - 'cell "25m(detour: 40m)" [ref=f1e669]':
+                  - generic [ref=f1e670]: 25m
+                  - generic [ref=f1e671]: "(detour: 40m)"
+                - cell "₱20 – ₱35" [ref=f1e672]
+                - cell "CLEAR" [ref=f1e673]
+                - cell [ref=f1e674]:
+                  - button "View Public Page" [ref=f1e675] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e679] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e683] [cursor=pointer]
+              - row [ref=f1e687]:
+                - cell "Dagupan – San Carlos via Calasiao" [ref=f1e688]
+                - cell "Bus" [ref=f1e689]
+                - 'cell "45m(detour: 60m)" [ref=f1e690]':
+                  - generic [ref=f1e691]: 45m
+                  - generic [ref=f1e692]: "(detour: 60m)"
+                - cell "₱35 – ₱60" [ref=f1e693]
+                - cell "CLEAR" [ref=f1e694]
+                - cell [ref=f1e695]:
+                  - button "View Public Page" [ref=f1e696] [cursor=pointer]
+                  - button "Edit Route" [ref=f1e700] [cursor=pointer]
+                  - button "Delete Route" [ref=f1e704] [cursor=pointer]
+      - generic [ref=f1e709]:
+        - generic [ref=f1e711]:
+          - button "Back to routes" [ref=f1e712] [cursor=pointer]
+          - heading "Edit Transit Route" [level=2] [ref=f1e715]
+        - generic [ref=f1e716]:
+          - generic [ref=f1e717]:
+            - generic [ref=f1e718]: Route Name
+            - textbox "e.g. Dagupan – Bonuan Beach" [ref=f1e719]: CSI Mall Loop
+          - generic [ref=f1e720]:
+            - generic [ref=f1e721]:
+              - generic [ref=f1e722]: Transport Mode
+              - combobox [ref=f1e723]:
+                - option "Jeepney"
+                - option "Tricycle" [selected]
+                - option "Bus"
+                - option "Boat"
+            - generic [ref=f1e724]:
+              - generic [ref=f1e725]: Advisory Status
+              - combobox [ref=f1e726]:
+                - option "CLEAR" [selected]
+                - option "DETOUR_ACTIVE"
+                - option "UNAVAILABLE"
+          - generic [ref=f1e727]:
+            - generic [ref=f1e728]: Operating Status
+            - combobox [ref=f1e729]:
+              - option "Active" [selected]
+              - option "Suspended"
+              - option "Unavailable"
+          - generic [ref=f1e730]:
+            - generic [ref=f1e731]:
+              - generic [ref=f1e732]: Origin Landmark
+              - generic [ref=f1e734]:
+                - textbox "Type or search for an origin" [ref=f1e735]: Downtown Dagupan
+                - button "Clear" [ref=f1e736] [cursor=pointer]
+            - generic [ref=f1e740]:
+              - generic [ref=f1e741]: Destination Landmark
+              - generic [ref=f1e743]:
+                - textbox "Type or search for a destination" [ref=f1e744]: CSI City Mall
+                - button "Clear" [ref=f1e745] [cursor=pointer]
+          - generic [ref=f1e749]:
+            - generic [ref=f1e750]:
+              - generic [ref=f1e751]: Base Time (m)
+              - spinbutton [ref=f1e752]: "10"
+            - generic [ref=f1e753]:
+              - generic [ref=f1e754]: Detour Time (m)
+              - spinbutton [ref=f1e755]: "20"
+            - generic [ref=f1e756]:
+              - generic [ref=f1e757]: Min Fare (₱)
+              - spinbutton [ref=f1e758]: "20"
+            - generic [ref=f1e759]:
+              - generic [ref=f1e760]: Max Fare (₱)
+              - spinbutton [ref=f1e761]: "40"
+          - generic [ref=f1e762]:
+            - generic [ref=f1e763]: Description
+            - textbox "Route details and corridor description" [ref=f1e764]: High-frequency tricycle loop connecting downtown commercial hubs with CSI The City Mall Lucao.
+          - generic [ref=f1e765]:
+            - generic [ref=f1e766]: Passenger Service Notes
+            - textbox "Optional operating or passenger information" [ref=f1e767]
+          - button "Preview passenger view" [ref=f1e769] [cursor=pointer]
+          - region [ref=f1e773]:
+            - generic [ref=f1e774]:
+              - heading "Route version" [level=4] [ref=f1e775]
+              - paragraph [ref=f1e776]: Choose the normal route or a linked flood detour. Your edits stay separate when you switch.
+            - tablist "Route map to edit" [ref=f1e777]:
+              - tab "Normal route" [selected] [ref=f1e778] [cursor=pointer]
+            - paragraph [ref=f1e783]: This route is not linked to a flood, high-tide, or detour advisory.
+          - region [ref=f1e784]:
+            - generic [ref=f1e785]:
+              - generic [ref=f1e786]:
+                - heading "Normal route directions" [level=4] [ref=f1e787]
+                - paragraph [ref=f1e788]: Used whenever no flood detour is active.
+              - button "Add step" [ref=f1e789] [cursor=pointer]
+            - generic [ref=f1e791]:
+              - generic [ref=f1e792]: "1"
+              - generic [ref=f1e793]:
+                - generic [ref=f1e794]:
+                  - combobox "Step 1 mode" [ref=f1e795]:
+                    - option "Walk" [selected]
+                    - option "Jeepney"
+                    - option "Tricycle"
+                    - option "Bus"
+                    - option "Boat"
+                  - textbox "Step 1 instruction" [ref=f1e796]:
+                    - /placeholder: e.g. Board the tricycle toward Lucao
+                    - text: Proceed to Galvan St Tricycle Terminal
+                - textbox "Step 1 details" [ref=f1e797]:
+                  - /placeholder: Optional location details
+                  - text: Short 2-minute walk from downtown commercial strip to the Galvan St TODA station
+              - generic [ref=f1e798]:
+                - button "Move step 1 up" [disabled] [ref=f1e799]
+                - button "Move step 1 down" [ref=f1e802] [cursor=pointer]
+                - button "Remove step 1" [ref=f1e805] [cursor=pointer]
+            - generic [ref=f1e809]:
+              - generic [ref=f1e810]: "2"
+              - generic [ref=f1e811]:
+                - generic [ref=f1e812]:
+                  - combobox "Step 2 mode" [ref=f1e813]:
+                    - option "Walk"
+                    - option "Jeepney"
+                    - option "Tricycle" [selected]
+                    - option "Bus"
+                    - option "Boat"
+                  - textbox "Step 2 instruction" [ref=f1e814]:
+                    - /placeholder: e.g. Board the tricycle toward Lucao
+                    - text: Board Lucao-bound Tricycle
+                - textbox "Step 2 details" [ref=f1e815]:
+                  - /placeholder: Optional location details
+                  - text: Direct express trip via Fernandez Ave straight to CSI The City Mall.
+              - generic [ref=f1e816]:
+                - button "Move step 2 up" [ref=f1e817] [cursor=pointer]
+                - button "Move step 2 down" [ref=f1e820] [cursor=pointer]
+                - button "Remove step 2" [ref=f1e823] [cursor=pointer]
+            - generic [ref=f1e827]:
+              - generic [ref=f1e828]: "3"
+              - generic [ref=f1e829]:
+                - generic [ref=f1e830]:
+                  - combobox "Step 3 mode" [ref=f1e831]:
+                    - option "Walk" [selected]
+                    - option "Jeepney"
+                    - option "Tricycle"
+                    - option "Bus"
+                    - option "Boat"
+                  - textbox "Step 3 instruction" [ref=f1e832]:
+                    - /placeholder: e.g. Board the tricycle toward Lucao
+                    - text: Alight at CSI Mall North Entrance
+                - textbox "Step 3 details" [ref=f1e833]:
+                  - /placeholder: Optional location details
+                  - text: Arrive at CSI Mall Lucao entrance atrium.
+              - generic [ref=f1e834]:
+                - button "Move step 3 up" [ref=f1e835] [cursor=pointer]
+                - button "Move step 3 down" [disabled] [ref=f1e838]
+                - button "Remove step 3" [ref=f1e841] [cursor=pointer]
+          - region "Selected flood detour editor"
+          - generic [ref=f1e845]:
+            - generic [ref=f1e846]:
+              - generic [ref=f1e847]:
+                - heading "Route path" [level=4] [ref=f1e848]
+                - paragraph [ref=f1e849]: 142 mapped points · A is the first point; B is the last.
+                - generic [ref=f1e850]:
+                  - button "Transit path" [pressed] [ref=f1e851] [cursor=pointer]
+                  - button "Walking path- - -" [ref=f1e852] [cursor=pointer]
+                - generic [ref=f1e853]:
+                  - generic [ref=f1e854]: Selected point
+                  - spinbutton "Selected point" [disabled] [ref=f1e855]: "1"
+                  - generic [ref=f1e856]: of 142
+                  - button "Remove selected point" [disabled] [ref=f1e857]
+                  - button "Delete selected section" [disabled] [ref=f1e861]: Delete section
+              - generic [ref=f1e862]:
+                - button "Unlock route editing" [ref=f1e863] [cursor=pointer]: Edit route
+                - group "Route editing tool" [ref=f1e867]:
+                  - button "Edit points" [disabled] [pressed] [ref=f1e868]
+                  - button "Add points" [disabled] [ref=f1e869]
+                - button "Show every route point" [ref=f1e870] [cursor=pointer]: All points
+                - button "Move the entire path" [disabled] [ref=f1e871]: Move section
+                - button "Fit route in map" [ref=f1e872] [cursor=pointer]
+                - button "Match this path to nearby streets" [disabled] [ref=f1e876]
+                - button "Expand map" [ref=f1e879] [cursor=pointer]
+                - button "Undo last route edit" [disabled] [ref=f1e885]
+                - button "Clear entire route path" [disabled] [ref=f1e889]
+            - paragraph [ref=f1e893]: Route editing is locked. Unlock editing to add points, reshape the route, or move a line section.
+            - generic [ref=f1e895]:
+              - generic:
+                - generic:
+                  - img:
+                    - generic [ref=f1e896] [cursor=pointer]
+                - generic:
+                  - button "A" [ref=f1e897] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e899] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e901] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e903] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e905] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e907] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e909] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e911] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e913] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e915] [cursor=pointer]
+                  - button "Drag to adjust this route point" [ref=f1e917] [cursor=pointer]
+                  - button "B" [ref=f1e919] [cursor=pointer]
+              - generic:
+                - generic [ref=f1e921]:
+                  - button "Zoom in" [ref=f1e922] [cursor=pointer]: +
+                  - button "Zoom out" [ref=f1e923] [cursor=pointer]: −
+                - generic [ref=f1e924]:
+                  - link "Leaflet" [ref=f1e925] [cursor=pointer]:
+                    - /url: https://leafletjs.com
+                  - text: "| ©"
+                  - link "OpenStreetMap" [ref=f1e930] [cursor=pointer]:
+                    - /url: https://www.openstreetmap.org/copyright
+                  - text: contributors
+            - group [ref=f1e931]:
+              - generic "GeoJSON coordinates" [ref=f1e932] [cursor=pointer]
+            - paragraph [ref=f1e933]: Changes appear on the public map after you save the route.
+          - generic [ref=f1e934]:
+            - generic [ref=f1e935]:
+              - heading "Web Map review bypass" [level=4] [ref=f1e936]
+              - paragraph [ref=f1e937]: Allow this valid route line to appear on the Web Map even if it is too sparse for the detail check. Its public route page will still show the unverified warning.
+            - button "Allow unverified map display" [ref=f1e938] [cursor=pointer]
+          - generic [ref=f1e942]:
+            - button "Cancel" [ref=f1e943] [cursor=pointer]
+            - button "Discard changes" [ref=f1e944] [cursor=pointer]
+            - button "Save draft" [ref=f1e945] [cursor=pointer]
+            - button "Publish Route" [ref=f1e946] [cursor=pointer]
+  - contentinfo [ref=f1e34]:
+    - generic [ref=f1e35]:
+      - generic [ref=f1e36]:
+        - generic [ref=f1e37]:
+          - generic [ref=f1e38] [cursor=pointer]:
+            - img "InerTayo logo" [ref=f1e39]
+            - generic [ref=f1e40]: InerTayo
+          - paragraph [ref=f1e41]: The premier route-finding application for Dagupan, Pangasinan. Providing the most efficient combinations of local public transport modes.
+        - generic [ref=f1e42]:
+          - heading "Transit Tools" [level=4] [ref=f1e43]
+          - list [ref=f1e44]:
+            - listitem [ref=f1e45]:
+              - button "Web Map" [ref=f1e46] [cursor=pointer]
+            - listitem [ref=f1e47]:
+              - button "Route Directory" [ref=f1e48] [cursor=pointer]
+            - listitem [ref=f1e49]:
+              - button "Fare Calculator" [ref=f1e50] [cursor=pointer]
+        - generic [ref=f1e51]:
+          - heading "Support" [level=4] [ref=f1e52]
+          - list [ref=f1e53]:
+            - listitem [ref=f1e54]:
+              - button "Help Center" [ref=f1e55] [cursor=pointer]
+            - listitem [ref=f1e56]:
+              - button "Commuter Guide" [ref=f1e57] [cursor=pointer]
+            - listitem [ref=f1e58]:
+              - button "Feedback" [ref=f1e59] [cursor=pointer]
+      - generic [ref=f1e60]:
+        - paragraph [ref=f1e61]: © 2026 InerTayo. Built with care for the Filipino Commuter.
+        - generic [ref=f1e62]:
+          - button "Facebook" [ref=f1e63] [cursor=pointer]
+          - button "Twitter" [ref=f1e66] [cursor=pointer]
+          - button "Instagram" [ref=f1e69] [cursor=pointer]
