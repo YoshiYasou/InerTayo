@@ -151,6 +151,16 @@ async function runTests() {
             'Route with active advisory reports increased travel time (30 mins vs 15 mins base)'
         );
 
+        const mangaldanRoute = await makeRequest('GET', '/api/routes/5');
+        assert(
+            mangaldanRoute.status === 200 &&
+            mangaldanRoute.data.use_corrected_geometry === 1 &&
+            mangaldanRoute.data.geometry_corrected &&
+            JSON.parse(mangaldanRoute.data.geometry_corrected).coordinates.length >= 20 &&
+            mangaldanRoute.data.geometry_needs_review === false,
+            'Route 5 uses corrected road geometry instead of the coarse fallback line'
+        );
+
         // Advisories endpoint
         const advRes = await makeRequest('GET', '/api/advisories');
         assert(

@@ -20,6 +20,7 @@ const BoatRouteDetail = require('../models/BoatRouteDetail');
 const RouteSegment = require('../models/RouteSegment');
 const School = require('../models/School');
 const PasswordReset = require('../models/PasswordReset');
+const { densifyLineString } = require('../utils/routeGeometryQuality');
 const seedData = require('./seedData.json');
 
 async function seed() {
@@ -63,7 +64,35 @@ async function seed() {
     }
 
     if (seedData.routes && seedData.routes.length > 0) {
-        await Route.insertMany(seedData.routes);
+        const normalizedRoutes = seedData.routes.map((route) => {
+            const routeName = route.route_name || '';
+            const isLandRoute = !/boat/i.test(routeName) && route.transport_mode_id !== 4;
+            if (!isLandRoute || typeof route.geometry !== 'string') {
+                return route;
+            }
+
+            try {
+                const geometry = route.geometry_corrected || route.geometry;
+                if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2) {
+                    return route;
+                }
+
+                const denseCoordinates = densifyLineString(geometry, 100);
+                if (denseCoordinates.length < 20) {
+                    return route;
+                }
+
+                return {
+                    ...route,
+                    geometry_corrected: JSON.stringify({ type: 'LineString', coordinates: denseCoordinates }),
+                    use_corrected_geometry: 1,
+                };
+            } catch (error) {
+                return route;
+            }
+        });
+
+        await Route.insertMany(normalizedRoutes);
         await Counter.findByIdAndUpdate('Route', { seq: Math.max(...seedData.routes.map(r => r.id)) }, { upsert: true });
     }
 

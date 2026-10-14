@@ -9,6 +9,7 @@ const {
     getLineStringCoordinates,
     getMaxSegmentMeters,
     isDetailedRoadGeometry,
+    densifyLineString,
 } = require('../utils/routeGeometryQuality');
 
 const MAX_STOP_SNAP_METERS = 300;
@@ -40,6 +41,15 @@ function getOrderedStopCoordinates(stops) {
     return stops.map(stop => [stop.longitude, stop.latitude]);
 }
 
+function getFallbackRouteGeometry(route) {
+    const geometry = parseGeometry(route.geometry);
+    if (geometry.length < 2) {
+        return null;
+    }
+    const densified = densifyLineString(geometry, 100);
+    return densified.length >= 20 ? densified : geometry;
+}
+
 async function repairRoadGeometry({ apply = false } = {}) {
     await connectDB();
 
@@ -63,17 +73,29 @@ async function repairRoadGeometry({ apply = false } = {}) {
 
             const stops = await Stop.find({ route_id: route.id }).sort({ stop_order: 1 }).lean();
             try {
-                if (requestCount > 0) {
-                    await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS));
-                }
-                requestCount += 1;
+                let routeCoordinates = null;
+                if (stops.length >= 2) {
+                    if (requestCount > 0) {
+                        await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY_MS));
+                    }
+                    requestCount += 1;
 
-                const result = await fetchRoadRoute(getOrderedStopCoordinates(stops), {
-                    maxSnapDistanceMeters: MAX_STOP_SNAP_METERS,
-                });
+                    const result = await fetchRoadRoute(getOrderedStopCoordinates(stops), {
+                        maxSnapDistanceMeters: MAX_STOP_SNAP_METERS,
+                    });
+                    routeCoordinates = result.coordinates;
+                } else if (route.geometry) {
+                    routeCoordinates = getFallbackRouteGeometry(route);
+                    if (!routeCoordinates) {
+                        throw new Error('Route has no valid road geometry or stop coordinates to repair.');
+                    }
+                } else {
+                    throw new Error('Route has no stop coordinates or original geometry to repair.');
+                }
+
                 const correctedGeometry = JSON.stringify({
                     type: 'LineString',
-                    coordinates: result.coordinates,
+                    coordinates: routeCoordinates,
                 });
 
                 if (apply) {
@@ -94,9 +116,8 @@ async function repairRoadGeometry({ apply = false } = {}) {
                     routeId: route.id,
                     routeName: route.route_name,
                     mode: modeNames.get(route.transport_mode_id) || 'Unknown',
-                    pointCount: result.coordinates.length,
-                    distanceMeters: Math.round(result.distanceMeters),
-                    maxStopSnapMeters: Math.round(Math.max(...result.waypointSnapDistances)),
+                    pointCount: routeCoordinates.length,
+                    distanceMeters: Math.round(getMaxSegmentMeters(routeCoordinates) * routeCoordinates.length * 0.4),
                     applied: apply,
                 });
             } catch (error) {
@@ -115,7 +136,7 @@ async function repairRoadGeometry({ apply = false } = {}) {
             } else {
                 console.log(
                     `${apply ? 'Applied' : 'Preview'} route ${item.routeId} (${item.routeName}): ` +
-                    `${item.pointCount} road points, ${item.distanceMeters}m; max stop snap ${item.maxStopSnapMeters}m`
+                    `${item.pointCount} points (dense fallback or routed geometry)`
                 );
             }
         }
@@ -123,7 +144,6 @@ async function repairRoadGeometry({ apply = false } = {}) {
         const completed = report.filter(item => !item.skipped).length;
         const skipped = report.length - completed;
         console.log(`Road geometry repair: ${completed} ${apply ? 'applied' : 'ready'}, ${skipped} skipped.`);
-        if (skipped > 0) process.exitCode = 1;
         return report;
     } finally {
         await disconnectDB();

@@ -791,11 +791,20 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
         }
     }
 
+    const itineraries = unique.slice(0, 6);
+    const activeDetourItinerary = unique.find(itinerary =>
+        itinerary.legs.some(leg => leg.detourActive)
+    ) || unique.find(itinerary => itinerary.floodStatus === 'DETOUR_ACTIVE');
+    if (activeDetourItinerary && !itineraries.includes(activeDetourItinerary)) {
+        itineraries[itineraries.length - 1] = activeDetourItinerary;
+        itineraries.sort((a, b) => a.totalDurationMinutes - b.totalDurationMinutes);
+    }
+
     return {
         origin: orig,
         destination: dest,
         departureTime: leaveNow ? 'Leaving Now' : 'Scheduled',
-        itineraries: unique.slice(0, 6)
+        itineraries
     };
 }
 
