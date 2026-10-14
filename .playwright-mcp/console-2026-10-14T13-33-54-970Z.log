@@ -1,0 +1,11 @@
+[     101ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:3002/node_modules/.vite/deps/chunk-NXESFFTV.js?v=e913cbb9:21608
+[   10881ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3002/admin:0
+[   27509ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3002/api/auth/login:0
+[  113432ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:3002/@vite/client:963
+[  113440ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  114462ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  115488ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  116511ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  117535ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  118566ms] [ERROR] WebSocket connection to 'ws://localhost:3002/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3002/@vite/client:1034
+[  121438ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:3002/node_modules/.vite/deps/chunk-NXESFFTV.js?v=e913cbb9:21608

@@ -1,0 +1,118 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=e8]
+        - generic [ref=e9]:
+          - generic [ref=e10]: InerTayo
+          - generic [ref=e11]: Dagupan Transit System
+      - navigation [ref=e12]:
+        - button "Routes" [ref=e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=e14] [cursor=pointer]
+        - button "About" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - button "Launch Web Map" [ref=e17] [cursor=pointer]
+        - generic [ref=e21]:
+          - button "Sign In" [ref=e22] [cursor=pointer]
+          - button "Register" [ref=e23] [cursor=pointer]
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e28]:
+        - generic [ref=e30]:
+          - heading "Where are you heading?" [level=1] [ref=e31]
+          - paragraph [ref=e32]: Find the best Jeepney, Tricycle, and Bus routes in Dagupan.
+          - generic [ref=e33]:
+            - generic [ref=e34]:
+              - generic [ref=e35]:
+                - generic [ref=e36]: FROM (START)
+                - generic [ref=e38]:
+                  - textbox "e.g. Bonuan Beach, Dagupan" [ref=e41]: Dagupan Plaza
+                  - button "Clear" [ref=e42] [cursor=pointer]
+              - button "Swap locations" [ref=e47] [cursor=pointer]
+              - generic [ref=e51]:
+                - generic [ref=e52]: TO (DESTINATION)
+                - generic [ref=e54]:
+                  - textbox "e.g. CSI Mall, Dagupan" [ref=e58]: Bonuan Beach, Dagupan
+                  - button "Clear" [ref=e59] [cursor=pointer]
+            - generic [ref=e63]:
+              - button "Fastest" [ref=e64] [cursor=pointer]
+              - button "Cheapest" [ref=e65] [cursor=pointer]
+            - button "Get Commute Directions" [ref=e66] [cursor=pointer]
+        - generic [ref=e71]:
+          - generic:
+            - generic: SM Center Dagupan
+            - generic: Dagupan Doctors Villaflor
+            - generic: Robinsons Place Pangasinan
+          - generic [ref=e72]:
+            - generic [ref=e73]: Flood-Aware Route Finder
+            - heading "Navigate Dagupan, rain or shine." [level=2] [ref=e76]
+            - paragraph [ref=e77]: Get step-by-step commute directions that reflect detour advisories during heavy rain and high tide. Routes reflect current advisories.
+            - generic [ref=e78]:
+              - generic [ref=e79]:
+                - generic [ref=e80]: Built for Dagupan
+                - generic [ref=e81]: Fully Localized Transit Routes
+              - button "Launch Web Map" [ref=e82] [cursor=pointer]
+          - generic [ref=e86]: AB Fernandez Ave flooded — routes reflect this advisory
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - text: How It Works
+          - heading "Beating Dagupan traffic in three simple steps" [level=2] [ref=e97]
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - generic [ref=e100]: "01"
+            - heading "Enter Destination" [level=3] [ref=e106]
+            - paragraph [ref=e107]: Type where you are and where you want to go. We support landmarks, malls, schools, and streets across Dagupan.
+          - generic [ref=e108]:
+            - generic [ref=e109]: "02"
+            - heading "Choose Best Route" [level=3] [ref=e116]
+            - paragraph [ref=e117]: Compare options based on travel time, walk distance, fare cost, and your preferred modes of transit.
+          - generic [ref=e118]:
+            - generic [ref=e119]: "03"
+            - heading "Start Commuting" [level=3] [ref=e124]
+            - paragraph [ref=e125]: Follow easy, step-by-step instructions on where to walk, what signboard to look for, and how much to pay.
+      - generic [ref=e127]:
+        - generic [ref=e128]:
+          - text: Supported Transit
+          - heading "We integrate all local modes of transport in Dagupan" [level=2] [ref=e129]
+        - generic [ref=e130]:
+          - generic [ref=e136] [cursor=pointer]:
+            - heading "Jeepney" [level=4] [ref=e137]
+            - paragraph [ref=e138]: Classic & Modern e-Jeeps
+          - generic [ref=e145] [cursor=pointer]:
+            - heading "Bus" [level=4] [ref=e146]
+            - paragraph [ref=e147]: Dagupan Loop
+          - generic [ref=e155] [cursor=pointer]:
+            - heading "Tricycle" [level=4] [ref=e156]
+            - paragraph [ref=e157]: Last-mile neighborhood transit
+  - contentinfo [ref=e158]:
+    - generic [ref=e159]:
+      - generic [ref=e160]:
+        - generic [ref=e161]:
+          - generic [ref=e162] [cursor=pointer]:
+            - img "InerTayo logo" [ref=e163]
+            - generic [ref=e164]: InerTayo
+          - paragraph [ref=e165]: The premier route-finding application for Dagupan, Pangasinan. Providing the most efficient combinations of local public transport modes.
+        - generic [ref=e166]:
+          - heading "Transit Tools" [level=4] [ref=e167]
+          - list [ref=e168]:
+            - listitem [ref=e169]:
+              - button "Web Map" [ref=e170] [cursor=pointer]
+            - listitem [ref=e171]:
+              - button "Route Directory" [ref=e172] [cursor=pointer]
+            - listitem [ref=e173]:
+              - button "Fare Calculator" [ref=e174] [cursor=pointer]
+        - generic [ref=e175]:
+          - heading "Support" [level=4] [ref=e176]
+          - list [ref=e177]:
+            - listitem [ref=e178]:
+              - button "Help Center" [ref=e179] [cursor=pointer]
+            - listitem [ref=e180]:
+              - button "Commuter Guide" [ref=e181] [cursor=pointer]
+            - listitem [ref=e182]:
+              - button "Feedback" [ref=e183] [cursor=pointer]
+      - generic [ref=e184]:
+        - paragraph [ref=e185]: © 2026 InerTayo. Built with care for the Filipino Commuter.
+        - generic [ref=e186]:
+          - button "Facebook" [ref=e187] [cursor=pointer]
+          - button "Twitter" [ref=e190] [cursor=pointer]
+          - button "Instagram" [ref=e193] [cursor=pointer]

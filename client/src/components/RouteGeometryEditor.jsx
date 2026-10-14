@@ -7,7 +7,7 @@ const DAGUPAN_CENTER = [16.0433, 120.3333];
 
 function routePointIcon(label, color, isActive = false) {
   const isEndpoint = Boolean(label);
-  const size = isEndpoint ? 28 : isActive ? 20 : 18;
+  const size = isEndpoint ? 34 : isActive ? 30 : 26;
   const pointColor = label === 'A' ? '#059669' : label === 'B' ? '#e11d48' : isActive ? '#f59e0b' : color;
   return L.divIcon({
     className: '',
@@ -107,6 +107,8 @@ export default function RouteGeometryEditor({
   const [activeHandleIndex, setActiveHandleIndex] = useState(null);
   const [selectedSection, setSelectedSection] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [editTool, setEditTool] = useState('points');
+  const [showAllPoints, setShowAllPoints] = useState(false);
   const [moveWholeLine, setMoveWholeLine] = useState(false);
   const [, setHistoryRevision] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -133,9 +135,11 @@ export default function RouteGeometryEditor({
     ? coordinates.map((_, index) => index)
     : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
   const selectedHandleIndex = activeHandleIndex ?? (coordinates.length ? 0 : null);
-  const visibleHandleIndices = selectedHandleIndex !== null && selectedHandleIndex < coordinates.length
-    ? [...new Set([...handleIndices, selectedHandleIndex])]
-    : handleIndices;
+  const visibleHandleIndices = showAllPoints
+    ? coordinates.map((_, index) => index)
+    : selectedHandleIndex !== null && selectedHandleIndex < coordinates.length
+      ? [...new Set([...handleIndices, selectedHandleIndex])]
+      : handleIndices;
 
   const updateCoordinates = (nextCoordinates, { recordHistory = true } = {}) => {
     if (recordHistory && JSON.stringify(nextCoordinates) !== JSON.stringify(coordinates)) {
@@ -180,7 +184,7 @@ export default function RouteGeometryEditor({
   }, []);
 
   const addPointOnRoute = (event) => {
-    if (!isEditing || error || positions.length < 2 || !mapRef.current) return;
+    if (!isEditing || editTool !== 'points' || error || positions.length < 2 || !mapRef.current) return;
 
     const map = mapRef.current;
     const clickPoint = map.latLngToLayerPoint(event.latlng);
@@ -220,7 +224,7 @@ export default function RouteGeometryEditor({
   };
 
   const startSegmentDrag = (event) => {
-    if (!isEditing || error || !mapRef.current || coordinates.length < 2) return;
+    if (!isEditing || editTool !== 'points' || error || !mapRef.current || coordinates.length < 2) return;
     const map = mapRef.current;
     const pointerStart = map.latLngToLayerPoint(event.latlng);
     let closestSegmentIndex = 0;
@@ -374,7 +378,7 @@ export default function RouteGeometryEditor({
 
   return (
     <section ref={editorRef} className="route-geometry-editor space-y-2">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h4 className="text-sm font-bold text-slate-800">Route path</h4>
           <p className="text-xs text-slate-500">
@@ -461,7 +465,7 @@ export default function RouteGeometryEditor({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
             title={isEditing ? 'Lock route editing' : 'Unlock route editing'}
@@ -472,6 +476,37 @@ export default function RouteGeometryEditor({
           >
             {isEditing ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
             {isEditing ? 'Editing' : 'Edit route'}
+          </button>
+          <div className="inline-flex rounded-md border border-slate-200 p-0.5" role="group" aria-label="Route editing tool">
+            <button
+              type="button"
+              aria-pressed={editTool === 'points'}
+              disabled={!isEditing}
+              onClick={() => setEditTool('points')}
+              className={`inline-flex h-8 items-center rounded px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${editTool === 'points' ? 'bg-emerald-100 text-emerald-800' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              Edit points
+            </button>
+            <button
+              type="button"
+              aria-pressed={editTool === 'add'}
+              disabled={!isEditing}
+              onClick={() => setEditTool('add')}
+              className={`inline-flex h-8 items-center rounded px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${editTool === 'add' ? 'bg-emerald-100 text-emerald-800' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              Add points
+            </button>
+          </div>
+          <button
+            type="button"
+            title={showAllPoints ? 'Show fewer route points' : 'Show every route point'}
+            aria-label={showAllPoints ? 'Show fewer route points' : 'Show every route point'}
+            aria-pressed={showAllPoints}
+            disabled={!coordinates.length}
+            onClick={() => setShowAllPoints((showing) => !showing)}
+            className={`inline-flex h-9 items-center justify-center rounded-md border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${showAllPoints ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+          >
+            {showAllPoints ? 'Fewer points' : 'All points'}
           </button>
           <button
             type="button"
@@ -538,7 +573,9 @@ export default function RouteGeometryEditor({
 
       <p className="text-xs text-slate-500">
         {isEditing
-          ? 'Click the map to extend the route. Click the line to add a control point, then Shift-click two points to select the part between them for deletion. Drag points to reshape, or drag a line section to move it. Ctrl+Z undoes the last edit.'
+          ? editTool === 'add'
+            ? 'Click the map to add route points; drag the map to pan. Switch to Edit points to drag handles or move a line section. Ctrl+Z undoes the last edit.'
+            : 'Drag a point to reshape the route, click the line to add a point, or drag a line section to move it. Turn on All points to edit any vertex. Shift-click two points to select a section. Ctrl+Z undoes the last edit.'
           : 'Route editing is locked. Unlock editing to add points, reshape the route, or move a line section.'}
       </p>
       <div className="route-geometry-map relative h-72 overflow-hidden rounded-lg border border-slate-300">
@@ -569,7 +606,7 @@ export default function RouteGeometryEditor({
             />
           )}
           <MapPointPicker
-            disabled={!isEditing || Boolean(error)}
+            disabled={!isEditing || editTool !== 'add' || Boolean(error)}
             onAddPoint={(point) => updateCoordinates([...coordinates, point])}
           />
           <FitInitialRoute positions={positions} />
@@ -578,11 +615,10 @@ export default function RouteGeometryEditor({
               positions={positions}
               pathOptions={{
                 color: activePath === 'walking' ? walkingColor : color,
-                weight: 7,
-                opacity: 0.95,
-                dashArray: activePath === 'walking' ? '8 8' : undefined,
+                weight: 20,
+                opacity: 0.001,
                 lineCap: 'round',
-                bubblingMouseEvents: false,
+                bubblingMouseEvents: isEditing && editTool === 'points',
               }}
               eventHandlers={{
                 click(event) {
@@ -593,6 +629,19 @@ export default function RouteGeometryEditor({
                   addPointOnRoute(event);
                 },
                 mousedown: startSegmentDrag,
+              }}
+            />
+          )}
+          {positions.length > 1 && (
+            <Polyline
+              positions={positions}
+              pathOptions={{
+                color: activePath === 'walking' ? walkingColor : color,
+                weight: 7,
+                opacity: 0.95,
+                dashArray: activePath === 'walking' ? '8 8' : undefined,
+                lineCap: 'round',
+                interactive: false,
               }}
             />
           )}
@@ -622,7 +671,7 @@ export default function RouteGeometryEditor({
                 activePath === 'walking' ? '#2563eb' : color,
                 index === selectedHandleIndex
               )}
-              draggable={isEditing && !error}
+              draggable={isEditing && editTool === 'points' && !error}
               title={index === activeHandleIndex ? 'New control point: drag to adjust this section'
                 : index === 0 ? 'Point A: route start'
                 : index === positions.length - 1 && positions.length > 1 ? 'Point B: route end'
