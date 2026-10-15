@@ -4,7 +4,6 @@ import {
   Bike,
   CarFront,
   Bus,
-  Car,
   Ship,
   Info,
   CheckCircle2,
@@ -14,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export default function FareCalculator() {
-  const [selectedMode, setSelectedMode] = useState('tricycle'); // 'tricycle' | 'jeepney' | 'modern_puv' | 'uv_express' | 'provincial_bus' | 'water_boat'
+  const [selectedMode, setSelectedMode] = useState('tricycle'); // 'tricycle' | 'jeepney' | 'modern_puv' | 'provincial_bus' | 'water_boat'
 
   // Data states
   const [tricycleFares, setTricycleFares] = useState([]);
@@ -27,7 +26,7 @@ export default function FareCalculator() {
   const [selectedBarangay, setSelectedBarangay] = useState('');
   const [passengerCount, setPassengerCount] = useState('solo'); // 'solo' | 'pax2' | 'pax3'
 
-  // Route fares state (jeepney, modern_puv, uv_express, provincial_bus)
+  // Route fares state (jeepney, modern_puv, provincial_bus)
   const [selectedRouteName, setSelectedRouteName] = useState('');
   const [hasDiscountId, setHasDiscountId] = useState(false);
 
@@ -38,7 +37,6 @@ export default function FareCalculator() {
     { key: 'tricycle', label: 'Tricycle', icon: Bike, desc: 'Zone-based (Per-Barangay)' },
     { key: 'jeepney', label: 'Traditional Jeepney', icon: CarFront, desc: 'Route-based (LTFRB Matrix)' },
     { key: 'modern_puv', label: 'Modern Aircon PUV', icon: Bus, desc: 'Distance-range (Aircon)' },
-    { key: 'uv_express', label: 'UV Express Van', icon: Car, desc: 'Terminal Point-to-Point' },
     { key: 'provincial_bus', label: 'Provincial Bus', icon: Bus, desc: 'Inter-City & Regional' },
     { key: 'water_boat', label: 'Water Boat', icon: Ship, desc: 'Pantal River Ferry & Charter' }
   ];
@@ -88,7 +86,7 @@ export default function FareCalculator() {
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     } else {
-      // Route fare modes: jeepney, modern_puv, uv_express, provincial_bus
+      // Route fare modes: jeepney, modern_puv, provincial_bus
       fetch(`/api/fares/routes?mode=${selectedMode}`)
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to load ${selectedMode} fares`);
@@ -327,16 +325,15 @@ export default function FareCalculator() {
             )}
 
             {/* ══════════════════════════════════════════════════════════════
-                2. ROUTE-BASED VIEW (Jeepney, Modern PUV, UV, Provincial Bus)
+                2. ROUTE-BASED VIEW (Jeepney, Modern PUV, Provincial Bus)
                ══════════════════════════════════════════════════════════════ */}
-            {['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'].includes(selectedMode) && (
+            {['jeepney', 'modern_puv', 'provincial_bus'].includes(selectedMode) && (
               <>
                 {/* Left Card: Route Selection & Discount Toggle */}
                 <div className="lg:col-span-6 bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-700 mb-2">
                     {selectedMode === 'jeepney' && <CarFront className="w-4 h-4" />}
                     {selectedMode === 'modern_puv' && <Bus className="w-4 h-4" />}
-                    {selectedMode === 'uv_express' && <Car className="w-4 h-4" />}
                     {selectedMode === 'provincial_bus' && <Bus className="w-4 h-4" />}
                     {modes.find((m) => m.key === selectedMode)?.label} Tariff
                   </div>

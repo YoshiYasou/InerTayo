@@ -30,6 +30,20 @@
   min-height: 20rem;
 }
 
+.route-path-editor-shell:fullscreen {
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #fff;
+}
+
+.route-path-editor-shell:fullscreen .route-geometry-map {
+  height: calc(100vh - 24rem);
+  min-height: 18rem;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

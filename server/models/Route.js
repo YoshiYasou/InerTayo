@@ -17,6 +17,12 @@ const RouteSchema = new mongoose.Schema({
     service_notes: { type: String, default: null },
     geometry: { type: String, default: null },
     walking_geometry: { type: String, default: null },
+    path_segments: [{
+        _id: false,
+        segment_order: { type: Number, required: true },
+        mode: { type: String, required: true },
+        geometry: { type: String, required: true }
+    }],
     geometry_corrected: { type: String, default: null },
     use_corrected_geometry: { type: Number, default: 1 },
     allow_unverified_map_geometry: { type: Boolean, default: false },

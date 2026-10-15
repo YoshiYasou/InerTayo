@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
 import RouteGeometryEditor from '../components/RouteGeometryEditor';
@@ -70,6 +70,18 @@ function normalizeDetourSteps(steps, instructions = '') {
 
 function detourInstructionText(steps = []) {
   return steps.map((step) => step.instruction?.trim()).filter(Boolean).join('\n');
+}
+
+function getRouteModeColor(modeName = '') {
+  const normalized = String(modeName || '').toLowerCase();
+  if (normalized.includes('jeep')) return '#ec4899';
+  if (normalized.includes('modern') || normalized.includes('aircon') || normalized.includes('puv')) return '#f97316';
+  if (normalized.includes('provincial') || normalized.includes('intercity') || normalized.includes('regional')) return '#8b5cf6';
+  if (normalized.includes('bus')) return '#10b981';
+  if (normalized.includes('tricycle')) return '#06b6d4';
+  if (normalized.includes('walk')) return '#2563eb';
+  if (normalized.includes('boat')) return '#2563eb';
+  return '#64748b';
 }
 
 function DetourStepsEditor({ steps = [], onChange, modes = [] }) {
@@ -196,7 +208,7 @@ export default function Admin() {
   const [fareTricycles, setFareTricycles] = useState([]);
   const [fareRoutes, setFareRoutes] = useState([]);
   const [fareBoats, setFareBoats] = useState([]);
-  const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'uv_express', 'provincial_bus', 'boat'
+  const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'provincial_bus', 'boat'
   const [fareSearch, setFareSearch] = useState('');
 
   // Authoritative Fare Modal States
@@ -235,6 +247,9 @@ export default function Admin() {
   const [routeMapEditorTab, setRouteMapEditorTab] = useState('normal');
   const [routeSteps, setRouteSteps] = useState([]);
   const [originalRouteSteps, setOriginalRouteSteps] = useState([]);
+  const [routePathSegments, setRoutePathSegments] = useState([]);
+  const [activePathSegmentIndex, setActivePathSegmentIndex] = useState(0);
+  const routePathEditorRef = useRef(null);
   const [availableRouteDraft, setAvailableRouteDraft] = useState(null);
   const [routePreviewOpen, setRoutePreviewOpen] = useState(false);
   const [geometryValidation, setGeometryValidation] = useState(null);
@@ -438,6 +453,8 @@ export default function Admin() {
     setRouteMapEditorTab('normal');
     setRouteSteps([]);
     setOriginalRouteSteps([]);
+    setRoutePathSegments([{ mode: modes[0]?.name || 'Jeepney', geometry: '' }]);
+    setActivePathSegmentIndex(0);
     setRoutePreviewOpen(false);
     setGeometryValidation(null);
     setRouteValidationWarnings([]);
@@ -476,6 +493,35 @@ export default function Admin() {
     setRoutePreviewOpen(false);
     setGeometryValidation(null);
     setRouteValidationWarnings([]);
+    let routeDetails = route;
+    try {
+      const detailResponse = await fetch(`/api/routes/${route.id}`);
+      if (detailResponse.ok) routeDetails = await detailResponse.json();
+    } catch (error) {
+      console.error('Could not load route path legs:', error);
+    }
+    const savedPathSegments = Array.isArray(routeDetails.path_segments) ? routeDetails.path_segments : [];
+    const pathSegments = savedPathSegments.length
+      ? savedPathSegments.map((segment) => ({
+        ...segment,
+        geometry: typeof segment.geometry === 'object' ? JSON.stringify(segment.geometry) : (segment.geometry || '')
+      }))
+      : [
+        {
+          mode: modes.find((mode) => mode.id === route.transport_mode_id)?.name || 'Jeepney',
+          geometry: typeof (routeDetails.geometry_original || route.geometry) === 'object'
+            ? JSON.stringify(routeDetails.geometry_original || route.geometry)
+            : (routeDetails.geometry_original || route.geometry || '')
+        },
+        ...(routeDetails.walking_geometry ? [{
+          mode: 'Walk',
+          geometry: typeof routeDetails.walking_geometry === 'object'
+            ? JSON.stringify(routeDetails.walking_geometry)
+            : routeDetails.walking_geometry
+        }] : [])
+      ];
+    setRoutePathSegments(pathSegments);
+    setActivePathSegmentIndex(0);
     const advisoryDetours = Object.fromEntries(advisories.flatMap((advisory) => {
       if (!['FLOODED', 'HIGH_TIDE', 'DETOUR'].includes(advisory.condition)) return [];
       const routeConfig = advisory.routes?.find((item) => item.id === route.id);
@@ -538,7 +584,9 @@ export default function Admin() {
       description: route.description || '',
       operating_status: route.operating_status || route.boat_operating_status || 'ACTIVE',
       service_notes: route.service_notes || route.notes || '',
-      geometry: typeof route.geometry === 'object' ? JSON.stringify(route.geometry) : (route.geometry || ''),
+      geometry: typeof (routeDetails.geometry_original || route.geometry) === 'object'
+        ? JSON.stringify(routeDetails.geometry_original || route.geometry)
+        : (routeDetails.geometry_original || route.geometry || ''),
       walking_geometry: typeof route.walking_geometry === 'object' ? JSON.stringify(route.walking_geometry) : (route.walking_geometry || ''),
       allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
       waterway,
@@ -606,11 +654,17 @@ export default function Admin() {
       const response = await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ form_data: routeFormData, route_steps: routeSteps }),
+        body: JSON.stringify({
+          form_data: { ...routeFormData, path_segments: routePathSegments },
+          route_steps: routeSteps,
+        }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not save this draft.');
-      setAvailableRouteDraft({ form_data: routeFormData, route_steps: routeSteps });
+      setAvailableRouteDraft({
+        form_data: { ...routeFormData, path_segments: routePathSegments },
+        route_steps: routeSteps,
+      });
     } catch (error) {
       alert(`Failed to save draft: ${error.message}`);
     }
@@ -618,9 +672,69 @@ export default function Admin() {
 
   const restoreRouteDraft = () => {
     if (!availableRouteDraft?.form_data) return;
-    setRouteFormData((current) => ({ ...current, ...availableRouteDraft.form_data }));
+    const { path_segments, ...formData } = availableRouteDraft.form_data;
+    setRouteFormData((current) => ({ ...current, ...formData }));
     setRouteSteps(Array.isArray(availableRouteDraft.route_steps) ? availableRouteDraft.route_steps : []);
+    if (Array.isArray(path_segments) && path_segments.length) {
+      setRoutePathSegments(path_segments);
+      setActivePathSegmentIndex(0);
+    }
     setAvailableRouteDraft(null);
+  };
+
+  const updateRoutePathSegment = (index, updates) => {
+    const nextSegments = routePathSegments.map((segment, segmentIndex) =>
+      segmentIndex === index ? { ...segment, ...updates } : segment
+    );
+    setRoutePathSegments(nextSegments);
+    if (index === 0 && updates.geometry !== undefined) {
+      setRouteFormData((current) => ({ ...current, geometry: updates.geometry }));
+    }
+    if (index === 0 && updates.mode && updates.mode !== 'Walk') {
+      const selectedMode = modes.find((mode) => mode.name === updates.mode);
+      if (selectedMode) setRouteFormData((current) => ({ ...current, transport_mode_id: selectedMode.id }));
+    }
+  };
+
+  const addRoutePathSegment = () => {
+    let geometry = '';
+    const lastGeometry = routePathSegments.at(-1)?.geometry;
+    try {
+      const parsed = typeof lastGeometry === 'string' ? JSON.parse(lastGeometry) : lastGeometry;
+      const lastPoint = parsed?.type === 'LineString' ? parsed.coordinates?.at(-1) : null;
+      if (Array.isArray(lastPoint)) geometry = JSON.stringify({ type: 'LineString', coordinates: [lastPoint] });
+    } catch {}
+    setRoutePathSegments((segments) => [...segments, { mode: modes[0]?.name || 'Jeepney', geometry }]);
+    setActivePathSegmentIndex(routePathSegments.length);
+  };
+
+  const moveRoutePathSegment = (index, offset) => {
+    const targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= routePathSegments.length) return;
+    const nextSegments = [...routePathSegments];
+    [nextSegments[index], nextSegments[targetIndex]] = [nextSegments[targetIndex], nextSegments[index]];
+    setRoutePathSegments(nextSegments);
+    setActivePathSegmentIndex(targetIndex);
+    const primaryMode = modes.find((mode) => mode.name === nextSegments.find((segment) => segment.mode !== 'Walk')?.mode);
+    setRouteFormData((current) => ({
+      ...current,
+      geometry: nextSegments[0].geometry,
+      ...(primaryMode ? { transport_mode_id: primaryMode.id } : {})
+    }));
+  };
+
+  const removeRoutePathSegment = (index) => {
+    if (routePathSegments.length <= 1) return;
+    const nextSegments = routePathSegments.filter((_, segmentIndex) => segmentIndex !== index);
+    setRoutePathSegments(nextSegments);
+    const nextIndex = Math.min(index, nextSegments.length - 1);
+    setActivePathSegmentIndex(nextIndex);
+    const primaryMode = modes.find((mode) => mode.name === nextSegments.find((segment) => segment.mode !== 'Walk')?.mode);
+    setRouteFormData((current) => ({
+      ...current,
+      geometry: nextSegments[0].geometry,
+      ...(primaryMode ? { transport_mode_id: primaryMode.id } : {})
+    }));
   };
 
   const discardRouteChanges = async () => {
@@ -639,6 +753,16 @@ export default function Admin() {
   };
 
   const validateRouteBeforePublish = async () => {
+    const incompleteLegIndex = routePathSegments.findIndex((segment) =>
+      !segment.mode?.trim() || !hasPreviewableGeometry(segment.geometry)
+    );
+    if (incompleteLegIndex >= 0) {
+      const errors = [`Complete route leg ${incompleteLegIndex + 1} with a mode and at least two valid map points.`];
+      setGeometryValidation({ errors });
+      setRouteValidationWarnings([]);
+      return { errors, warnings: [] };
+    }
+
     const modeName = modes.find((mode) => mode.id === Number(routeFormData.transport_mode_id))?.name || '';
     const response = await fetch('/api/admin/routes/validate-geometry', {
       method: 'POST',
@@ -698,6 +822,7 @@ export default function Admin() {
           headers,
           body: JSON.stringify({
             ...routeFormData,
+            path_segments: routePathSegments,
             geometry_corrected: routeFormData.geometry || null,
             use_corrected_geometry: 1
           })
@@ -712,6 +837,7 @@ export default function Admin() {
           headers,
           body: JSON.stringify({
             ...routeFormData,
+            path_segments: routePathSegments,
             geometry_corrected: routeFormData.geometry || null,
             use_corrected_geometry: 1
           })
@@ -1928,7 +2054,6 @@ export default function Admin() {
           { key: 'tricycle', label: 'Motorized Tricycles', count: fareTricycles.length },
           { key: 'jeepney', label: 'Traditional Jeepneys', count: fareRoutes.filter(r => r.transport_mode === 'jeepney').length },
           { key: 'modern_puv', label: 'Modern PUVs', count: fareRoutes.filter(r => r.transport_mode === 'modern_puv').length },
-          { key: 'uv_express', label: 'UV Express Vans', count: fareRoutes.filter(r => r.transport_mode === 'uv_express').length },
           { key: 'provincial_bus', label: 'Provincial Buses', count: fareRoutes.filter(r => r.transport_mode === 'provincial_bus').length },
           { key: 'boat', label: 'Water Boats', count: fareBoats.length },
         ];
@@ -2110,46 +2235,7 @@ export default function Admin() {
                 </table>
               )}
 
-              {/* 4. UV EXPRESS VANS */}
-              {fareCategory === 'uv_express' && (
-                <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-4">Route Name</th>
-                      <th className="py-3 px-4">Terminal Location</th>
-                      <th className="py-3 px-4">Vehicle Type</th>
-                      <th className="py-3 px-4">Regular Fare</th>
-                      <th className="py-3 px-4">Discounted Fare (20% Off)</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredRoutes.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="text-center text-slate-400 py-8">
-                          No UV Express fare records found matching your search.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredRoutes.map((r, idx) => (
-                        <tr key={r._id || idx} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{r.route_name}</td>
-                          <td className="py-3 px-4 text-slate-600 max-w-[220px]">{r.terminal || '—'}</td>
-                          <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'UV Express Aircon Van'}</td>
-                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
-                          <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
-                            <button onClick={() => openEditFareModal(r, 'uv_express')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteFareRecord(r, 'uv_express')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {/* 5. PROVINCIAL BUSES */}
+              {/* 4. PROVINCIAL BUSES */}
               {fareCategory === 'provincial_bus' && (
                 <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
@@ -2484,7 +2570,14 @@ export default function Admin() {
                   <label className="block font-bold text-slate-700 mb-1">Transport Mode</label>
                   <select
                     value={routeFormData.transport_mode_id}
-                    onChange={(e) => setRouteFormData({ ...routeFormData, transport_mode_id: parseInt(e.target.value, 10) })}
+                    onChange={(e) => {
+                      const transport_mode_id = parseInt(e.target.value, 10);
+                      const selectedMode = modes.find((mode) => mode.id === transport_mode_id);
+                      setRouteFormData((current) => ({ ...current, transport_mode_id }));
+                      setRoutePathSegments((segments) => segments.map((segment, index) =>
+                        index === 0 && segment.mode !== 'Walk' ? { ...segment, mode: selectedMode?.name || segment.mode } : segment
+                      ));
+                    }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                   >
                     {modes.map(m => (
@@ -2732,6 +2825,7 @@ export default function Admin() {
                           id: editingRoute?.id || 'route-preview',
                           route_name: routeFormData.route_name,
                           mode_name: modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name || '',
+                          route_path_segments: selectedPreviewDetour ? [] : routePathSegments,
                           status: routeFormData.status,
                           minimum_fare: Number(routeFormData.minimum_fare) || 0,
                           maximum_fare: Number(routeFormData.maximum_fare) || 0,
@@ -2999,18 +3093,106 @@ export default function Admin() {
               )}
 
               {(!editingRoute || routeMapEditorTab === 'normal') && (
-                <RouteGeometryEditor
-                  value={routeFormData.geometry}
-                  onChange={(geometry) => setRouteFormData((current) => ({ ...current, geometry }))}
-                  walkingValue={routeFormData.walking_geometry}
-                  onWalkingChange={(walking_geometry) => setRouteFormData((current) => ({ ...current, walking_geometry }))}
-                  token={token}
-                  allowRoadSnap={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() !== 'boat'}
-                  color={modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'boat' ? '#2563eb'
-                    : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'bus' ? '#10b981'
-                    : modes.find(m => m.id === Number(routeFormData.transport_mode_id))?.name?.toLowerCase() === 'tricycle' ? '#06b6d4'
-                    : '#ec4899'}
-                />
+                <section ref={routePathEditorRef} className="route-path-editor-shell space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5" aria-label="Route legs and path editor">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">Route legs</h4>
+                      <p className="mt-1 text-xs text-slate-500">Set each part of the journey to a vehicle or walking, then draw its path.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addRoutePathSegment}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="h-4 w-4" /> Add leg
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Route legs">
+                    {routePathSegments.map((segment, index) => (
+                      <button
+                        key={`route-leg-tab-${index}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={activePathSegmentIndex === index}
+                        onClick={() => setActivePathSegmentIndex(index)}
+                        className={`inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold ${activePathSegmentIndex === index ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/70'}`}
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getRouteModeColor(segment.mode) }} aria-hidden="true" />
+                        Leg {index + 1}: {segment.mode || 'Choose mode'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {routePathSegments[activePathSegmentIndex] && (() => {
+                    const activeSegment = routePathSegments[activePathSegmentIndex];
+                    const activeMode = activeSegment.mode || 'Walk';
+                    const isWalking = activeMode.toLowerCase().includes('walk');
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-end justify-between gap-3">
+                          <label className="block min-w-[200px] flex-1 text-xs font-bold text-slate-700">
+                            Leg {activePathSegmentIndex + 1} mode
+                            <select
+                              value={activeMode}
+                              onChange={(event) => updateRoutePathSegment(activePathSegmentIndex, { mode: event.target.value })}
+                              className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium"
+                            >
+                              <option value="Walk">Walking</option>
+                              {modes.map((mode) => <option key={mode.id} value={mode.name}>{mode.name}</option>)}
+                            </select>
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              title="Move leg earlier"
+                              aria-label="Move leg earlier"
+                              disabled={activePathSegmentIndex === 0}
+                              onClick={() => moveRoutePathSegment(activePathSegmentIndex, -1)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 disabled:opacity-40"
+                            ><ArrowUp className="h-4 w-4" /></button>
+                            <button
+                              type="button"
+                              title="Move leg later"
+                              aria-label="Move leg later"
+                              disabled={activePathSegmentIndex === routePathSegments.length - 1}
+                              onClick={() => moveRoutePathSegment(activePathSegmentIndex, 1)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 disabled:opacity-40"
+                            ><ArrowDown className="h-4 w-4" /></button>
+                            <button
+                              type="button"
+                              title="Remove this leg"
+                              aria-label="Remove this leg"
+                              disabled={routePathSegments.length <= 1}
+                              onClick={() => removeRoutePathSegment(activePathSegmentIndex)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 text-rose-700 disabled:opacity-40"
+                            ><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </div>
+
+                        <RouteGeometryEditor
+                          key={`route-${editingRoute?.id || 'new'}-path-leg-${activePathSegmentIndex}`}
+                          value={activeSegment.geometry || ''}
+                          onChange={(geometry) => updateRoutePathSegment(activePathSegmentIndex, { geometry })}
+                          token={token}
+                          color={getRouteModeColor(activeMode)}
+                          routeLabel={`${activeMode} leg`}
+                          allowRoadSnap={!activeMode.toLowerCase().includes('boat')}
+                          showPathTabs={false}
+                          dashed={isWalking}
+                          contextPaths={routePathSegments
+                            .filter((_, segmentIndex) => segmentIndex !== activePathSegmentIndex)
+                            .map((segment) => ({
+                              ...segment,
+                              color: getRouteModeColor(segment.mode),
+                              dashed: String(segment.mode || '').toLowerCase().includes('walk')
+                            }))}
+                          fullscreenTargetRef={routePathEditorRef}
+                        />
+                      </>
+                    );
+                  })()}
+                </section>
               )}
 
               <section className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -3321,7 +3503,7 @@ export default function Admin() {
                 </>
               )}
 
-              {/* ── ROUTE FARE FIELDS (jeepney / modern_puv / uv_express / provincial_bus) ── */}
+              {/* ── ROUTE FARE FIELDS (jeepney / modern_puv / provincial_bus) ── */}
               {fareModalCategory !== 'tricycle' && fareModalCategory !== 'boat' && (
                 <>
                   <div>

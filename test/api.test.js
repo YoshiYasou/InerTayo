@@ -726,6 +726,19 @@ async function runTests() {
         });
         assert(adminLogin.status === 200 && adminLogin.data.user.role === 'ADMIN', 'Admin login succeeds with ADMIN role');
         const adminToken = adminLogin.data.token;
+
+        const uvExpressRejected = await makeRequest('POST', '/api/admin/fares/routes', {
+            transport_mode: 'uv_express',
+            route_name: 'Test UV Express Route',
+            terminal: 'Dagupan Terminal',
+            regular_fare: { min: 15, max: 25 },
+            discounted_fare_20pct: { min: 12, max: 20 }
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(
+            uvExpressRejected.status === 400 && typeof uvExpressRejected.data.error === 'string' && uvExpressRejected.data.error.includes('Invalid transport_mode'),
+            'Admin fare creation rejects UV Express and removes it as an available vehicle form'
+        );
+
         const adminSavedRoutes = await makeRequest('GET', '/api/admin/saved-routes', null, {
             'Authorization': `Bearer ${adminToken}`
         });
@@ -738,7 +751,11 @@ async function runTests() {
         );
 
         const draftPayload = {
-            form_data: { route_name: 'Draft only route', description: 'Not published.' },
+            form_data: {
+                route_name: 'Draft only route',
+                description: 'Not published.',
+                path_segments: [{ mode: 'Walk', geometry: 'draft-geometry' }]
+            },
             route_steps: []
         };
         const savedRouteDraft = await makeRequest('PUT', '/api/admin/route-drafts/new', draftPayload, {
@@ -751,6 +768,7 @@ async function runTests() {
         assert(
             savedRouteDraft.status === 200 && loadedRouteDraft.status === 200 &&
                 loadedRouteDraft.data.form_data.route_name === 'Draft only route' &&
+                loadedRouteDraft.data.form_data.path_segments?.[0]?.mode === 'Walk' &&
                 !publicRoutesBeforePublish.data.some(route => route.route_name === 'Draft only route'),
             'Admin route drafts persist privately without publishing route changes'
         );
@@ -852,7 +870,13 @@ async function runTests() {
             operating_status: 'ACTIVE',
             service_notes: 'Test service note.',
             geometry: sampleGeom,
-            walking_geometry: sampleWalkingGeom
+            walking_geometry: sampleWalkingGeom,
+            allow_unverified_map_geometry: true,
+            path_segments: [
+                { mode: 'Jeepney', geometry: sampleGeom },
+                { mode: 'Walk', geometry: sampleWalkingGeom },
+                { mode: 'Tricycle', geometry: sampleGeom }
+            ]
         }, { 'Authorization': `Bearer ${adminToken}` });
         assert(createRouteRes.status === 201 && createRouteRes.data.routeId, 'Admin successfully creates a new route with GeoJSON geometry');
         const newRouteId = createRouteRes.data.routeId;
@@ -863,6 +887,12 @@ async function runTests() {
         assert(
             updatedRoutes.data.length >= 14 && createdRouteInList && createdRouteInList.geometry === sampleGeom && createdRouteInList.walking_geometry === sampleWalkingGeom,
             'New route immediately appears in public route directory with separate walking geometry'
+        );
+        const mixedModeMapLayer = await makeRequest('GET', '/api/map/layers/jeepneys');
+        const mixedModeMapFeature = mixedModeMapLayer.data.features.find(feature => feature.properties.id === newRouteId);
+        assert(
+            mixedModeMapFeature?.properties.route_path_segments?.map(segment => segment.mode).join(',') === 'Jeepney,Walk,Tricycle',
+            'Public map layer includes every ordered mixed-mode route path'
         );
 
         // Admin updates route geometry
@@ -897,6 +927,23 @@ async function runTests() {
                 updatedRouteDetails.data.operating_status === 'ACTIVE',
             'Route detail endpoint returns walking geometry and passenger service metadata'
         );
+
+        assert(
+            updatedRouteDetails.data.path_segments?.map(segment => segment.mode).join(',') === 'Jeepney,Walk,Tricycle',
+            'Route details preserve ordered jeepney, walking, and tricycle path legs'
+        );
+        const invalidPathSegments = await makeRequest('PUT', `/api/admin/routes/${newRouteId}`, {
+            route_name: 'Downtown – Binloc Loop (Extended)',
+            transport_mode_id: modesRes.data[0].id,
+            origin: 'Downtown Plaza',
+            destination: 'Binloc Beach East',
+            estimated_time: 25,
+            minimum_fare: 15.00,
+            maximum_fare: 30.00,
+            status: 'CLEAR',
+            path_segments: [{ mode: 'Walk', geometry: '{invalid json' }]
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(invalidPathSegments.status === 400, 'Admin route update rejects malformed path segment geometry');
 
         const serviceStatusUpdate = await makeRequest('PUT', `/api/admin/routes/${newRouteId}`, {
             route_name: 'Downtown – Binloc Loop (Extended)',

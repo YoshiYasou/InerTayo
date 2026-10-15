@@ -84,15 +84,11 @@ async function seedFares() {
     const modernPuvCount = await upsertRouteFares(rawData.modern_puv || [], 'modern_puv');
     console.log(`✓ Modern Aircon PUV fares upserted: ${modernPuvCount}`);
 
-    // ── 4. UV Express
-    const uvCount = await upsertRouteFares(rawData.uv_express || [], 'uv_express', 'vehicle_or_service_type');
-    console.log(`✓ UV Express fares upserted: ${uvCount}`);
-
-    // ── 5. Provincial Buses
+    // ── 4. Provincial Buses
     const busCount = await upsertRouteFares(rawData.provincial_buses || [], 'provincial_bus', 'vehicle_or_service_type');
     console.log(`✓ Provincial Bus fares upserted: ${busCount}`);
 
-    // ── 6. Water Boats
+    // ── 5. Water Boats
     let boatCount = 0;
     const boatsList = rawData.water_boats || [];
     for (const item of boatsList) {

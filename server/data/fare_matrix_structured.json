@@ -836,58 +836,6 @@
       }
     }
   ],
-  "uv_express": [
-    {
-      "route_name": "Route Name",
-      "terminal": "Terminal Location",
-      "vehicle_or_service_type": "Vehicle Type",
-      "regular_fare": {
-        "raw": "Regular Fare ()"
-      },
-      "discounted_fare_20pct": {
-        "raw": "Discounted Fare (20% Off)"
-      }
-    },
-    {
-      "route_name": "Dagupan – Alaminos City",
-      "terminal": "Lucao Bus & Van Terminal",
-      "vehicle_or_service_type": "UV Express Aircon Van",
-      "regular_fare": {
-        "min": 110.0,
-        "max": 120.0
-      },
-      "discounted_fare_20pct": {
-        "min": 88.0,
-        "max": 96.0
-      }
-    },
-    {
-      "route_name": "Dagupan – Urdaneta City",
-      "terminal": "Perez Blvd Van Terminal",
-      "vehicle_or_service_type": "UV Express Aircon Van",
-      "regular_fare": {
-        "min": 68.0,
-        "max": 68.0
-      },
-      "discounted_fare_20pct": {
-        "min": 54.4,
-        "max": 54.4
-      }
-    },
-    {
-      "route_name": "Dagupan – Tayug / San Quintin",
-      "terminal": "Lucao Bus & Van Terminal",
-      "vehicle_or_service_type": "UV Express Aircon Van",
-      "regular_fare": {
-        "min": 120.0,
-        "max": 140.0
-      },
-      "discounted_fare_20pct": {
-        "min": 96.0,
-        "max": 112.0
-      }
-    }
-  ],
   "provincial_buses": [
     {
       "route_name": "Route Name",

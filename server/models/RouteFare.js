@@ -10,7 +10,7 @@ const RouteFareSchema = new mongoose.Schema({
     transport_mode: {
         type: String,
         required: true,
-        enum: ['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'],
+        enum: ['jeepney', 'modern_puv', 'provincial_bus'],
         index: true
     },
     route_name: { type: String, required: true, trim: true },

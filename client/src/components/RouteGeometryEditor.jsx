@@ -90,6 +90,10 @@ export default function RouteGeometryEditor({
   routeLabel = 'Transit path',
   walkingLabel = 'Walking path',
   allowRoadSnap = true,
+  showPathTabs = true,
+  dashed = false,
+  contextPaths = [],
+  fullscreenTargetRef,
 }) {
   const [activePath, setActivePath] = useState('route');
   const activeValue = activePath === 'walking' ? walkingValue : value;
@@ -116,11 +120,13 @@ export default function RouteGeometryEditor({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === editorRef.current);
+      const target = fullscreenTargetRef?.current || editorRef.current;
+      setIsFullscreen(document.fullscreenElement === target);
     };
+    handleFullscreenChange();
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+  }, [fullscreenTargetRef]);
 
   useEffect(() => {
     if (!parsed.error) lastValidCoordinates.current[activePath] = parsed.coordinates;
@@ -131,6 +137,15 @@ export default function RouteGeometryEditor({
   const positions = coordinates.map(([longitude, latitude]) => [latitude, longitude]);
   const secondaryCoordinates = secondaryParsed.error ? [] : secondaryParsed.coordinates;
   const secondaryPositions = secondaryCoordinates.map(([longitude, latitude]) => [latitude, longitude]);
+  const visibleContextPaths = contextPaths.map((path) => {
+    const parsedPath = readCoordinates(path.geometry);
+    return {
+      positions: parsedPath.error ? [] : parsedPath.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
+      color: path.color || '#64748b',
+      dashed: path.dashed === true || String(path.mode || '').toLowerCase().includes('walk'),
+    };
+  }).filter((path) => path.positions.length > 1);
+  const fitPositions = [...positions, ...visibleContextPaths.flatMap((path) => path.positions)];
   const handleIndices = coordinates.length <= 12
     ? coordinates.map((_, index) => index)
     : Array.from({ length: 12 }, (_, index) => Math.round(index * (coordinates.length - 1) / 11));
@@ -325,10 +340,11 @@ export default function RouteGeometryEditor({
   const toggleFullscreen = async () => {
     setFullscreenError('');
     try {
-      if (document.fullscreenElement === editorRef.current) {
+      const target = fullscreenTargetRef?.current || editorRef.current;
+      if (document.fullscreenElement === target) {
         await document.exitFullscreen();
-      } else if (editorRef.current?.requestFullscreen) {
-        await editorRef.current.requestFullscreen();
+      } else if (target?.requestFullscreen) {
+        await target.requestFullscreen();
       } else {
         setFullscreenError('Fullscreen mode is not supported by this browser.');
       }
@@ -339,11 +355,11 @@ export default function RouteGeometryEditor({
 
   const fitRoute = () => {
     const map = mapRef.current;
-    if (!map || !positions.length) return;
-    if (positions.length > 1) {
-      map.fitBounds(positions, { padding: [28, 28], maxZoom: 16 });
+    if (!map || !fitPositions.length) return;
+    if (fitPositions.length > 1) {
+      map.fitBounds(fitPositions, { padding: [28, 28], maxZoom: 16 });
     } else {
-      map.setView(positions[0], 16);
+      map.setView(fitPositions[0], 16);
     }
   };
 
@@ -384,27 +400,29 @@ export default function RouteGeometryEditor({
           <p className="text-xs text-slate-500">
             {coordinates.length} mapped points · A is the first point; B is the last.
           </p>
-          <div className="mt-2 inline-flex rounded-md border border-slate-200 p-0.5">
-            {[
-              { id: 'route', label: routeLabel },
-              { id: 'walking', label: walkingLabel },
-            ].map((path) => (
-              <button
-                key={path.id}
-                type="button"
-                aria-pressed={activePath === path.id}
-                onClick={() => {
-                  setActivePath(path.id);
-                  setActiveHandleIndex(null);
-                  setSelectedSection(null);
-                }}
-                className={`rounded px-2.5 py-1 text-xs font-semibold ${activePath === path.id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-              >
-                {path.label}
-                {path.id === 'walking' && <span className="ml-1" style={{ color: walkingColor }}>- - -</span>}
-              </button>
-            ))}
-          </div>
+          {showPathTabs && (
+            <div className="mt-2 inline-flex rounded-md border border-slate-200 p-0.5">
+              {[
+                { id: 'route', label: routeLabel },
+                { id: 'walking', label: walkingLabel },
+              ].map((path) => (
+                <button
+                  key={path.id}
+                  type="button"
+                  aria-pressed={activePath === path.id}
+                  onClick={() => {
+                    setActivePath(path.id);
+                    setActiveHandleIndex(null);
+                    setSelectedSection(null);
+                  }}
+                  className={`rounded px-2.5 py-1 text-xs font-semibold ${activePath === path.id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {path.label}
+                  {path.id === 'walking' && <span className="ml-1" style={{ color: walkingColor }}>- - -</span>}
+                </button>
+              ))}
+            </div>
+          )}
           {coordinates.length > 0 && (
             <div className="mt-1 flex items-center gap-2 text-xs text-slate-600">
               <label htmlFor="route-point-index">Selected point</label>
@@ -541,8 +559,8 @@ export default function RouteGeometryEditor({
           </button>
           <button
             type="button"
-            title={isFullscreen ? 'Exit fullscreen map' : 'Expand map'}
-            aria-label={isFullscreen ? 'Exit fullscreen map' : 'Expand map'}
+            title={isFullscreen ? 'Exit fullscreen editor' : 'Expand route editor'}
+            aria-label={isFullscreen ? 'Exit fullscreen editor' : 'Expand route editor'}
             onClick={toggleFullscreen}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-sky-50 hover:text-sky-700"
           >
@@ -609,7 +627,21 @@ export default function RouteGeometryEditor({
             disabled={!isEditing || editTool !== 'add' || Boolean(error)}
             onAddPoint={(point) => updateCoordinates([...coordinates, point])}
           />
-          <FitInitialRoute positions={positions} />
+          <FitInitialRoute positions={fitPositions} />
+          {visibleContextPaths.map((path, index) => (
+            <Polyline
+              key={`context-path-${index}`}
+              positions={path.positions}
+              pathOptions={{
+                color: path.color,
+                weight: 5,
+                opacity: 0.58,
+                dashArray: path.dashed ? '8 8' : undefined,
+                lineCap: 'round',
+                interactive: false,
+              }}
+            />
+          ))}
           {positions.length > 1 && (
             <Polyline
               positions={positions}
@@ -639,7 +671,7 @@ export default function RouteGeometryEditor({
                 color: activePath === 'walking' ? walkingColor : color,
                 weight: 7,
                 opacity: 0.95,
-                dashArray: activePath === 'walking' ? '8 8' : undefined,
+                dashArray: activePath === 'walking' || dashed ? '8 8' : undefined,
                 lineCap: 'round',
                 interactive: false,
               }}

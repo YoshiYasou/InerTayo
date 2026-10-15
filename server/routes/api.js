@@ -55,6 +55,35 @@ function parseId(param) {
     return isNaN(num) ? null : num;
 }
 
+function normalizeRoutePathSegments(value) {
+    if (!Array.isArray(value) || value.length > 40) {
+        throw new Error('Path segments must be an array with no more than 40 legs.');
+    }
+
+    return value.map((segment, index) => {
+        let geometry = segment?.geometry;
+        if (typeof geometry === 'string') {
+            try {
+                geometry = JSON.parse(geometry);
+            } catch {
+                throw new Error(`Path segment ${index + 1} has invalid GeoJSON.`);
+            }
+        }
+        const coordinates = geometry?.coordinates;
+        if (typeof segment?.mode !== 'string' || !segment.mode.trim() || geometry?.type !== 'LineString' || !Array.isArray(coordinates) ||
+            coordinates.length < 2 || coordinates.some(point => !Array.isArray(point) || point.length < 2 ||
+                !Number.isFinite(point[0]) || !Number.isFinite(point[1]) ||
+                point[0] < -180 || point[0] > 180 || point[1] < -90 || point[1] > 90)) {
+            throw new Error(`Path segment ${index + 1} needs a vehicle type and a valid path with at least two points.`);
+        }
+        return {
+            segment_order: index + 1,
+            mode: segment.mode.trim(),
+            geometry: JSON.stringify({ type: 'LineString', coordinates })
+        };
+    });
+}
+
 // Helper: sync route status based on active advisories and boat details
 async function syncRouteAdvisoryStatus(routeId) {
     const advRoutes = await AdvisoryRoute.find({ route_id: routeId }).lean();
@@ -946,6 +975,7 @@ router.get('/routes', async (req, res) => {
                 allow_unverified_map_geometry: r.allow_unverified_map_geometry === true,
                 geometry,
                 geometry_needs_review: !/boat/i.test(m.name || '') && !isDetailedRoadGeometry(geometry),
+                route_path_segments: r.path_segments || [],
                 map_preview_unavailable: /boat/i.test(m.name || '') && boat?.operating_status !== 'ACTIVE',
                 active_detour: activeDetourMatch ? {
                     advisory_id: activeDetourMatch.advisory.id,
@@ -1248,6 +1278,7 @@ router.get('/routes/:id', async (req, res) => {
             geometry_original: route.geometry,
             geometry_corrected: route.geometry_corrected,
             walking_geometry: route.walking_geometry || null,
+            path_segments: route.path_segments || [],
             use_corrected_geometry: route.use_corrected_geometry,
             allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
             geometry,
@@ -1404,13 +1435,13 @@ router.get('/fares/tricycles', async (req, res) => {
     }
 });
 
-// GET /api/fares/routes - Route fares for jeepneys, modern PUVs, UV express, and provincial buses
+// GET /api/fares/routes - Route fares for jeepneys, modern PUVs, and provincial buses
 router.get('/fares/routes', async (req, res) => {
     try {
         const { mode } = req.query;
         const filter = {};
         if (mode) {
-            const validModes = ['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'];
+            const validModes = ['jeepney', 'modern_puv', 'provincial_bus'];
             const normalized = mode.toLowerCase().trim();
             if (validModes.includes(normalized)) {
                 filter.transport_mode = normalized;
@@ -2940,6 +2971,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             service_notes,
             geometry,
             walking_geometry,
+            path_segments = [],
             geometry_corrected,
             use_corrected_geometry = 1,
             allow_unverified_map_geometry = false
@@ -2979,6 +3011,12 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         const geomString = geometry ? (typeof geometry === 'object' ? JSON.stringify(geometry) : geometry) : null;
         const walkingGeomString = walking_geometry ? (typeof walking_geometry === 'object' ? JSON.stringify(walking_geometry) : walking_geometry) : null;
         const correctedGeomString = geometry_corrected ? (typeof geometry_corrected === 'object' ? JSON.stringify(geometry_corrected) : geometry_corrected) : null;
+        let normalizedPathSegments;
+        try {
+            normalizedPathSegments = normalizeRoutePathSegments(path_segments);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
         const routeId = await nextId('Route');
 
         await Route.create({
@@ -2997,6 +3035,7 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             service_notes: service_notes ? String(service_notes).trim() : null,
             geometry: geomString,
             walking_geometry: walkingGeomString,
+            path_segments: normalizedPathSegments,
             geometry_corrected: correctedGeomString,
             use_corrected_geometry: Number(use_corrected_geometry),
             allow_unverified_map_geometry: allow_unverified_map_geometry === true
@@ -3056,6 +3095,7 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             service_notes,
             geometry,
             walking_geometry,
+            path_segments,
             geometry_corrected,
             use_corrected_geometry,
             allow_unverified_map_geometry
@@ -3136,6 +3176,13 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
             updateData.walking_geometry = walking_geometry
                 ? (typeof walking_geometry === 'object' ? JSON.stringify(walking_geometry) : walking_geometry)
                 : null;
+        }
+        if (path_segments !== undefined) {
+            try {
+                updateData.path_segments = normalizeRoutePathSegments(path_segments);
+            } catch (error) {
+                return res.status(400).json({ error: error.message });
+            }
         }
         if (geometry_corrected !== undefined) {
             updateData.geometry_corrected = geometry_corrected
@@ -3674,9 +3721,9 @@ router.delete('/admin/fares/tricycles/:id', authenticateToken, requireAdmin, asy
     }
 });
 
-// ── 2. Route Fares CRUD (Jeepney, Modern PUV, UV Express, Provincial Bus) ──
+// ── 2. Route Fares CRUD (Jeepney, Modern PUV, Provincial Bus) ──
 
-const VALID_ROUTE_FARE_MODES = ['jeepney', 'modern_puv', 'uv_express', 'provincial_bus'];
+const VALID_ROUTE_FARE_MODES = ['jeepney', 'modern_puv', 'provincial_bus'];
 
 // POST /api/admin/fares/routes - Create route fare
 router.post('/admin/fares/routes', authenticateToken, requireAdmin, async (req, res) => {
@@ -4356,17 +4403,21 @@ router.delete('/admin/feedback/:id', authenticateToken, requireAdmin, async (req
 // ============================================================================
 
 const LAYER_MODE_COLORS = {
-    jeepney:  '#ec4899',
-    bus:      '#10b981',
-    tricycle: '#06b6d4',
-    boat:     '#2563eb',
-    default:  '#64748b'
+    jeepney:      '#ec4899',
+    modern_puv:   '#f97316',
+    bus:          '#10b981',
+    provincial:   '#8b5cf6',
+    tricycle:     '#06b6d4',
+    boat:         '#2563eb',
+    default:      '#64748b'
 };
 
 function layerModeColor(modeName) {
     if (!modeName) return LAYER_MODE_COLORS.default;
     const m = modeName.toLowerCase();
     if (m.includes('jeep'))     return LAYER_MODE_COLORS.jeepney;
+    if (m.includes('modern') || m.includes('aircon') || m.includes('puv')) return LAYER_MODE_COLORS.modern_puv;
+    if (m.includes('provincial') || m.includes('intercity') || m.includes('regional')) return LAYER_MODE_COLORS.provincial;
     if (m.includes('bus'))      return LAYER_MODE_COLORS.bus;
     if (m.includes('tricycle')) return LAYER_MODE_COLORS.tricycle;
     if (m.includes('boat'))     return LAYER_MODE_COLORS.boat;
@@ -4470,6 +4521,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
                     allow_unverified_map_geometry: route.allow_unverified_map_geometry === true,
                     flooded_geometry: activeDetour ? readLineString(activeDetour.link.flooded_geometry) : null,
                     walking_geometry: walkingGeomObj,
+                    route_path_segments: route.path_segments || [],
                     minimum_fare:   route.minimum_fare,
                     maximum_fare:   route.maximum_fare,
                     estimated_time: route.estimated_time,

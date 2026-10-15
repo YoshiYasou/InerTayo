@@ -459,8 +459,16 @@ export default function WebMap() {
                     <span className="text-slate-600">Jeepney Route</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-orange-500"></span>
+                    <span className="text-slate-600">Modern PUV Route</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-emerald-600"></span>
                     <span className="text-slate-600">Bus Route</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-violet-500"></span>
+                    <span className="text-slate-600">Provincial Bus</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-cyan-500"></span>

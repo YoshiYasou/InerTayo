@@ -31,15 +31,20 @@ L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, 
 
 // ─── Visual encoding constants (Step 5) ────────────────────────────────────
 const MODE_COLORS = {
-  jeepney:  '#ec4899',
-  bus:      '#10b981',
-  tricycle: '#06b6d4',
-  boat:     '#2563eb',
-  default:  '#64748b',
+  jeepney:      '#ec4899',
+  modern_puv:   '#f97316',
+  bus:          '#10b981',
+  provincial:   '#8b5cf6',
+  tricycle:     '#06b6d4',
+  boat:         '#2563eb',
+  default:      '#64748b',
 };
 function modeColor(modeName = '') {
   const m = modeName.toLowerCase();
+  if (m.includes('walk'))     return '#2563eb';
   if (m.includes('jeep'))     return MODE_COLORS.jeepney;
+  if (m.includes('modern') || m.includes('aircon') || m.includes('puv')) return MODE_COLORS.modern_puv;
+  if (m.includes('provincial') || m.includes('intercity') || m.includes('regional')) return MODE_COLORS.provincial;
   if (m.includes('bus'))      return MODE_COLORS.bus;
   if (m.includes('tricycle')) return MODE_COLORS.tricycle;
   if (m.includes('boat'))     return MODE_COLORS.boat;
@@ -49,7 +54,19 @@ function modeColor(modeName = '') {
 function routeFeature(route, allowUnverifiedPreview = false) {
   if (!route) return null;
   if (route.geometry_needs_review && !allowUnverifiedPreview) return null;
-  let geometry = route.geometry;
+  const pathSegments = route.route_path_segments || route.path_segments || [];
+  const firstPathSegment = pathSegments.find((segment) => {
+    let segmentGeometry = segment.geometry;
+    if (typeof segmentGeometry === 'string') {
+      try {
+        segmentGeometry = JSON.parse(segmentGeometry);
+      } catch {
+        return false;
+      }
+    }
+    return segmentGeometry?.type === 'LineString' && Array.isArray(segmentGeometry.coordinates) && segmentGeometry.coordinates.length >= 2;
+  });
+  let geometry = firstPathSegment?.geometry || route.geometry;
   if (typeof geometry === 'string') {
     try {
       geometry = JSON.parse(geometry);
@@ -57,18 +74,19 @@ function routeFeature(route, allowUnverifiedPreview = false) {
       return null;
     }
   }
+  const mode = firstPathSegment?.mode || route.mode_name || route.mode || '';
   if (geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2) {
     return null;
   }
 
-  const mode = route.mode_name || route.mode || '';
   return {
     type: 'Feature',
     geometry,
     properties: {
       ...route,
       mode,
-      style: { color: modeColor(mode) },
+      route_path_segments: pathSegments,
+      style: { color: modeColor(mode), dashArray: mode.toLowerCase().includes('walk') ? '8 8' : undefined },
     },
   };
 }
@@ -481,6 +499,28 @@ function LayerManager({
       }).addTo(map);
 
       features.forEach((feature) => {
+        (feature.properties.route_path_segments || []).forEach((segment) => {
+          let segmentGeometry = segment.geometry;
+          if (typeof segmentGeometry === 'string') {
+            try {
+              segmentGeometry = JSON.parse(segmentGeometry);
+            } catch {
+              return;
+            }
+          }
+          if (segmentGeometry?.type !== 'LineString' || !Array.isArray(segmentGeometry.coordinates) || segmentGeometry.coordinates.length < 2) return;
+          const isWalking = String(segment.mode || '').toLowerCase().includes('walk');
+          L.polyline(segmentGeometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]), {
+            renderer: L.canvas(),
+            color: isWalking ? '#2563eb' : modeColor(segment.mode),
+            weight: 5,
+            opacity: 0.95,
+            dashArray: isWalking ? '8 8' : undefined,
+            lineCap: 'round',
+            interactive: false,
+          }).addTo(layerGroup);
+        });
+
         let walkingGeometry = feature.properties.walking_geometry;
         if (typeof walkingGeometry === 'string') {
           try {
