@@ -45,6 +45,25 @@ function hasPreviewableGeometry(value) {
   }
 }
 
+function matchesPathSegments(savedSegments = [], editedSegments = []) {
+  if (!Array.isArray(savedSegments) || savedSegments.length !== editedSegments.length) return false;
+  return editedSegments.every((editedSegment, index) => {
+    const savedSegment = savedSegments[index];
+    if (savedSegment?.mode !== editedSegment.mode) return false;
+    try {
+      const savedGeometry = typeof savedSegment.geometry === 'string'
+        ? JSON.parse(savedSegment.geometry)
+        : savedSegment.geometry;
+      const editedGeometry = typeof editedSegment.geometry === 'string'
+        ? JSON.parse(editedSegment.geometry)
+        : editedSegment.geometry;
+      return JSON.stringify(savedGeometry) === JSON.stringify(editedGeometry);
+    } catch {
+      return false;
+    }
+  });
+}
+
 function readLineStringCoordinates(value) {
   try {
     const geometry = typeof value === 'string' ? JSON.parse(value) : value;
@@ -845,6 +864,12 @@ export default function Admin() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Route creation was rejected by the server.');
         routeId = data.routeId;
+      }
+
+      const savedRouteResponse = await fetch(`/api/routes/${routeId}`);
+      const savedRoute = await savedRouteResponse.json().catch(() => ({}));
+      if (!savedRouteResponse.ok || !matchesPathSegments(savedRoute.path_segments, routePathSegments)) {
+        throw new Error('The server did not confirm the latest route legs. Your editor is still open; reload the app server and publish again.');
       }
 
       // If mode is Boat, save boat details
@@ -3105,6 +3130,12 @@ export default function Admin() {
                       className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
                       <Plus className="h-4 w-4" /> Add leg
+                    </button>
+                    <button
+                      type="submit"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800"
+                    >
+                      Publish route
                     </button>
                   </div>
 
