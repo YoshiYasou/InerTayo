@@ -331,17 +331,6 @@ export default function AuthModal() {
     }
   };
 
-  const fillQuickCreds = (type) => {
-    if (type === 'admin') {
-      setUsername('admin');
-      setPassword('AdminPassword123!');
-    } else {
-      setUsername('commuter');
-      setPassword('Commuter123!');
-    }
-    setError('');
-  };
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-100 overflow-hidden p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
@@ -760,30 +749,6 @@ export default function AuthModal() {
             </button>
           )}
         </form>
-        )}
-
-        {/* QUICK CREDENTIALS FOR DEMO/TESTING (LOGIN ONLY!) */}
-        {authModalMode === 'login' && (
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Quick fill credentials:</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => fillQuickCreds('commuter')}
-                className="text-emerald-700 font-semibold hover:underline"
-              >
-                Commuter
-              </button>
-              <span>•</span>
-              <button
-                type="button"
-                onClick={() => fillQuickCreds('admin')}
-                className="text-emerald-700 font-semibold hover:underline"
-              >
-                Admin
-              </button>
-            </div>
-          </div>
         )}
 
         {/* MODE SWITCH */}
