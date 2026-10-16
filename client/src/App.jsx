@@ -13,6 +13,7 @@ import About from './pages/About';
 import WebMap from './pages/WebMap';
 import Admin from './pages/Admin';
 import SavedRoutes from './pages/SavedRoutes';
+import Terms from './pages/Terms';
 
 export default function App() {
   const { currentPath } = useRouter();
@@ -33,6 +34,9 @@ export default function App() {
     }
     if (currentPath === '/about') {
       return <About />;
+    }
+    if (currentPath === '/terms') {
+      return <Terms />;
     }
     if (currentPath === '/map') {
       return <WebMap />;

@@ -37,6 +37,7 @@ export default function AuthModal() {
   // Registration state
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
+  const [agreeTerms, setAgreeTerms] = useState(false);
 
   // Password Reset flow state (completely isolated from Sign In)
   const [resetIdentifier, setResetIdentifier] = useState('');
@@ -147,6 +148,7 @@ export default function AuthModal() {
     setResetEmail('');
     setRegUsername('');
     setRegEmail('');
+    setAgreeTerms(false);
     setChangePasswordSuccess(false);
   };
 
@@ -229,6 +231,11 @@ export default function AuthModal() {
       }
 
       if (!validatePasswordRules()) return;
+
+      if (!agreeTerms) {
+        setError('You must agree to the Terms and Conditions to create an account.');
+        return;
+      }
 
       setLoading(true);
       try {
@@ -698,6 +705,34 @@ export default function AuthModal() {
                   )}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* TERMS AND CONDITIONS AGREEMENT (REGISTER ONLY) */}
+          {authModalMode === 'register' && (
+            <div className="pt-1 pb-0.5">
+              <label className="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  id="agreeTerms"
+                  checked={agreeTerms}
+                  onChange={(e) => setAgreeTerms(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer flex-shrink-0"
+                />
+                <span className="leading-snug">
+                  I have read and agree to the{' '}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-700 font-bold hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Terms and Conditions
+                  </a>
+                  .
+                </span>
+              </label>
             </div>
           )}
 
