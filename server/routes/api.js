@@ -2154,7 +2154,7 @@ router.post('/auth/change-password/request-code', authenticateToken, async (req,
 
         // Generate cryptographically secure 6-digit verification code
         const verificationCode = crypto.randomInt(100000, 1000000).toString();
-        const codeHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
+        const codeHash = await bcrypt.hash(verificationCode, 10);
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
         const codeId = await nextId('ChangePasswordCode');
 
@@ -2253,8 +2253,7 @@ router.post('/auth/change-password/verify-code', authenticateToken, async (req, 
             return res.status(400).json({ error: 'Maximum attempts exceeded. This verification code has been invalidated. Please request a new code.' });
         }
 
-        const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
-        if (inputHash !== record.code_hash) {
+        if (!(await bcrypt.compare(cleanCode, record.code_hash))) {
             await ChangePasswordCode.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
             const remaining = record.max_attempts - (record.attempts + 1);
             return res.status(400).json({
@@ -2306,8 +2305,7 @@ const handleChangePasswordConfirm = async (req, res) => {
             return res.status(400).json({ error: 'Maximum attempts exceeded. This verification code has been invalidated. Please request a new code.' });
         }
 
-        const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
-        if (inputHash !== record.code_hash) {
+        if (!(await bcrypt.compare(cleanCode, record.code_hash))) {
             await ChangePasswordCode.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
             const remaining = record.max_attempts - (record.attempts + 1);
             return res.status(400).json({

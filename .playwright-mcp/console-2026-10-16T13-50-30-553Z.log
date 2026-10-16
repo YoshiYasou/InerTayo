@@ -1,0 +1,8 @@
+[      44ms] [ERROR] WebSocket connection to 'ws://localhost:3000/?token=LrUyT7w1Z3SC' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:3000/@vite/client:801
+[      57ms] [ERROR] WebSocket connection to 'ws://localhost:3000/?token=LrUyT7w1Z3SC' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:3000/@vite/client:814
+[      58ms] [ERROR] [vite] failed to connect to websocket.
+your current setup:
+  (browser) localhost:3000/ <--[HTTP]--> localhost:3000/ (server)
+  (browser) localhost:3000/ <--[WebSocket (failing)]--> localhost:3000/ (server)
+Check out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr . @ http://localhost:3000/@vite/client:829
+[     116ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:3000/node_modules/.vite/deps/chunk-NXESFFTV.js?v=e913cbb9:21608
