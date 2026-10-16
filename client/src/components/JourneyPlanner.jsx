@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
   Navigation, 
   ArrowUpDown, 
-  Clock, 
   Bus, 
   CarFront, 
   Bike, 
@@ -32,8 +31,6 @@ export default function JourneyPlanner({
 }) {
   const [originText, setOriginText] = useState(origin?.name || '');
   const [destText, setDestText] = useState(destination?.name || '');
-  const [preferredMode, setPreferredMode] = useState('ALL');
-  const [leaveNow, setLeaveNow] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [itineraries, setItineraries] = useState([]);
@@ -84,7 +81,7 @@ export default function JourneyPlanner({
     if (origin && destination) {
       handleSearch();
     }
-  }, [origin, destination, preferredMode]);
+  }, [origin, destination]);
 
   const handleSwap = () => {
     const tempText = originText;
@@ -114,8 +111,8 @@ export default function JourneyPlanner({
         body: JSON.stringify({
           origin: getSearchLocation(origin, originText),
           destination: getSearchLocation(destination, destText),
-          preferredModes: preferredMode,
-          leaveNow
+          preferredModes: 'ALL',
+          leaveNow: true
         })
       });
 
@@ -227,36 +224,6 @@ export default function JourneyPlanner({
               className="flex-1"
               inputClassName="text-xs font-semibold py-1"
             />
-          </div>
-        </div>
-
-        {/* Preferred Modes & Departure Time Controls */}
-        <div className="grid grid-cols-2 gap-2 mt-3">
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Preferred Mode
-            </label>
-            <select
-              value={preferredMode}
-              onChange={(e) => setPreferredMode(e.target.value)}
-              className="w-full bg-white border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-            >
-              <option value="ALL">All Modes</option>
-              <option value="Jeepney">Jeepney Only</option>
-              <option value="Bus">Bus Only</option>
-              <option value="Tricycle">Tricycle Only</option>
-              <option value="Boat">🚤 River Boat Only</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Departure
-            </label>
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-700">
-              <Clock className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-              <span>Leaving Now</span>
-            </div>
           </div>
         </div>
 
