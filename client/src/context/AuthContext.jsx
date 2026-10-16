@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
         setSavedRouteIds(data.savedRoutes.map(r => r.id));
       } else {
         // Expired or invalid token
-        logout();
+        logout(false);
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
@@ -196,7 +196,21 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  const logout = () => {
+  const logout = async (recordEvent = true) => {
+    if (recordEvent && token) {
+      try {
+        const res = await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          console.error(`Failed to record logout activity (HTTP ${res.status}).`);
+        }
+      } catch (err) {
+        console.error('Error recording logout activity:', err);
+      }
+    }
+
     localStorage.removeItem('inertayo_token');
     setToken(null);
     setUser(null);
