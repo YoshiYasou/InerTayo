@@ -21,6 +21,7 @@ export default function WebMap() {
   const [routes, setRoutes] = useState([]);
   const [locations, setLocations] = useState([]);
   const [schools, setSchools] = useState([]);
+  const [focusedRoute, setFocusedRoute] = useState(null);
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL', 'Jeepney', 'Bus', 'Tricycle', 'Boat', 'FLOOD'
   const [showLandmarks, setShowLandmarks] = useState(false);
   const [showLocations, setShowLocations] = useState(false); // routes-only default
@@ -69,15 +70,35 @@ export default function WebMap() {
       .catch(err => console.error('Failed to load schools:', err));
   }, []);
 
-  // Auto-select route if opened from RouteDetails or URL with ?route=<id>
+  // Load the exact route record when opened from RouteDetails or a route URL.
   useEffect(() => {
-    if (queryParams?.route && routes.length > 0) {
-      const target = routes.find(r => String(r.id) === String(queryParams.route));
-      if (target) {
-        setSelectedItem({ type: 'route', data: target });
-      }
+    const routeId = queryParams?.route;
+    if (!routeId) {
+      setFocusedRoute(null);
+      return undefined;
     }
-  }, [queryParams?.route, routes]);
+
+    let cancelled = false;
+    fetch(`/api/routes/${encodeURIComponent(routeId)}`)
+      .then(response => {
+        if (!response.ok) throw new Error(`Route request failed: ${response.status}`);
+        return response.json();
+      })
+      .then(route => {
+        if (cancelled) return;
+        setFocusedRoute(route);
+        setSelectedItem({ type: 'route', data: route });
+      })
+      .catch(error => {
+        if (!cancelled) {
+          console.error('Failed to load selected route:', error);
+          setFocusedRoute(null);
+          setSelectedItem(null);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [queryParams?.route]);
 
   const handleSelect = (type, item) => {
     if (type === 'route') {
@@ -243,14 +264,16 @@ export default function WebMap() {
             </div>
           ) : (
             <RouteMap
-              routes={routes}
+              routes={queryParams?.route ? (focusedRoute ? [focusedRoute] : []) : routes}
               activeFilter={activeFilter}
               showLandmarks={showLandmarks}
               showLocations={showLocations}
               showSchools={showSchools}
               schools={schools}
-              selectedJourney={selectedJourney}
-              selectedRouteId={selectedItem?.type === 'route' ? selectedItem.data.id : null}
+              selectedJourney={queryParams?.route ? null : selectedJourney}
+              selectedRouteId={queryParams?.route || (selectedItem?.type === 'route' ? selectedItem.data.id : null)}
+              routeOnly={Boolean(queryParams?.route)}
+              allowUnverifiedPreview={queryParams?.route ? Boolean(focusedRoute?.geometry_needs_review) : selectedItem?.type === 'route' && Boolean(selectedItem.data.geometry_needs_review)}
               locations={locations}
               showAdvisories={true}
               interactive={true}

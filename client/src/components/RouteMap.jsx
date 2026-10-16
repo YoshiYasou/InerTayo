@@ -297,6 +297,8 @@ function LayerManager({
   onSelect,
   selectedRouteId,
   setSelectedRouteId,
+  routeOnly,
+  focusedRouteSource,
   locations = [],
   focusedRouteFeature = null,
   showStopClusterCounts = true,
@@ -356,7 +358,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, focusedRouteSource]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -438,13 +440,17 @@ function LayerManager({
     // During an active journey, only show route lines of modes involved
     for (const key of modeKeys) {
       const data = geo[key];
-      const features = focusedRouteFeature
-        ? (focusedRouteFeature.properties.mode.toLowerCase().includes(modeKeywords[key]) ? [focusedRouteFeature] : [])
-        : data?.features || [];
+      const focusedMode = String(focusedRouteFeature?.properties.mode_name || focusedRouteFeature?.properties.mode || '').toLowerCase();
+      const features = routeOnly
+        ? (key === 'jeepneys' && focusedRouteFeature ? [focusedRouteFeature] : [])
+        : focusedRouteFeature
+          ? (focusedMode.includes(modeKeywords[key]) ? [focusedRouteFeature] : [])
+          : data?.features || [];
       if (!features.length) continue;
 
       // Filter by active mode toggle
       const matchesFilter = (
+        routeOnly ||
         activeFilter === 'ALL' ||
         activeFilter === 'FLOOD' ||
         (activeFilter === 'Jeepney'  && key === 'jeepneys') ||
@@ -1006,6 +1012,7 @@ export default function RouteMap({
   schools       = [],
   selectedJourney = null,
   selectedRouteId: controlledSelectedRouteId = null,
+  routeOnly = false,
   locations     = [],
   showAdvisories = true,
   interactive   = true,
@@ -1021,12 +1028,12 @@ export default function RouteMap({
     setSelectedRouteId(controlledSelectedRouteId ?? null);
   }, [controlledSelectedRouteId]);
 
-  const focusedRouteFeature =
-    selectedRouteId != null
-      ? routeFeature(routes.find(route => String(route.id) === String(selectedRouteId)) || null, allowUnverifiedPreview)
-      : routes.length === 1
-        ? routeFeature(routes[0], allowUnverifiedPreview)
-        : null;
+  const focusedRouteSource = selectedRouteId != null
+    ? routes.find(route => String(route.id) === String(selectedRouteId)) || null
+    : routes.length === 1
+      ? routes[0]
+      : null;
+  const focusedRouteFeature = routeFeature(focusedRouteSource, allowUnverifiedPreview);
 
   const dagupanCenter = [16.0433, 120.3333];
 
@@ -1060,10 +1067,12 @@ export default function RouteMap({
           showSchools={showSchools}
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
+          routeOnly={routeOnly}
           onSelect={onSelect}
           selectedRouteId={selectedRouteId}
           setSelectedRouteId={setSelectedRouteId}
           locations={locations}
+          focusedRouteSource={focusedRouteSource}
           focusedRouteFeature={focusedRouteFeature}
           showStopClusterCounts={showStopClusterCounts}
         />

@@ -1,11 +1,18 @@
 'use strict';
 require('dotenv').config();
 const mongoose = require('mongoose');
+const dns = require('node:dns');
 
 let _conn = null;
 
 async function connectDB(uri, maxRetries = 4, delayMs = 1000) {
     if (_conn && mongoose.connection.readyState === 1) return _conn;
+
+    const dnsServers = (process.env.MONGODB_DNS_SERVERS || '')
+        .split(',')
+        .map(server => server.trim())
+        .filter(Boolean);
+    if (dnsServers.length > 0) dns.setServers(dnsServers);
 
     let mongoUri = uri || process.env.MONGODB_URI;
     if (!mongoUri) {
