@@ -57,6 +57,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Login failed.');
     }
+    if (data.verificationRequired) return data;
 
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
@@ -77,13 +78,63 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Registration failed.');
     }
+    return data;
+  };
+
+  const verifyEmail = async (email, code) => {
+    const res = await fetch('/api/auth/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Email verification failed.');
 
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
     setUser(data.user);
     setAuthModalOpen(false);
-    navigate('/');
+    navigate(data.user?.role === 'ADMIN' ? '/admin' : '/');
     return data.user;
+  };
+
+  const verifyAdminLogin = async (challengeId, code) => {
+    const res = await fetch('/api/auth/admin-login/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeId, code })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Admin verification failed.');
+
+    localStorage.setItem('inertayo_token', data.token);
+    setToken(data.token);
+    setUser(data.user);
+    setAuthModalOpen(false);
+    navigate('/admin');
+    return data.user;
+  };
+
+  const resendEmailVerification = async (email) => {
+    const res = await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not resend verification code.');
+    return data;
+  };
+
+  const resendAdminLoginCode = async (challengeId) => {
+    const res = await fetch('/api/auth/admin-login/resend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not resend sign-in code.');
+    return data;
   };
 
   const forgotPassword = async (identifier) => {
@@ -202,6 +253,10 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        verifyEmail,
+        verifyAdminLogin,
+        resendEmailVerification,
+        resendAdminLoginCode,
         forgotPassword,
         resetPassword,
         requestChangePasswordCode,

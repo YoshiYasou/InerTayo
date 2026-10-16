@@ -361,8 +361,36 @@ async function runTests() {
             email: 'test@dagupan.ph',
             password: 'Password123!'
         });
-        assert(regRes.status === 201 && regRes.data.token, 'New commuter registration succeeds and returns JWT');
-        const commuterToken = regRes.data.token;
+        assert(
+            regRes.status === 201 && regRes.data.verificationRequired === 'email' && !regRes.data.token,
+            'New commuter registration requires email verification before issuing a JWT'
+        );
+        const signupCode = global.__testMailbox.code;
+        const earlySignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
+            email: 'test@dagupan.ph'
+        });
+        assert(earlySignupResend.status === 429, 'Commuter verification resend is rate limited');
+        const unverifiedLogin = await makeRequest('POST', '/api/auth/login', {
+            username: 'testcommuter',
+            password: 'Password123!'
+        });
+        assert(
+            unverifiedLogin.status === 200 && unverifiedLogin.data.verificationRequired === 'email' && !unverifiedLogin.data.token,
+            'Unverified commuter login sends a verification challenge without issuing a JWT'
+        );
+        const invalidSignupCode = signupCode === '000000' ? '000001' : '000000';
+        const invalidSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'test@dagupan.ph',
+            code: invalidSignupCode
+        });
+        assert(invalidSignupVerification.status === 400, 'Incorrect commuter verification code is rejected');
+
+        const signupVerification = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'test@dagupan.ph',
+            code: signupCode
+        });
+        assert(signupVerification.status === 200 && signupVerification.data.token, 'Valid commuter verification activates the account and returns a JWT');
+        const commuterToken = signupVerification.data.token;
 
         // Password Constraint Validations
         const shortPw = await makeRequest('POST', '/api/auth/register', {
@@ -630,8 +658,12 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        assert(regB.status === 201 && regB.data.token, 'Commuter B registration succeeds (BOLA test setup)');
-        const userB = regB.data.user;
+        const verifyB = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'commuterb@dagupan.ph',
+            code: global.__testMailbox.code
+        });
+        assert(regB.status === 201 && verifyB.status === 200 && verifyB.data.token, 'Commuter B registration and verification succeed (BOLA test setup)');
+        const userB = verifyB.data.user;
 
         // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
         // by substituting B's ID into the path parameter.
@@ -724,8 +756,24 @@ async function runTests() {
             username: 'admin',
             password: 'AdminPassword123!'
         });
-        assert(adminLogin.status === 200 && adminLogin.data.user.role === 'ADMIN', 'Admin login succeeds with ADMIN role');
-        const adminToken = adminLogin.data.token;
+        assert(
+            adminLogin.status === 200 && adminLogin.data.verificationRequired === 'admin' && !adminLogin.data.token,
+            'Admin password login requires an email code before issuing a JWT'
+        );
+        const earlyAdminResend = await makeRequest('POST', '/api/auth/admin-login/resend', {
+            challengeId: adminLogin.data.challengeId
+        });
+        assert(earlyAdminResend.status === 429, 'Admin sign-in code resend is rate limited');
+        const adminCode = global.__testMailbox.code;
+        const adminVerification = await makeRequest('POST', '/api/auth/admin-login/verify', {
+            challengeId: adminLogin.data.challengeId,
+            code: adminCode
+        });
+        assert(
+            adminVerification.status === 200 && adminVerification.data.user.role === 'ADMIN' && adminVerification.data.token,
+            'Valid admin email code completes sign-in and returns an ADMIN JWT'
+        );
+        const adminToken = adminVerification.data.token;
 
         const uvExpressRejected = await makeRequest('POST', '/api/admin/fares/routes', {
             transport_mode: 'uv_express',

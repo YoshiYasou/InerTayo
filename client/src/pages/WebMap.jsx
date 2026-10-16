@@ -527,28 +527,22 @@ export default function WebMap() {
         </div>
 
         {/* Mobile View Bottom Floating Navigation Pill */}
-        <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 backdrop-blur-md text-white rounded-full p-1 shadow-2xl flex items-center gap-1 border border-slate-700" style={{ bottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
+        <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-white rounded-full p-1 shadow-2xl flex items-center gap-1 border border-slate-700" style={{ bottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
           <button
             type="button"
-            onClick={() => setMobileView('planner')}
-            className={`min-h-[44px] px-4 rounded-full text-xs font-bold transition-all ${
+            onClick={() => setMobileView(current => current === 'planner' ? 'map' : 'planner')}
+            aria-expanded={mobileView === 'planner'}
+            aria-label={mobileView === 'planner' ? 'Close Journey Planner' : 'Open Journey Planner'}
+            className={`min-h-[44px] px-4 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
               mobileView === 'planner' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
             }`}
           >
-            🧭 Journey Planner
+            <Compass className="w-4 h-4" />
+            {mobileView === 'planner' ? 'Close Planner' : 'Journey Planner'}
           </button>
-          <button
-            type="button"
-            onClick={() => setMobileView('map')}
-            className={`min-h-[44px] px-4 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
-              mobileView === 'map' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <span>🗺️ Map</span>
-            {selectedJourney && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            )}
-          </button>
+          {selectedJourney && mobileView === 'map' && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" aria-label="Route selected"></span>
+          )}
         </div>
 
       </div>
