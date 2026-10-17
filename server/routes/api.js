@@ -31,7 +31,6 @@ const ChangePasswordCode = require('../models/ChangePasswordCode');
 const { nextId } = require('../db/counter');
 const { getCache, setCache, invalidateMapCache } = require('../cache/mapLayerCache');
 const { isDetailedRoadGeometry } = require('../utils/routeGeometryQuality');
-
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
@@ -47,6 +46,7 @@ const {
 } = require('../utils/routeDetour');
 const { planJourney } = require('../services/journeyEngine');
 const { haversineDistance } = require('../utils/geoUtils');
+const { sendEmail } = require('../services/emailSender');
 
 const router = express.Router();
 
@@ -76,30 +76,7 @@ async function sendAuthCodeEmail(user, code, purpose) {
         return;
     }
 
-    const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
-    const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-    if (!hasGmail && !hasSmtp) {
-        throw new Error('Email delivery is not configured.');
-    }
-
-    const transporter = hasGmail
-        ? nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 465,
-            secure: true,
-            auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-        })
-        : nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT) || 587,
-            secure: Number(process.env.SMTP_PORT) === 465,
-            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-        });
-    const from = hasGmail
-        ? `InerTayo <${process.env.GMAIL_USER}>`
-        : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
-
-    await transporter.sendMail({ from, to: user.email, subject, text });
+    await sendEmail({ to: user.email, subject, text });
 }
 
 async function issueAuthCode(user, purpose, challengeHash = null) {
@@ -1992,11 +1969,24 @@ router.post('/auth/forgot-password', async (req, res) => {
             used: 0
         });
 
+        const hasResend = Boolean(process.env.RESEND_API_KEY || process.env.RESEND_FROM);
         const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
         const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
         if (process.env.NODE_ENV === 'test') {
             global.__testMailbox = { to: user.email, code: resetCode };
+        } else if (hasResend) {
+            try {
+                await sendEmail({
+                    to: user.email,
+                    subject: 'Your InerTayo password reset code',
+                    text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to reset your InerTayo password is:\n\n${resetCode}\n\nThis code will expire in 15 minutes and can only be used once.\nIf you did not request this, you can ignore this email.\n\n— InerTayo Dagupan City Commute Guide`
+                });
+            } catch (mailErr) {
+                await PasswordReset.updateOne({ id: resetId }, { used: 1 });
+                console.error('[AUTH] Failed to send password reset email.');
+                return res.status(503).json({ error: "We couldn't send the verification email. Please try again later." });
+            }
         } else if (hasGmail || hasSmtp) {
             try {
                 const transporter = hasGmail
@@ -2030,6 +2020,7 @@ router.post('/auth/forgot-password', async (req, res) => {
                     text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to reset your InerTayo password is:\n\n${resetCode}\n\nThis code will expire in 15 minutes and can only be used once.\nIf you did not request this, you can ignore this email.\n\n— InerTayo Dagupan City Commute Guide`
                 });
             } catch (mailErr) {
+                await PasswordReset.updateOne({ id: resetId }, { used: 1 });
                 console.error('[AUTH] Failed to send password reset email via SMTP.');
                 return res.status(500).json({ error: "We couldn't send the verification email. Please try again later." });
             }
@@ -2170,11 +2161,24 @@ router.post('/auth/change-password/request-code', authenticateToken, async (req,
         });
 
         // Email dispatch — support Gmail env, generic SMTP env, or test environment
+        const hasResend = Boolean(process.env.RESEND_API_KEY || process.env.RESEND_FROM);
         const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
         const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
         if (process.env.NODE_ENV === 'test') {
             global.__testMailbox = { to: user.email, code: verificationCode };
+        } else if (hasResend) {
+            try {
+                await sendEmail({
+                    to: user.email,
+                    subject: 'InerTayo Password Change Verification Code',
+                    text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to change your InerTayo password is:\n\n${verificationCode}\n\nThis code will expire in 10 minutes and can only be used once.\nIf you did not request this password change, please secure your account immediately.\n\n— InerTayo Dagupan City Commute Guide`
+                });
+            } catch (mailErr) {
+                await ChangePasswordCode.updateOne({ id: codeId }, { used: 1 });
+                console.error('[AUTH] Failed to send change password email.');
+                return res.status(503).json({ error: "We couldn't send the verification email. Please try again later." });
+            }
         } else if (hasGmail || hasSmtp) {
             try {
                 const transporter = hasGmail
@@ -2208,6 +2212,7 @@ router.post('/auth/change-password/request-code', authenticateToken, async (req,
                     text: `Hello ${user.username || 'User'},\n\nYour 6-digit verification code to change your InerTayo password is:\n\n${verificationCode}\n\nThis code will expire in 10 minutes and can only be used once.\nIf you did not request this password change, please secure your account immediately.\n\n— InerTayo Dagupan City Commute Guide`
                 });
             } catch (mailErr) {
+                await ChangePasswordCode.updateOne({ id: codeId }, { used: 1 });
                 console.error('[AUTH] Failed to send change password email via SMTP.');
                 return res.status(500).json({ error: "We couldn't send the verification email. Please try again later." });
             }
