@@ -1787,72 +1787,19 @@ router.post('/auth/register', async (req, res) => {
             email: trimmedEmail,
             password_hash: passwordHash,
             role: 'COMMUTER',
-            email_verified: false
+            email_verified: true
         });
 
         const user = { id: userId, username: trimmedUsername, email: trimmedEmail, role: 'COMMUTER' };
-        await issueAuthCode(user, 'SIGNUP');
-
-        res.status(201).json({
-            message: 'Check your email for a verification code to finish creating your account.',
-            verificationRequired: 'email',
-            email: trimmedEmail
+        await recordUserActivity(user, 'LOGIN');
+        return res.status(201).json({
+            message: 'Account created successfully.',
+            token: createUserToken(user),
+            user
         });
     } catch (err) {
         console.error('Registration error:', err);
-        res.status(err.message.includes('could not send') ? 503 : 500).json({ error: err.message.includes('could not send') ? err.message : 'Registration failed.' });
-    }
-});
-
-router.post('/auth/verify-email', async (req, res) => {
-    try {
-        const email = String(req.body.email || '').trim().toLowerCase();
-        const code = String(req.body.code || '').trim();
-        if (!email || !/^\d{6}$/.test(code)) {
-            return res.status(400).json({ error: 'Enter the email address and 6-digit verification code.' });
-        }
-
-        const user = await User.findOne({ email, role: 'COMMUTER' });
-        if (!user) return res.status(400).json({ error: 'Invalid or expired verification code.' });
-        if (user.email_verified !== false) return res.status(400).json({ error: 'This email address is already verified.' });
-
-        const verification = await AuthVerificationCode.findOne({
-            user_id: user.id,
-            purpose: 'SIGNUP',
-            used: false,
-            attempts: { $lt: 5 },
-            expires_at: { $gt: new Date() }
-        }).sort({ created_at: -1 });
-        if (!verification || !(await verifyAuthCode(verification, code))) {
-            return res.status(400).json({ error: 'Invalid or expired verification code.' });
-        }
-
-        verification.used = true;
-        user.email_verified = true;
-        await Promise.all([verification.save(), user.save()]);
-        const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
-        await recordUserActivity(userPayload, 'LOGIN');
-        return res.json({ message: 'Email verified successfully.', token: createUserToken(user), user: userPayload });
-    } catch (err) {
-        console.error('Email verification error:', err);
-        return res.status(500).json({ error: 'Email verification failed.' });
-    }
-});
-
-router.post('/auth/resend-verification', async (req, res) => {
-    try {
-        const email = String(req.body.email || '').trim().toLowerCase();
-        if (!email) return res.status(400).json({ error: 'Email address is required.' });
-
-        const user = await User.findOne({ email, role: 'COMMUTER', email_verified: false });
-        if (user) {
-            const result = await issueAuthCode(user, 'SIGNUP');
-            if (!result.sent) return res.status(429).json({ error: 'Please wait before requesting another code.' });
-        }
-        return res.json({ message: 'If the account needs verification, a code has been sent.' });
-    } catch (err) {
-        console.error('Verification resend error:', err);
-        return res.status(err.message.includes('could not send') ? 503 : 500).json({ error: err.message.includes('could not send') ? err.message : 'Could not resend verification code.' });
+        res.status(500).json({ error: 'Registration failed.' });
     }
 });
 
@@ -1877,11 +1824,6 @@ router.post('/auth/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
             return res.status(401).json({ error: 'Invalid credentials.' });
-        }
-
-        if (user.role === 'COMMUTER' && user.email_verified === false) {
-            await issueAuthCode(user, 'SIGNUP');
-            return res.json({ verificationRequired: 'email', email: user.email });
         }
 
         if (user.role === 'ADMIN') {

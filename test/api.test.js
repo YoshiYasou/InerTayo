@@ -362,35 +362,30 @@ async function runTests() {
             password: 'Password123!'
         });
         assert(
-            regRes.status === 201 && regRes.data.verificationRequired === 'email' && !regRes.data.token,
-            'New commuter registration requires email verification before issuing a JWT'
+            regRes.status === 201 && regRes.data.token && regRes.data.user?.role === 'COMMUTER' &&
+                !regRes.data.verificationRequired,
+            'New commuter registration creates an immediately usable account without an email code'
         );
-        const signupCode = global.__testMailbox.code;
-        const earlySignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
+        const removedSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
             email: 'test@dagupan.ph'
         });
-        assert(earlySignupResend.status === 429, 'Commuter verification resend is rate limited');
-        const unverifiedLogin = await makeRequest('POST', '/api/auth/login', {
+        const removedSignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
+            email: 'test@dagupan.ph'
+        });
+        assert(
+            removedSignupVerification.status === 404 && removedSignupResend.status === 404,
+            'Commuter email verification and resend endpoints are removed'
+        );
+        const immediateCommuterLogin = await makeRequest('POST', '/api/auth/login', {
             username: 'testcommuter',
             password: 'Password123!'
         });
         assert(
-            unverifiedLogin.status === 200 && unverifiedLogin.data.verificationRequired === 'email' && !unverifiedLogin.data.token,
-            'Unverified commuter login sends a verification challenge without issuing a JWT'
+            immediateCommuterLogin.status === 200 && immediateCommuterLogin.data.token &&
+                immediateCommuterLogin.data.user.role === 'COMMUTER',
+            'New commuter can sign in without email verification'
         );
-        const invalidSignupCode = signupCode === '000000' ? '000001' : '000000';
-        const invalidSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'test@dagupan.ph',
-            code: invalidSignupCode
-        });
-        assert(invalidSignupVerification.status === 400, 'Incorrect commuter verification code is rejected');
-
-        const signupVerification = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'test@dagupan.ph',
-            code: signupCode
-        });
-        assert(signupVerification.status === 200 && signupVerification.data.token, 'Valid commuter verification activates the account and returns a JWT');
-        const commuterToken = signupVerification.data.token;
+        const commuterToken = regRes.data.token;
 
         // Password Constraint Validations
         const shortPw = await makeRequest('POST', '/api/auth/register', {
@@ -664,12 +659,8 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        const verifyB = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'commuterb@dagupan.ph',
-            code: global.__testMailbox.code
-        });
-        assert(regB.status === 201 && verifyB.status === 200 && verifyB.data.token, 'Commuter B registration and verification succeed (BOLA test setup)');
-        const userB = verifyB.data.user;
+        assert(regB.status === 201 && regB.data.token, 'Commuter B can register without email verification (BOLA test setup)');
+        const userB = regB.data.user;
 
         // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
         // by substituting B's ID into the path parameter.

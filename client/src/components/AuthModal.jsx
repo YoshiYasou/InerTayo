@@ -25,9 +25,7 @@ export default function AuthModal() {
     setAuthModalMode, 
     login, 
     register,
-    verifyEmail,
     verifyAdminLogin,
-    resendEmailVerification,
     resendAdminLoginCode,
     forgotPassword,
     resetPassword,
@@ -182,9 +180,7 @@ export default function AuthModal() {
     setResetNoticeMsg('');
     setCodeRequestLoading(true);
     try {
-      const result = authModalMode === 'verify_admin_login'
-        ? await resendAdminLoginCode(adminChallengeId)
-        : await resendEmailVerification(verificationEmail);
+    const result = await resendAdminLoginCode(adminChallengeId);
       setResetNoticeMsg(result.message || 'A new verification code has been sent.');
       setCodeCooldown(60);
     } catch (err) {
@@ -266,14 +262,8 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        const result = await register(cleanUsername, regEmail.trim(), password);
-        if (result.verificationRequired === 'email') {
-          setVerificationEmail(result.email);
-          setVerificationCode('');
-          setAuthModalMode('verify_email');
-        } else {
-          resetFormState();
-        }
+        await register(cleanUsername, regEmail.trim(), password);
+        resetFormState();
       } catch (err) {
         setError(err.message || 'Registration failed.');
       } finally {
@@ -282,8 +272,8 @@ export default function AuthModal() {
       return;
     }
 
-    // Email confirmation and administrator login verification
-    if (authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') {
+    // Administrator sign-in verification
+    if (authModalMode === 'verify_admin_login') {
       if (!/^\d{6}$/.test(verificationCode)) {
         setError('Please enter the 6-digit verification code.');
         return;
@@ -291,11 +281,7 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        if (authModalMode === 'verify_admin_login') {
-          await verifyAdminLogin(adminChallengeId, verificationCode);
-        } else {
-          await verifyEmail(verificationEmail, verificationCode);
-        }
+        await verifyAdminLogin(adminChallengeId, verificationCode);
         resetFormState();
       } catch (err) {
         setError(err.message || 'Verification failed.');
@@ -381,10 +367,6 @@ export default function AuthModal() {
         setVerificationEmail(result.email);
         setVerificationCode('');
         setAuthModalMode('verify_admin_login');
-      } else if (result.verificationRequired === 'email') {
-        setVerificationEmail(result.email);
-        setVerificationCode('');
-        setAuthModalMode('verify_email');
       } else {
         resetFormState();
       }
@@ -421,7 +403,7 @@ export default function AuthModal() {
         </button>
 
         {/* Back Button (For Forgot Password sub-views) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_admin_login') && (
           <button
             onClick={() => handleSwitchMode('login')}
             className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors flex items-center gap-1 text-xs font-semibold"
@@ -446,7 +428,6 @@ export default function AuthModal() {
           <h3 className="text-2xl font-bold text-slate-900">
             {authModalMode === 'login' && 'Sign In to InerTayo'}
             {authModalMode === 'register' && 'Create Commuter Account'}
-            {authModalMode === 'verify_email' && 'Verify Your Email'}
             {authModalMode === 'verify_admin_login' && 'Verify Admin Sign-In'}
             {authModalMode === 'forgot_request' && 'Reset Your Password'}
             {authModalMode === 'forgot_reset' && 'Set New Password'}
@@ -456,7 +437,6 @@ export default function AuthModal() {
           <p className="text-sm text-slate-500 mt-1">
             {authModalMode === 'login' && 'Access saved routes and submit verified commuter feedback.'}
             {authModalMode === 'register' && 'Join fellow Dagupan commuters to save daily routes.'}
-            {authModalMode === 'verify_email' && 'Enter the 6-digit code sent to your email to activate your account.'}
             {authModalMode === 'verify_admin_login' && 'Enter the 6-digit code sent to the administrator email address.'}
             {authModalMode === 'forgot_request' && 'Enter your registered email to receive a 6-digit verification code.'}
             {authModalMode === 'forgot_reset' && 'Enter the 6-digit code sent to your email and choose a new secure password.'}
@@ -481,7 +461,7 @@ export default function AuthModal() {
         )}
 
         {/* Verification Code Notice (Reset / Change Password Only) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && resetNoticeMsg && (
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_admin_login') && resetNoticeMsg && (
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span>{resetNoticeMsg}</span>
@@ -584,7 +564,7 @@ export default function AuthModal() {
             </>
           )}
 
-          {(authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
+          {authModalMode === 'verify_admin_login' && (
             <>
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
                 Code sent to <span className="font-semibold text-slate-800">{verificationEmail}</span>
@@ -859,8 +839,6 @@ export default function AuthModal() {
               'Sign In'
             ) : authModalMode === 'register' ? (
               'Create Account'
-            ) : authModalMode === 'verify_email' ? (
-              'Verify Email'
             ) : authModalMode === 'verify_admin_login' ? (
               'Verify and Sign In'
             ) : authModalMode === 'forgot_request' ? (
@@ -937,7 +915,7 @@ export default function AuthModal() {
             </p>
           )}
 
-          {(authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
+          {authModalMode === 'verify_admin_login' && (
             <button
               type="button"
               onClick={() => handleSwitchMode('login')}
@@ -960,7 +938,7 @@ export default function AuthModal() {
             </p>
           )}
 
-          {(authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
+          {authModalMode === 'verify_admin_login' && (
             <p>
               Need another code? Use the resend option above.
             </p>

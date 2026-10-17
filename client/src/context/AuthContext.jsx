@@ -57,8 +57,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Login failed.');
     }
-    if (data.verificationRequired) return data;
-
+    if (data.verificationRequired === 'admin') return data;
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -78,24 +77,12 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Registration failed.');
     }
-    return data;
-  };
-
-  const verifyEmail = async (email, code) => {
-    const res = await fetch('/api/auth/verify-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, code })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Email verification failed.');
-
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
     setUser(data.user);
     setAuthModalOpen(false);
-    navigate(data.user?.role === 'ADMIN' ? '/admin' : '/');
-    return data.user;
+    navigate('/');
+    return data;
   };
 
   const verifyAdminLogin = async (challengeId, code) => {
@@ -113,17 +100,6 @@ export function AuthProvider({ children }) {
     setAuthModalOpen(false);
     navigate('/admin');
     return data.user;
-  };
-
-  const resendEmailVerification = async (email) => {
-    const res = await fetch('/api/auth/resend-verification', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Could not resend verification code.');
-    return data;
   };
 
   const resendAdminLoginCode = async (challengeId) => {
@@ -267,9 +243,7 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
-        verifyEmail,
         verifyAdminLogin,
-        resendEmailVerification,
         resendAdminLoginCode,
         forgotPassword,
         resetPassword,
