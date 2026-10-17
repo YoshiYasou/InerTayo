@@ -314,6 +314,35 @@
   background-color: #64748b;
 }
 
+:root[data-theme='dark'] button[class~='bg-slate-900'] {
+  background-color: #047857;
+  border: 1px solid #10b981;
+  box-shadow: 0 2px 8px rgb(16 185 129 / 18%);
+  cursor: pointer;
+}
+
+:root[data-theme='dark'] button[class~='bg-slate-900']:hover:not(:disabled) {
+  background-color: #059669;
+  border-color: #34d399;
+  box-shadow: 0 4px 12px rgb(16 185 129 / 28%);
+}
+
+:root[data-theme='dark'] button[class~='bg-slate-900']:active:not(:disabled) {
+  background-color: #065f46;
+  box-shadow: 0 1px 4px rgb(16 185 129 / 18%);
+  transform: translateY(1px);
+}
+
+:root[data-theme='dark'] button[class~='bg-slate-900']:focus-visible {
+  outline: 3px solid #6ee7b7;
+  outline-offset: 3px;
+}
+
+:root[data-theme='dark'] button[class~='bg-slate-900']:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 :root[data-theme='dark'] .group:hover [class~='group-hover:bg-white'] {
   background-color: #334155;
 }
