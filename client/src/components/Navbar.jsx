@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { useRouter } from '../context/RouterContext';
 import { useAuth } from '../context/AuthContext';
-import { Menu, X, ShieldCheck, LogOut, Compass, User, Bookmark, KeyRound } from 'lucide-react';
+import { Menu, X, ShieldCheck, LogOut, Compass, User, Bookmark, KeyRound, Moon, Sun } from 'lucide-react';
 import ConfirmDialog from './ConfirmDialog';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Navbar() {
   const { currentPath, navigate } = useRouter();
   const { user, isAdmin, isCommuter, logout, openAuth } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const ThemeIcon = theme === 'dark' ? Sun : Moon;
+  const themeAction = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
   const navItems = [
     { label: 'Routes', path: '/routes' },
@@ -82,6 +86,16 @@ export default function Navbar() {
 
           {/* Right Action Buttons */}
           <div className="hidden md:flex items-center gap-4">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={themeAction}
+              aria-pressed={theme === 'dark'}
+              title={themeAction}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <ThemeIcon className="w-5 h-5" aria-hidden="true" />
+            </button>
             {/* Single Combined 'Launch Web Map' Button per §0.1 */}
             <button
               onClick={() => handleNav('/map')}
@@ -168,6 +182,16 @@ export default function Navbar() {
 
           {/* Mobile Menu Hamburger */}
           <div className="flex md:hidden items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={themeAction}
+              aria-pressed={theme === 'dark'}
+              title={themeAction}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
+            >
+              <ThemeIcon className="w-5 h-5" aria-hidden="true" />
+            </button>
             <button
               onClick={() => handleNav('/map')}
               className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"

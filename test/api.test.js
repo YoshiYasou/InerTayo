@@ -618,6 +618,8 @@ async function runTests() {
         assert(noAuthAdmin.status === 401, 'Accessing /api/admin/stats without token returns 401 Unauthorized');
         const noAuthSavedRoutes = await makeRequest('GET', '/api/admin/saved-routes');
         assert(noAuthSavedRoutes.status === 401, 'Admin saved-route insights reject unauthenticated requests');
+        const noAuthAuditLogs = await makeRequest('GET', '/api/admin/audit-logs');
+        assert(noAuthAuditLogs.status === 401, 'Admin audit logs reject unauthenticated requests');
 
         const noAuthRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] });
         assert(noAuthRoadMatch.status === 401, 'Road map matching rejects unauthenticated requests');
@@ -634,6 +636,10 @@ async function runTests() {
             'Authorization': `Bearer ${commuterToken}`
         });
         assert(commuterSavedRoutesAdmin.status === 403, 'Admin saved-route insights reject commuter credentials');
+        const commuterAuditLogsAdmin = await makeRequest('GET', '/api/admin/audit-logs', null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(commuterAuditLogsAdmin.status === 403, 'Admin audit logs reject commuter credentials');
 
         const commuterRoadMatch = await makeRequest('POST', '/api/roads/match', { coordinates: [] }, {
             'Authorization': `Bearer ${commuterToken}`
@@ -774,6 +780,40 @@ async function runTests() {
             'Valid admin email code completes sign-in and returns an ADMIN JWT'
         );
         const adminToken = adminVerification.data.token;
+
+        const activityRoute = routesRes.data.find(route =>
+            !savedListRes.data.some(savedRoute => savedRoute.id === route.id)
+        );
+        const savedActivityRoute = await makeRequest('POST', '/api/saved-routes', {
+            routeId: activityRoute.id
+        }, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(savedActivityRoute.status === 201, 'Commuter saves a route for the audit log test');
+
+        const logoutEvent = await makeRequest('POST', '/api/auth/logout', null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
+        assert(logoutEvent.status === 200, 'Authenticated logout records the user activity');
+
+        const adminAuditLogs = await makeRequest('GET', '/api/admin/audit-logs?limit=500', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const auditLogRecords = Array.isArray(adminAuditLogs.data) ? adminAuditLogs.data : [];
+        const savedRouteEvent = auditLogRecords.find(log =>
+            log.action === 'ROUTE_SAVED' && log.username === 'testcommuter' &&
+            log.route_id === activityRoute.id && log.route_name === activityRoute.route_name
+        );
+        assert(
+            adminAuditLogs.status === 200 && Array.isArray(adminAuditLogs.data) &&
+                auditLogRecords.some(log => log.action === 'LOGIN' && log.username === 'admin') &&
+                auditLogRecords.some(log => log.action === 'LOGOUT' && log.username === 'testcommuter') &&
+                savedRouteEvent && savedRouteEvent.created_at && !Object.hasOwn(savedRouteEvent, 'email'),
+            'Admin audit logs include login, logout, and saved-route activity with timestamps and route details'
+        );
+        await makeRequest('DELETE', `/api/saved-routes/${activityRoute.id}`, null, {
+            'Authorization': `Bearer ${commuterToken}`
+        });
 
         const uvExpressRejected = await makeRequest('POST', '/api/admin/fares/routes', {
             transport_mode: 'uv_express',

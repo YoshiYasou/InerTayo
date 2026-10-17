@@ -17,6 +17,7 @@ const Advisory = require('../models/Advisory');
 const AdvisoryRoute = require('../models/AdvisoryRoute');
 const Feedback = require('../models/Feedback');
 const SavedRoute = require('../models/SavedRoute');
+const AuditLog = require('../models/AuditLog');
 const Landmark = require('../models/Landmark');
 const Location = require('../models/Location');
 const BoatRouteDetail = require('../models/BoatRouteDetail');
@@ -57,6 +58,18 @@ function createUserToken(user) {
         email: user.email,
         role: user.role
     }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+async function recordUserActivity(user, action, route = null) {
+    await AuditLog.create({
+        id: await nextId('AuditLog'),
+        user_id: user.id,
+        username: user.username,
+        role: user.role,
+        action,
+        route_id: route?.id ?? null,
+        route_name: route?.route_name ?? null
+    });
 }
 
 function maskEmail(email) {
@@ -1795,6 +1808,7 @@ router.post('/auth/verify-email', async (req, res) => {
         user.email_verified = true;
         await Promise.all([verification.save(), user.save()]);
         const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
+        await recordUserActivity(userPayload, 'LOGIN');
         return res.json({ message: 'Email verified successfully.', token: createUserToken(user), user: userPayload });
     } catch (err) {
         console.error('Email verification error:', err);
@@ -1860,6 +1874,7 @@ router.post('/auth/login', async (req, res) => {
 
         const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
 
+        await recordUserActivity(userPayload, 'LOGIN');
         res.json({
             message: 'Login successful!',
             token: createUserToken(user),
@@ -1896,6 +1911,7 @@ router.post('/auth/admin-login/verify', async (req, res) => {
         const user = await User.findOne({ id: verification.user_id, role: 'ADMIN' });
         if (!user) return res.status(401).json({ error: 'Admin account is no longer available.' });
         const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
+        await recordUserActivity(userPayload, 'LOGIN');
         return res.json({ message: 'Login successful!', token: createUserToken(user), user: userPayload });
     } catch (err) {
         console.error('Admin verification error:', err);
@@ -2339,6 +2355,16 @@ const handleChangePasswordConfirm = async (req, res) => {
 router.post('/auth/change-password/confirm', authenticateToken, handleChangePasswordConfirm);
 router.post('/auth/change-password', authenticateToken, handleChangePasswordConfirm);
 
+router.post('/auth/logout', authenticateToken, async (req, res) => {
+    try {
+        await recordUserActivity(req.user, 'LOGOUT');
+        return res.json({ message: 'Logout recorded.' });
+    } catch (err) {
+        console.error('Error recording logout:', err);
+        return res.status(500).json({ error: 'Failed to record logout.' });
+    }
+});
+
 // GET /api/auth/me - Current profile & saved routes
 router.get('/auth/me', authenticateToken, async (req, res) => {
     try {
@@ -2483,6 +2509,7 @@ router.post('/saved-routes', authenticateToken, requireCommuter, async (req, res
         if (!existing) {
             const id = await nextId('SavedRoute');
             await SavedRoute.create({ id, user_id: req.user.id, route_id: routeId });
+            await recordUserActivity(req.user, 'ROUTE_SAVED', route);
         }
 
         return res.status(201).json({ saved: true, message: 'Route saved successfully!' });
@@ -2500,7 +2527,11 @@ router.delete('/saved-routes/:routeId', authenticateToken, requireCommuter, asyn
             return res.status(400).json({ error: 'Invalid route ID.' });
         }
 
-        await SavedRoute.deleteOne({ user_id: req.user.id, route_id: routeId });
+        const removed = await SavedRoute.deleteOne({ user_id: req.user.id, route_id: routeId });
+        if (removed.deletedCount > 0) {
+            const route = await Route.findOne({ id: routeId }).lean();
+            await recordUserActivity(req.user, 'ROUTE_UNSAVED', route || { id: routeId });
+        }
         return res.json({ saved: false, message: 'Route removed from saved routes.' });
     } catch (err) {
         console.error('Error removing saved route:', err);
@@ -2524,11 +2555,13 @@ router.post('/routes/:id/save', authenticateToken, requireCommuter, async (req, 
         const existing = await SavedRoute.findOne({ user_id: req.user.id, route_id: routeId });
         if (existing) {
             await SavedRoute.deleteOne({ id: existing.id });
+            await recordUserActivity(req.user, 'ROUTE_UNSAVED', route);
             return res.json({ saved: false, message: 'Route removed from saved routes.' });
         }
 
         const id = await nextId('SavedRoute');
         await SavedRoute.create({ id, user_id: req.user.id, route_id: routeId });
+        await recordUserActivity(req.user, 'ROUTE_SAVED', route);
         return res.json({ saved: true, message: 'Route saved successfully!' });
     } catch (err) {
         console.error('Error toggling saved route:', err);
@@ -2561,6 +2594,24 @@ router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => 
     } catch (err) {
         console.error('Error fetching admin stats:', err);
         res.status(500).json({ error: 'Failed to retrieve admin stats.' });
+    }
+});
+
+router.get('/admin/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const requestedLimit = Number.parseInt(req.query.limit, 10);
+        const limit = Number.isInteger(requestedLimit)
+            ? Math.min(Math.max(requestedLimit, 1), 500)
+            : 200;
+        const logs = await AuditLog.find()
+            .sort({ created_at: -1, id: -1 })
+            .limit(limit)
+            .lean();
+
+        return res.json(logs.map(({ _id, ...log }) => log));
+    } catch (err) {
+        console.error('Error fetching admin audit logs:', err);
+        return res.status(500).json({ error: 'Failed to retrieve audit logs.' });
     }
 });
 

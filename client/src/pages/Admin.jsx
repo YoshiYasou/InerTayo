@@ -26,6 +26,9 @@ import {
   RefreshCw,
   Eye,
   Bookmark,
+  Activity,
+  LogIn,
+  LogOut,
   Layers,
   Ship,
   FileSpreadsheet,
@@ -211,9 +214,12 @@ export default function Admin() {
   const { navigate } = useRouter();
   const { user, token, isAdmin, openAuth } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('routes'); // 'routes', 'web-map', 'advisories', 'saved-routes', 'locations', 'modes', 'fares', 'feedback'
+  const [activeTab, setActiveTab] = useState('routes');
   const [stats, setStats] = useState(null);
   const [savedRouteInsights, setSavedRouteInsights] = useState({ total_saved: 0, routes: [] });
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [activityLogsLoading, setActivityLogsLoading] = useState(false);
+  const [activityLogsError, setActivityLogsError] = useState('');
   const [routes, setRoutes] = useState([]);
   const [advisories, setAdvisories] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
@@ -355,6 +361,9 @@ export default function Admin() {
   const searchedFeedback = feedbackList.filter(item => matchesAdminSearch([
     item.name, item.email, item.status, item.message
   ]));
+  const searchedActivityLogs = activityLogs.filter(log => matchesAdminSearch([
+    log.username, log.role, log.action, log.route_name, log.route_id
+  ]));
   const searchedLocations = locations.filter(location => matchesAdminSearch([
     location.name, location.type, location.barangay, location.address, location.status,
     location.search_keywords, location.description
@@ -404,7 +413,27 @@ export default function Admin() {
       return;
     }
     loadAdminData();
+    loadAdminActivity();
   }, [isAdmin]);
+
+  const loadAdminActivity = async () => {
+    setActivityLogsLoading(true);
+    setActivityLogsError('');
+    try {
+      const response = await fetch('/api/admin/audit-logs?limit=200', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to retrieve audit logs.');
+      if (!Array.isArray(data)) throw new Error('The audit log response was invalid.');
+      setActivityLogs(data);
+    } catch (err) {
+      console.error('Error loading user activity:', err);
+      setActivityLogsError(err.message || 'Failed to retrieve audit logs.');
+    } finally {
+      setActivityLogsLoading(false);
+    }
+  };
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -1422,6 +1451,7 @@ export default function Admin() {
             { key: 'web-map', label: 'Web Map', icon: Compass },
             { key: 'advisories', label: 'Flood Advisories & Detours', icon: AlertTriangle },
             { key: 'saved-routes', label: 'Saved Routes', icon: Bookmark },
+            { key: 'activity', label: 'User Activity', icon: Activity },
             { key: 'locations', label: 'Places & Stops', icon: Layers },
             { key: 'modes', label: 'Transport Modes', icon: Ship },
             { key: 'fares', label: 'Fare Matrix', icon: DollarSign },
@@ -1799,7 +1829,7 @@ export default function Admin() {
                   <Bookmark className="h-5 w-5 text-emerald-700" />
                   <h3 className="text-lg font-bold text-slate-900">Saved Route Popularity</h3>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">Aggregate commuter bookmarks by route. Individual commuter accounts are not shown.</p>
+                <p className="mt-1 text-xs text-slate-500">Aggregate commuter bookmarks by route. See User Activity for individual bookmark events.</p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
@@ -1836,6 +1866,96 @@ export default function Admin() {
                       <td className="px-4 py-3.5 text-right tabular-nums font-bold text-slate-900">{route.saved_count}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'activity' && (
+          <section className="overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-emerald-700" />
+                  <h3 className="text-lg font-bold text-slate-900">User Activity</h3>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Latest 200 sign-ins, sign-outs, and saved-route changes.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                {renderAdminSearch('Search user activity...')}
+                <button
+                  type="button"
+                  onClick={loadAdminActivity}
+                  disabled={activityLogsLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <RefreshCw className={`h-4 w-4 ${activityLogsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {activityLogsError && (
+              <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {activityLogsError}
+              </p>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">User</th>
+                    <th className="px-4 py-3">Activity</th>
+                    <th className="px-4 py-3">Route</th>
+                    <th className="px-4 py-3">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {searchedActivityLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-4 py-10 text-center text-slate-400">
+                        {activityLogsLoading
+                          ? 'Loading user activity...'
+                          : activityLogs.length
+                            ? 'No activity matches your search.'
+                            : 'No user activity has been recorded yet.'}
+                      </td>
+                    </tr>
+                  ) : searchedActivityLogs.map((log) => {
+                    const isLogin = log.action === 'LOGIN';
+                    const isLogout = log.action === 'LOGOUT';
+                    const ActionIcon = isLogin ? LogIn : isLogout ? LogOut : Bookmark;
+                    const actionLabel = {
+                      LOGIN: 'Signed in',
+                      LOGOUT: 'Signed out',
+                      ROUTE_SAVED: 'Saved route',
+                      ROUTE_UNSAVED: 'Removed saved route'
+                    }[log.action] || log.action;
+                    return (
+                      <tr key={log.id} className="transition-colors hover:bg-slate-50/70">
+                        <td className="px-4 py-3.5">
+                          <div className="font-semibold text-slate-900">{log.username}</div>
+                          <div className="mt-1 text-[10px] text-slate-500">{log.role}</div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                            <ActionIcon className="h-4 w-4 text-emerald-700" />
+                            {actionLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-700">
+                          {log.route_name || (log.route_id ? `Route #${log.route_id}` : '—')}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">
+                          {new Date(log.created_at).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
