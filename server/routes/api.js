@@ -93,7 +93,7 @@ async function sendAuthCodeEmail(user, code, purpose) {
 
 async function issueAuthCode(user, purpose, challengeHash = null) {
     const codeQuery = { user_id: user.id, purpose, used: false };
-    const recentQuery = { user_id: user.id, purpose };
+    const recentQuery = { user_id: user.id, purpose, used: false };
     if (purpose === 'ADMIN_LOGIN') {
         codeQuery.challenge_hash = challengeHash;
         recentQuery.challenge_hash = challengeHash;
@@ -122,7 +122,7 @@ async function issueAuthCode(user, purpose, challengeHash = null) {
         record.used = true;
         await record.save();
         console.error(`[AUTH] Failed to send verification email: ${err.message}`);
-        throw new Error('We could not send the verification email. Please try again later.');
+        throw new Error(`We could not send the verification email. ${err.message}`);
     }
 
     return { record, sent: true };
