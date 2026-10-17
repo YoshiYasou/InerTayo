@@ -91,6 +91,39 @@ function routeFeature(route, allowUnverifiedPreview = false) {
   };
 }
 
+function routeEndpoints(feature) {
+  const pathSegments = feature?.properties?.route_path_segments || [];
+  const validSegments = pathSegments.flatMap((segment) => {
+    let geometry = segment.geometry;
+    if (typeof geometry === 'string') {
+      try {
+        geometry = JSON.parse(geometry);
+      } catch {
+        return [];
+      }
+    }
+    const coordinates = geometry?.type === 'LineString' ? geometry.coordinates : null;
+    if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.some((point) =>
+      !Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1])
+    )) {
+      return [];
+    }
+    return [coordinates];
+  });
+
+  if (validSegments.length) {
+    const lastSegmentCoordinates = validSegments[validSegments.length - 1];
+    return {
+      start: validSegments[0][0],
+      end: lastSegmentCoordinates[lastSegmentCoordinates.length - 1],
+    };
+  }
+
+  const coordinates = feature?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  return { start: coordinates[0], end: coordinates[coordinates.length - 1] };
+}
+
 // Default / dim / selected polyline styles
 const STYLE_DEFAULT  = { weight: 2.5, opacity: 0.38 };
 const STYLE_OVERVIEW = { weight: 1.5, opacity: 0.12 };
@@ -680,13 +713,13 @@ function LayerManager({
       feature = routeFeatures.find(item => String(item.properties.id) === String(selectedRouteId));
     }
 
-    const coordinates = feature?.geometry?.coordinates;
-    if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+    const routePathEndpoints = routeEndpoints(feature);
+    if (!routePathEndpoints) return;
 
     const endpoints = L.layerGroup();
     [
-      { label: 'A', coordinate: coordinates[0], description: 'Route start' },
-      { label: 'B', coordinate: coordinates[coordinates.length - 1], description: 'Route end' },
+      { label: 'A', coordinate: routePathEndpoints.start, description: 'Route start' },
+      { label: 'B', coordinate: routePathEndpoints.end, description: 'Route end' },
     ].forEach(({ label, coordinate, description }) => {
       const marker = L.marker([coordinate[1], coordinate[0]], {
         icon: routeEndpointIcon(label),
