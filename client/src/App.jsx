@@ -16,7 +16,7 @@ import SavedRoutes from './pages/SavedRoutes';
 import Terms from './pages/Terms';
 
 export default function App() {
-  const { currentPath } = useRouter();
+  const { currentPath, queryParams } = useRouter();
 
   // Simple client-side page router
   const renderPage = () => {
@@ -52,15 +52,16 @@ export default function App() {
   };
 
   const isMapPage = currentPath === '/map';
+  const isEmbeddedTerms = currentPath === '/terms' && queryParams?.embed === 'signup';
 
   return (
     <div className="flex flex-col min-h-screen bg-white selection:bg-emerald-100 selection:text-emerald-900">
-      <Navbar />
+      {!isEmbeddedTerms && <Navbar />}
       <main className="flex-1 flex flex-col">
         {renderPage()}
       </main>
-      {!isMapPage && <Footer />}
-      <AuthModal />
+      {!isMapPage && !isEmbeddedTerms && <Footer />}
+      {!isEmbeddedTerms && <AuthModal />}
     </div>
   );
 }

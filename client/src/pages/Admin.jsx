@@ -5,6 +5,7 @@ import RouteGeometryEditor from '../components/RouteGeometryEditor';
 import RouteMap from '../components/RouteMap';
 import LocationPinPicker from '../components/LocationPinPicker';
 import LocationAutocomplete from '../components/LocationAutocomplete';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { 
   ShieldCheck, 
   Route, 
@@ -213,6 +214,27 @@ function DetourStepsEditor({ steps = [], onChange, modes = [] }) {
 export default function Admin() {
   const { navigate } = useRouter();
   const { user, token, isAdmin, openAuth } = useAuth();
+  const [adminDialog, setAdminDialog] = useState(null);
+  const adminDialogResolver = useRef(null);
+
+  const requestAdminDialog = (dialog) => new Promise((resolve) => {
+    adminDialogResolver.current = resolve;
+    setAdminDialog(dialog);
+  });
+
+  const confirmAdminAction = (title, message, confirmLabel = 'Continue', tone = 'danger') => (
+    requestAdminDialog({ title, message, confirmLabel, tone, showCancel: true })
+  );
+
+  const showAdminNotice = (title, message) => (
+    requestAdminDialog({ title, message, confirmLabel: 'OK', tone: 'danger', showCancel: false })
+  );
+
+  const finishAdminDialog = (confirmed) => {
+    adminDialogResolver.current?.(confirmed);
+    adminDialogResolver.current = null;
+    setAdminDialog(null);
+  };
 
   const [activeTab, setActiveTab] = useState('routes');
   const [stats, setStats] = useState(null);
@@ -233,7 +255,7 @@ export default function Admin() {
   const [fareTricycles, setFareTricycles] = useState([]);
   const [fareRoutes, setFareRoutes] = useState([]);
   const [fareBoats, setFareBoats] = useState([]);
-  const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'provincial_bus', 'boat'
+  const [fareCategory, setFareCategory] = useState('tricycle'); // 'tricycle', 'jeepney', 'modern_puv', 'boat'
   const [fareSearch, setFareSearch] = useState('');
 
   // Authoritative Fare Modal States
@@ -350,7 +372,8 @@ export default function Admin() {
   const searchedRoutes = routes.filter(route => matchesAdminSearch([
     route.route_name, route.mode_name, route.origin, route.destination, route.status, route.description
   ]));
-  const selectedWebMapRoute = routes.find((route) => route.id === selectedWebMapRouteId) || null;
+  const selectedWebMapRoute = routes.find((route) => String(route.id) === String(selectedWebMapRouteId)) || null;
+  const webMapRoutes = selectedWebMapRoute ? [selectedWebMapRoute] : routes;
   const searchedSavedRouteInsights = savedRouteInsights.routes.filter(route => matchesAdminSearch([
     route.route_name, route.mode_name, route.origin, route.destination
   ]));
@@ -714,7 +737,7 @@ export default function Admin() {
         route_steps: routeSteps,
       });
     } catch (error) {
-      alert(`Failed to save draft: ${error.message}`);
+      await showAdminNotice('Draft could not be saved', `Failed to save draft: ${error.message}`);
     }
   };
 
@@ -786,7 +809,7 @@ export default function Admin() {
   };
 
   const discardRouteChanges = async () => {
-    if (!window.confirm('Discard the current route changes and any saved draft?')) return;
+    if (!await confirmAdminAction('Discard route changes?', 'Discard the current route changes and any saved draft?', 'Discard changes')) return;
     try {
       const response = await fetch(`/api/admin/route-drafts/${routeDraftKey}`, {
         method: 'DELETE',
@@ -796,7 +819,7 @@ export default function Admin() {
       setAvailableRouteDraft(null);
       setRouteModalOpen(false);
     } catch (error) {
-      alert(`Failed to discard changes: ${error.message}`);
+      await showAdminNotice('Changes could not be discarded', `Failed to discard changes: ${error.message}`);
     }
   };
 
@@ -842,7 +865,7 @@ export default function Admin() {
     try {
       const validation = await validateRouteBeforePublish();
       if (validation.errors.length) {
-        alert(`Route cannot be published until geometry errors are fixed:\n${validation.errors.join('\n')}`);
+        await showAdminNotice('Route cannot be published', `Route cannot be published until geometry errors are fixed:\n${validation.errors.join('\n')}`);
         return;
       }
       const warningText = validation.warnings.length
@@ -855,12 +878,12 @@ export default function Admin() {
             !config.detour_steps?.length || config.detour_steps.some((step) => !step.instruction?.trim()));
       });
       if (invalidDetour) {
-        alert(`Complete both map paths and every detour step for ${invalidDetour.title} before saving.`);
+        await showAdminNotice('Complete the detour first', `Complete both map paths and every detour step for ${invalidDetour.title} before saving.`);
         return;
       }
 
       const action = editingRoute ? 'publish these changes' : 'publish this new route';
-      if (!window.confirm(`Are you sure you want to ${action}?${warningText}`)) return;
+      if (!await confirmAdminAction('Publish route?', `Are you sure you want to ${action}?${warningText}`, 'Publish', 'primary')) return;
 
       let routeId;
       if (editingRoute) {
@@ -942,12 +965,12 @@ export default function Admin() {
       setRouteModalOpen(false);
       loadAdminData();
     } catch (err) {
-      alert('Failed to save route: ' + err.message);
+      await showAdminNotice('Route could not be saved', 'Failed to save route: ' + err.message);
     }
   };
 
   const handleDeleteRoute = async (routeId) => {
-    if (!window.confirm('Are you sure you want to delete this route? This will also delete its stops, steps, and fare schedules.')) return;
+    if (!await confirmAdminAction('Delete route?', 'Are you sure you want to delete this route? This will also delete its stops, steps, and fare schedules.', 'Delete')) return;
 
     try {
       await fetch(`/api/admin/routes/${routeId}`, {
@@ -956,7 +979,7 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete route: ' + err.message);
+      await showAdminNotice('Route could not be deleted', 'Failed to delete route: ' + err.message);
     }
   };
 
@@ -969,7 +992,7 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to toggle advisory status: ' + err.message);
+      await showAdminNotice('Advisory status could not be updated', 'Failed to toggle advisory status: ' + err.message);
     }
   };
 
@@ -1050,7 +1073,7 @@ export default function Admin() {
   };
 
   const handleDeleteAdvisory = async (id) => {
-    if (!window.confirm('Delete this advisory?')) return;
+    if (!await confirmAdminAction('Delete advisory?', 'Delete this advisory?', 'Delete')) return;
     try {
       await fetch(`/api/admin/advisories/${id}`, {
         method: 'DELETE',
@@ -1058,7 +1081,7 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete advisory.');
+      await showAdminNotice('Advisory could not be deleted', 'Failed to delete advisory.');
     }
   };
 
@@ -1076,12 +1099,12 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to update status.');
+      await showAdminNotice('Feedback status could not be updated', 'Failed to update status.');
     }
   };
 
   const handleDeleteFeedback = async (id) => {
-    if (!window.confirm('Delete this feedback entry?')) return;
+    if (!await confirmAdminAction('Delete feedback?', 'Delete this feedback entry?', 'Delete')) return;
     try {
       await fetch(`/api/admin/feedback/${id}`, {
         method: 'DELETE',
@@ -1089,7 +1112,7 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete feedback.');
+      await showAdminNotice('Feedback could not be deleted', 'Failed to delete feedback.');
     }
   };
 
@@ -1149,17 +1172,17 @@ export default function Admin() {
       setLocationModalOpen(false);
       loadAdminData();
     } catch (err) {
-      alert('Failed to save location: ' + err.message);
+      await showAdminNotice('Location could not be saved', 'Failed to save location: ' + err.message);
     }
   };
 
   const handleDeleteLocation = async (id) => {
-    if (!window.confirm('Delete this location? This may affect route segments referencing it.')) return;
+    if (!await confirmAdminAction('Delete location?', 'Delete this location? This may affect route segments referencing it.', 'Delete')) return;
     try {
       await fetch(`/api/admin/locations/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete location.');
+      await showAdminNotice('Location could not be deleted', 'Failed to delete location.');
     }
   };
 
@@ -1215,12 +1238,12 @@ export default function Admin() {
       setStopModalOpen(false);
       await loadAdminData();
     } catch (error) {
-      alert(`Failed to save stop: ${error.message}`);
+      await showAdminNotice('Stop could not be saved', `Failed to save stop: ${error.message}`);
     }
   };
 
   const handleDeleteStop = async (stop) => {
-    if (!window.confirm(`Delete ${stop.stop_name} from ${routes.find(route => route.id === stop.route_id)?.route_name || 'this route'}?`)) return;
+    if (!await confirmAdminAction('Delete route stop?', `Delete ${stop.stop_name} from ${routes.find(route => route.id === stop.route_id)?.route_name || 'this route'}?`, 'Delete')) return;
     try {
       const response = await fetch(`/api/admin/stops/${stop.id}`, {
         method: 'DELETE',
@@ -1229,7 +1252,7 @@ export default function Admin() {
       if (!response.ok) throw new Error('Stop deletion was rejected by the server.');
       await loadAdminData();
     } catch (error) {
-      alert(`Failed to delete stop: ${error.message}`);
+      await showAdminNotice('Stop could not be deleted', `Failed to delete stop: ${error.message}`);
     }
   };
 
@@ -1251,7 +1274,7 @@ export default function Admin() {
       });
       loadAdminData();
     } catch (err) {
-      alert('Failed to update transport mode status.');
+      await showAdminNotice('Transport mode could not be updated', 'Failed to update transport mode status.');
     }
   };
 
@@ -1331,12 +1354,12 @@ export default function Admin() {
       setFareModalOpen(false);
       loadAdminData();
     } catch (err) {
-      alert('Failed to save fare record: ' + err.message);
+      await showAdminNotice('Fare record could not be saved', 'Failed to save fare record: ' + err.message);
     }
   };
 
   const handleDeleteFareRecord = async (fare, category) => {
-    if (!window.confirm('Delete this fare record? This cannot be undone.')) return;
+    if (!await confirmAdminAction('Delete fare record?', 'Delete this fare record? This cannot be undone.', 'Delete')) return;
     const headers = { 'Authorization': `Bearer ${token}` };
     try {
       if (category === 'tricycle') {
@@ -1348,7 +1371,7 @@ export default function Admin() {
       }
       loadAdminData();
     } catch (err) {
-      alert('Failed to delete fare record.');
+      await showAdminNotice('Fare record could not be deleted', 'Failed to delete fare record.');
     }
   };
   // ── End Fare Matrix Handlers ────────────────────────────────────────────────
@@ -1445,7 +1468,7 @@ export default function Admin() {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 mb-6 space-x-2 overflow-x-auto pb-px [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div className="flex flex-nowrap gap-x-2 overflow-x-auto border-b border-slate-200 mb-6 pb-2">
           {[
             { key: 'routes', label: 'Routes & Travel Times', icon: Route },
             { key: 'web-map', label: 'Web Map', icon: Compass },
@@ -1628,7 +1651,7 @@ export default function Admin() {
                   </h3>
                   <p className="mt-0.5 text-xs text-slate-500">
                     {selectedWebMapRoute
-                      ? `${selectedWebMapRoute.mode_name} · ${selectedWebMapRoute.origin} to ${selectedWebMapRoute.destination}`
+                      ? `${selectedWebMapRoute.mode_name} · ${selectedWebMapRoute.origin} to ${selectedWebMapRoute.destination}${selectedWebMapRoute.geometry_needs_review ? ' · Unverified geometry preview' : ''}`
                       : 'Select a route to edit its map geometry.'}
                   </p>
                 </div>
@@ -1645,14 +1668,16 @@ export default function Admin() {
               </div>
               <div className="h-[64vh] min-h-[420px]">
                 <RouteMap
-                  routes={routes}
+                  routes={webMapRoutes}
+                  selectedRouteId={selectedWebMapRoute?.id ?? null}
+                  allowUnverifiedPreview={Boolean(selectedWebMapRoute)}
                   interactive
                   showAdvisories
                   showLocations
                   locations={locations}
                   showStopClusterCounts={false}
                   onSelect={(type, item) => {
-                    if (type === 'route') setSelectedWebMapRouteId(item.id);
+                    if (type === 'route') setSelectedWebMapRouteId(item?.id ?? null);
                   }}
                   className="h-full w-full"
                 />
@@ -2199,7 +2224,6 @@ export default function Admin() {
           { key: 'tricycle', label: 'Motorized Tricycles', count: fareTricycles.length },
           { key: 'jeepney', label: 'Traditional Jeepneys', count: fareRoutes.filter(r => r.transport_mode === 'jeepney').length },
           { key: 'modern_puv', label: 'Modern PUVs', count: fareRoutes.filter(r => r.transport_mode === 'modern_puv').length },
-          { key: 'provincial_bus', label: 'Provincial Buses', count: fareRoutes.filter(r => r.transport_mode === 'provincial_bus').length },
           { key: 'boat', label: 'Water Boats', count: fareBoats.length },
         ];
 
@@ -2372,45 +2396,6 @@ export default function Admin() {
                           <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
                             <button onClick={() => openEditFareModal(r, fareCategory)} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
                             <button onClick={() => handleDeleteFareRecord(r, fareCategory)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {/* 4. PROVINCIAL BUSES */}
-              {fareCategory === 'provincial_bus' && (
-                <table className="min-w-[800px] w-full text-left text-xs text-slate-600">
-                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-4">Route Name</th>
-                      <th className="py-3 px-4">Bus Company & Terminal</th>
-                      <th className="py-3 px-4">Service Type</th>
-                      <th className="py-3 px-4">Regular Fare</th>
-                      <th className="py-3 px-4">Discounted Fare (20% Off)</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredRoutes.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="text-center text-slate-400 py-8">
-                          No provincial bus fare records found matching your search.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredRoutes.map((r, idx) => (
-                        <tr key={r._id || idx} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">{r.route_name}</td>
-                          <td className="py-3 px-4 text-slate-600 max-w-[240px]">{r.terminal || '—'}</td>
-                          <td className="py-3 px-4 text-slate-600">{r.waypoints || r.vehicle_or_service_type || 'Bus'}</td>
-                          <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">{formatFare(r.regular_fare)}</td>
-                          <td className="py-3 px-4 font-semibold text-amber-700 whitespace-nowrap">{formatFare(r.discounted_fare_20pct)}</td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
-                            <button onClick={() => openEditFareModal(r, 'provincial_bus')} className="p-1.5 text-slate-400 hover:text-emerald-700 rounded-lg transition-colors" title="Edit"><Edit className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteFareRecord(r, 'provincial_bus')} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
                           </td>
                         </tr>
                       ))
@@ -3654,7 +3639,7 @@ export default function Admin() {
                 </>
               )}
 
-              {/* ── ROUTE FARE FIELDS (jeepney / modern_puv / provincial_bus) ── */}
+              {/* ── ROUTE FARE FIELDS (jeepney / modern_puv) ── */}
               {fareModalCategory !== 'tricycle' && fareModalCategory !== 'boat' && (
                 <>
                   <div>
@@ -3727,6 +3712,17 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(adminDialog)}
+        title={adminDialog?.title || ''}
+        message={adminDialog?.message || ''}
+        confirmLabel={adminDialog?.confirmLabel}
+        showCancel={adminDialog?.showCancel}
+        tone={adminDialog?.tone}
+        onCancel={() => finishAdminDialog(false)}
+        onConfirm={() => finishAdminDialog(true)}
+      />
 
     </div>
   );

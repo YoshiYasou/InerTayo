@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 
 export default function Terms() {
-  const { navigate } = useRouter();
+  const { navigate, queryParams } = useRouter();
+  const embedded = queryParams?.embed === 'signup';
 
   const sections = [
     { id: 'service-scope', title: '1. Service Scope & Role' },
@@ -38,9 +39,9 @@ export default function Terms() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
+    <div className={`min-h-screen bg-slate-50 text-slate-800 ${embedded ? '' : 'pb-24'}`}>
       {/* Header */}
-      <div className="bg-white border-b border-slate-200/80 pt-12 pb-12 shadow-sm">
+      {!embedded && <div className="bg-white border-b border-slate-200/80 pt-12 pb-12 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <button
             onClick={() => navigate('/')}
@@ -65,14 +66,14 @@ export default function Terms() {
             Please read these Terms and Conditions carefully before using the InerTayo web application. InerTayo is a public transportation route discovery platform for Dagupan City, Pangasinan. By accessing the site or creating an account, you agree to comply with these terms.
           </p>
         </div>
-      </div>
+      </div>}
 
       {/* Main Content Layout */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className={`${embedded ? 'w-full px-4 py-4 sm:px-6' : 'max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10'}`}>
+        <div className={`grid grid-cols-1 ${embedded ? '' : 'lg:grid-cols-12 gap-8'} items-start`}>
           
           {/* Quick Jump Sidebar (Desktop) */}
-          <aside className="hidden lg:block lg:col-span-4 sticky top-6 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+          {!embedded && <aside className="hidden lg:block lg:col-span-4 sticky top-6 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Table of Contents
             </h3>
@@ -93,10 +94,10 @@ export default function Terms() {
                 <span>Need help with routes or fare inquiries? Contact our team at <strong className="text-slate-700">support@inertayo.ph</strong>.</span>
               </div>
             </div>
-          </aside>
+          </aside>}
 
           {/* Legal Text Sections */}
-          <main className="lg:col-span-8 bg-white p-6 sm:p-10 rounded-2xl border border-slate-200/80 shadow-sm space-y-10 text-sm leading-relaxed text-slate-600">
+          <main className={`${embedded ? 'w-full space-y-6 text-sm leading-relaxed' : 'lg:col-span-8 bg-white p-6 sm:p-10 rounded-2xl border border-slate-200/80 shadow-sm space-y-10 text-sm leading-relaxed'} text-slate-600`}>
 
             {/* Section 1 */}
             <section id="service-scope" className="space-y-3">
