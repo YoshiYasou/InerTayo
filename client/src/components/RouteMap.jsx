@@ -337,6 +337,7 @@ function LayerManager({
   showStopClusterCounts = true,
 }) {
   const map = useMap();
+  const [geoDataLoaded, setGeoDataLoaded] = useState(false);
 
   // GeoJSON data fetched from server
   const geoDataRef = useRef({
@@ -382,7 +383,7 @@ function LayerManager({
       layers.map(l => fetch(`/api/map/layers/${l}`).then(r => r.ok ? r.json() : null).catch(() => null))
     ).then(results => {
       keys.forEach((key, i) => { geoDataRef.current[key] = results[i]; });
-      buildAllLayers();
+      setGeoDataLoaded(true);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -391,7 +392,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, focusedRouteSource]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, focusedRouteSource, geoDataLoaded]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -403,7 +404,7 @@ function LayerManager({
     map.on('zoomend', onZoomEnd);
     return () => map.off('zoomend', onZoomEnd);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]);
+  }, [map, showSchools, showLandmarks, showLocations]);
 
   // ── Journey bounds + hide ───────────────────────────────────────────────
   useEffect(() => {
@@ -919,28 +920,38 @@ function LayerManager({
       }
     }
 
-    // Schools
-    if (zoom < ZOOM_TIER2_MIN) {
+    // Optional layers must remain removed at every zoom level while disabled.
+    if (!showSchools) {
+      if (refs.schoolCluster) refs.schoolCluster.remove();
+      refs.schoolCluster = null;
+    } else if (zoom < ZOOM_TIER2_MIN) {
       if (refs.schoolCluster && map.hasLayer(refs.schoolCluster)) refs.schoolCluster.remove();
-    } else {
-      if (refs.schoolCluster && !map.hasLayer(refs.schoolCluster)) refs.schoolCluster.addTo(map);
-      else if (!refs.schoolCluster && showSchools) rebuildSchoolCluster();
+    } else if (refs.schoolCluster && !map.hasLayer(refs.schoolCluster)) {
+      refs.schoolCluster.addTo(map);
+    } else if (!refs.schoolCluster) {
+      rebuildSchoolCluster();
     }
 
-    // Locations (Places & Streets)
-    if (zoom < ZOOM_TIER2_MIN) {
+    if (!showLocations) {
+      if (refs.locationCluster) refs.locationCluster.remove();
+      refs.locationCluster = null;
+    } else if (zoom < ZOOM_TIER2_MIN) {
       if (refs.locationCluster && map.hasLayer(refs.locationCluster)) refs.locationCluster.remove();
-    } else {
-      if (refs.locationCluster && !map.hasLayer(refs.locationCluster)) refs.locationCluster.addTo(map);
-      else if (!refs.locationCluster && showLocations) rebuildLocationCluster();
+    } else if (refs.locationCluster && !map.hasLayer(refs.locationCluster)) {
+      refs.locationCluster.addTo(map);
+    } else if (!refs.locationCluster) {
+      rebuildLocationCluster();
     }
 
-    // Landmarks only at TIER3
-    if (zoom < ZOOM_TIER3_MIN) {
+    if (!showLandmarks) {
+      if (refs.landmarkCluster) refs.landmarkCluster.remove();
+      refs.landmarkCluster = null;
+    } else if (zoom < ZOOM_TIER3_MIN) {
       if (refs.landmarkCluster && map.hasLayer(refs.landmarkCluster)) refs.landmarkCluster.remove();
-    } else {
-      if (refs.landmarkCluster && !map.hasLayer(refs.landmarkCluster)) refs.landmarkCluster.addTo(map);
-      else if (!refs.landmarkCluster && showLandmarks) rebuildLandmarkCluster();
+    } else if (refs.landmarkCluster && !map.hasLayer(refs.landmarkCluster)) {
+      refs.landmarkCluster.addTo(map);
+    } else if (!refs.landmarkCluster) {
+      rebuildLandmarkCluster();
     }
   }
 

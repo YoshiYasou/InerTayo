@@ -33,7 +33,9 @@ import {
   Layers,
   Ship,
   FileSpreadsheet,
-  Search
+  Search,
+  GraduationCap,
+  Landmark
 } from 'lucide-react';
 
 function hasPreviewableGeometry(value) {
@@ -291,6 +293,11 @@ export default function Admin() {
   const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState(null);
   const [selectedWebMapRouteId, setSelectedWebMapRouteId] = useState(null);
+  const [webMapLayers, setWebMapLayers] = useState({
+    schools: false,
+    locations: true,
+    landmarks: false
+  });
   const [routeMapEditorTab, setRouteMapEditorTab] = useState('normal');
   const [routeSteps, setRouteSteps] = useState([]);
   const [originalRouteSteps, setOriginalRouteSteps] = useState([]);
@@ -1402,15 +1409,15 @@ export default function Admin() {
     <div className="min-h-screen bg-slate-50/70 pb-24">
       
       {/* Top Header */}
-      <div className="bg-slate-900 text-white pt-10 pb-8 px-4 sm:px-6 lg:px-8 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-slate-900 text-white py-6 px-4 sm:px-6 lg:px-8 border-b border-slate-800">
+        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/30">
                 Staff Portal
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1">
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight mt-1">
               InerTayo Transit Management
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
@@ -1428,7 +1435,7 @@ export default function Admin() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 pt-8">
         
         {/* Metric Cards */}
         {stats && (
@@ -1467,8 +1474,9 @@ export default function Admin() {
           </div>
         )}
 
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* Tab Navigation */}
-        <div className="flex flex-nowrap gap-x-2 overflow-x-auto border-b border-slate-200 mb-6 pb-2">
+        <nav aria-label="Admin sections" className="grid grid-cols-2 gap-1 lg:w-60 lg:shrink-0 lg:grid-cols-1">
           {[
             { key: 'routes', label: 'Routes & Travel Times', icon: Route },
             { key: 'web-map', label: 'Web Map', icon: Compass },
@@ -1489,10 +1497,10 @@ export default function Admin() {
                   setActiveTab(tab.key);
                   setAdminSearch('');
                 }}
-                className={`flex items-center gap-2 py-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
+                className={`flex min-h-11 items-center gap-2 rounded-lg border-l-4 px-3 py-2 text-left text-xs sm:text-sm font-bold transition-all ${
                   isActive
-                    ? 'border-emerald-600 text-emerald-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                    ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                    : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -1500,8 +1508,9 @@ export default function Admin() {
               </button>
             );
           })}
-        </div>
+        </nav>
 
+        <div className="min-w-0 flex-1 space-y-6">
         {/* ========================================================================= */}
         {/* TAB 1: ROUTES MANAGEMENT */}
         {/* ========================================================================= */}
@@ -1644,27 +1653,56 @@ export default function Admin() {
             </aside>
 
             <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-bold text-slate-900">
-                    {selectedWebMapRoute?.route_name || 'Dagupan transit map'}
-                  </h3>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {selectedWebMapRoute
-                      ? `${selectedWebMapRoute.mode_name} · ${selectedWebMapRoute.origin} to ${selectedWebMapRoute.destination}${selectedWebMapRoute.geometry_needs_review ? ' · Unverified geometry preview' : ''}`
-                      : 'Select a route to edit its map geometry.'}
-                  </p>
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-bold text-slate-900">
+                      {selectedWebMapRoute?.route_name || 'Dagupan transit map'}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {selectedWebMapRoute
+                        ? `${selectedWebMapRoute.mode_name} · ${selectedWebMapRoute.origin} to ${selectedWebMapRoute.destination}${selectedWebMapRoute.geometry_needs_review ? ' · Unverified geometry preview' : ''}`
+                        : 'Select a route to edit its map geometry.'}
+                    </p>
+                  </div>
+                  {selectedWebMapRoute && (
+                    <button
+                      type="button"
+                      onClick={() => openEditRouteModal(selectedWebMapRoute)}
+                      className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-800"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                      Edit Route
+                    </button>
+                  )}
                 </div>
-                {selectedWebMapRoute && (
-                  <button
-                    type="button"
-                    onClick={() => openEditRouteModal(selectedWebMapRoute)}
-                    className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-800"
-                  >
-                    <Edit className="h-3.5 w-3.5" />
-                    Edit Route
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center gap-2" aria-label="Map layer visibility">
+                  <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Show on map</span>
+                  {[
+                    { key: 'schools', label: 'Schools', icon: GraduationCap },
+                    { key: 'locations', label: 'Places', icon: MapPin },
+                    { key: 'landmarks', label: 'Landmarks', icon: Landmark }
+                  ].map(({ key, label, icon: LayerIcon }) => {
+                    const enabled = webMapLayers[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={enabled}
+                        onClick={() => setWebMapLayers((current) => ({ ...current, [key]: !current[key] }))}
+                        className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
+                          enabled
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                            : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                        }`}
+                      >
+                        <LayerIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                        {label}
+                        <span className="text-[9px] uppercase">{enabled ? 'On' : 'Off'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="h-[64vh] min-h-[420px]">
                 <RouteMap
@@ -1673,7 +1711,9 @@ export default function Admin() {
                   allowUnverifiedPreview={Boolean(selectedWebMapRoute)}
                   interactive
                   showAdvisories
-                  showLocations
+                  showLocations={webMapLayers.locations}
+                  showSchools={webMapLayers.schools}
+                  showLandmarks={webMapLayers.landmarks}
                   locations={locations}
                   showStopClusterCounts={false}
                   onSelect={(type, item) => {
@@ -1770,11 +1810,11 @@ export default function Admin() {
 
                     {adv.routes && adv.routes.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-amber-200/60 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                        <span className="linked-route-label text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
                           Linked Routes:
                         </span>
                         {adv.routes.map(r => (
-                          <span key={r.id} className="px-2 py-0.5 bg-white/90 border border-slate-200 rounded-md text-[11px] font-semibold text-slate-700">
+                          <span key={r.id} className="linked-route-badge px-2 py-0.5 bg-white/90 border border-slate-200 rounded-md text-[11px] font-semibold text-slate-700">
                             {r.route_name}
                           </span>
                         ))}
@@ -2445,6 +2485,8 @@ export default function Admin() {
         );
       })()}
 
+      </div>
+        </div>
       </div>
 
       {/* ========================================================================= */}

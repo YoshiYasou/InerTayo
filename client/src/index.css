@@ -236,10 +236,14 @@
   color: #93c5fd;
 }
 
-:root[data-theme='dark'] [class~='text-pink-600'],
 :root[data-theme='dark'] [class~='text-cyan-600'],
 :root[data-theme='dark'] [class~='text-cyan-700'] {
   color: #67e8f9;
+}
+
+:root[data-theme='dark'] [class~='text-pink-600'],
+:root[data-theme='dark'] [class~='text-pink-700'] {
+  color: #f9a8d4;
 }
 
 :root[data-theme='dark'] [class~='border-sky-200'],
@@ -252,9 +256,20 @@
 :root[data-theme='dark'] [class~='border-indigo-100'],
 :root[data-theme='dark'] [class~='border-purple-200'],
 :root[data-theme='dark'] [class~='border-pink-100'],
+:root[data-theme='dark'] [class~='border-pink-200'],
 :root[data-theme='dark'] [class~='border-cyan-100'],
 :root[data-theme='dark'] [class~='border-teal-200'] {
   border-color: #1e40af;
+}
+
+:root[data-theme='dark'] .linked-route-label {
+  color: #cbd5e1;
+}
+
+:root[data-theme='dark'] .linked-route-badge {
+  background-color: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
 }
 
 :root[data-theme='dark'] .leaflet-popup-content-wrapper,

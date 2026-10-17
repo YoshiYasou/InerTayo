@@ -10,6 +10,8 @@ import {
   CarFront, 
   Bus, 
   Bike, 
+  Footprints,
+  Ship,
   ArrowRight,
   Landmark,
   GraduationCap,
@@ -24,7 +26,6 @@ export default function WebMap() {
   const [locations, setLocations] = useState([]);
   const [schools, setSchools] = useState([]);
   const [focusedRoute, setFocusedRoute] = useState(null);
-  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL', 'Jeepney', 'Bus', 'Tricycle', 'Boat', 'FLOOD'
   const [showLandmarks, setShowLandmarks] = useState(false);
   const [showLocations, setShowLocations] = useState(false); // routes-only default
   const [showSchools, setShowSchools] = useState(false);     // routes-only default
@@ -151,12 +152,56 @@ export default function WebMap() {
     }
   };
 
+  const getSelectedRouteModes = (route) => {
+    const routeSegments = Array.isArray(route?.route_path_segments)
+      ? route.route_path_segments
+      : Array.isArray(route?.path_segments) ? route.path_segments : [];
+    const segmentModes = routeSegments
+      .slice()
+      .sort((first, second) => (first.segment_order ?? 0) - (second.segment_order ?? 0))
+      .map((segment) => String(segment.mode || '').trim())
+      .filter(Boolean);
+    const modes = segmentModes.length ? segmentModes : [String(route?.mode_name || route?.mode || '').trim()];
+    const seenModes = new Set();
+
+    return modes.flatMap((mode) => {
+      const normalizedMode = mode.toLowerCase();
+      if (!normalizedMode || seenModes.has(normalizedMode)) return [];
+      seenModes.add(normalizedMode);
+
+      if (normalizedMode.includes('walk')) {
+        return [{ label: mode, icon: Footprints, color: 'text-emerald-700', background: 'bg-emerald-50', border: 'border-emerald-200' }];
+      }
+      if (normalizedMode.includes('tricycle')) {
+        return [{ label: mode, icon: Bike, color: 'text-cyan-700', background: 'bg-cyan-50', border: 'border-cyan-200' }];
+      }
+      if (normalizedMode.includes('jeep')) {
+        return [{ label: mode, icon: CarFront, color: 'text-pink-700', background: 'bg-pink-50', border: 'border-pink-200' }];
+      }
+      if (normalizedMode.includes('bus')) {
+        return [{ label: mode, icon: Bus, color: 'text-emerald-700', background: 'bg-emerald-50', border: 'border-emerald-200' }];
+      }
+      if (normalizedMode.includes('boat')) {
+        return [{ label: mode, icon: Ship, color: 'text-blue-700', background: 'bg-blue-50', border: 'border-blue-200' }];
+      }
+      return [{ label: mode, icon: CarFront, color: 'text-slate-700', background: 'bg-slate-50', border: 'border-slate-200' }];
+    });
+  };
+  const selectedRouteModes = selectedItem?.type === 'route'
+    ? getSelectedRouteModes(selectedItem.data)
+    : [];
+  const mapLayers = [
+    { label: 'Schools', icon: GraduationCap, enabled: showSchools, toggle: () => setShowSchools(!showSchools), activeClass: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+    { label: 'Places & Streets', icon: MapPin, enabled: showLocations, toggle: () => setShowLocations(!showLocations), activeClass: 'bg-sky-50 border-sky-200 text-sky-700' },
+    { label: 'Landmarks', icon: Landmark, enabled: showLandmarks, toggle: () => setShowLandmarks(!showLandmarks), activeClass: 'bg-purple-50 border-purple-200 text-purple-700' }
+  ];
+
   return (
     <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
       
       {/* Header Bar */}
       <div className="bg-white border-b border-slate-200 py-3 px-4 sm:px-6 lg:px-8 shadow-xs z-20">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-start gap-3 lg:gap-6">
           <div>
             <div className="flex items-center gap-2">
               <Compass className="w-5 h-5 text-emerald-600" />
@@ -169,66 +214,24 @@ export default function WebMap() {
             </p>
           </div>
 
-          {/* Filter Pills and Layer Toggles (Horizontally scrollable on mobile per Step 9) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full md:flex-wrap no-scrollbar">
-            {[
-              { key: 'ALL', label: 'All Modes' },
-              { key: 'Jeepney', label: 'Jeepneys' },
-              { key: 'Bus', label: 'Buses' },
-              { key: 'Tricycle', label: 'Tricycles' },
-              { key: 'Boat', label: '🚤 River Boats' },
-              { key: 'FLOOD', label: '⚠️ Flood Zones' },
-            ].map((tab) => (
+          {/* Map layer toggles */}
+          <div className="flex max-w-full flex-wrap items-center gap-1.5">
+            {mapLayers.map(({ label, icon: LayerIcon, enabled, toggle, activeClass }) => (
               <button
-                key={tab.key}
-                onClick={() => setActiveFilter(tab.key)}
-                className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-all ${
-                  activeFilter === tab.key
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                key={label}
+                type="button"
+                onClick={toggle}
+                aria-pressed={enabled}
+                className={`flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-all ${
+                  enabled
+                    ? activeClass
+                    : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
                 }`}
               >
-                {tab.label}
+                <LayerIcon className="h-3 w-3" aria-hidden="true" />
+                {label} {enabled ? 'ON' : 'OFF'}
               </button>
             ))}
-
-            <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block"></div>
-
-            <button
-              onClick={() => setShowSchools(!showSchools)}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1 border ${
-                showSchools
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              <GraduationCap className="w-3 h-3" />
-              Schools {showSchools ? 'ON' : 'OFF'}
-            </button>
-
-            <button
-              onClick={() => setShowLocations(!showLocations)}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1 border ${
-                showLocations
-                  ? 'bg-sky-50 border-sky-200 text-sky-700'
-                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              <MapPin className="w-3 h-3" />
-              Places & Streets {showLocations ? 'ON' : 'OFF'}
-            </button>
-
-            <button
-              onClick={() => setShowLandmarks(!showLandmarks)}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1 border ${
-                showLandmarks
-                  ? 'bg-purple-50 border-purple-200 text-purple-700'
-                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              <Landmark className="w-3 h-3" />
-              Landmarks {showLandmarks ? 'ON' : 'OFF'}
-            </button>
           </div>
         </div>
       </div>
@@ -283,6 +286,22 @@ export default function WebMap() {
             {panelView === 'route' && selectedItem?.type === 'route' && (
               <div className="flex-1 overflow-y-auto p-4 sm:p-5">
                 <h3 className="text-lg font-bold text-slate-900">{selectedItem.data.route_name}</h3>
+                {selectedRouteModes.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Vehicles used on this route">
+                    {selectedRouteModes.map((routeMode) => {
+                      const ModeIcon = routeMode.icon;
+                      return (
+                        <div
+                          key={routeMode.label.toLowerCase()}
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 ${routeMode.background} ${routeMode.border} ${routeMode.color}`}
+                        >
+                          <ModeIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span className="text-[11px] font-bold uppercase tracking-wider">{routeMode.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <p className="mt-1 text-sm leading-relaxed text-slate-500">
                   {selectedItem.data.description || 'Route details for this Dagupan transit service.'}
                 </p>
@@ -326,6 +345,7 @@ export default function WebMap() {
                 Loading selected route...
               </div>
             )}
+
           </div>
         </div>
 
@@ -341,7 +361,7 @@ export default function WebMap() {
           ) : (
             <RouteMap
               routes={queryParams?.route ? (focusedRoute ? [focusedRoute] : []) : routes}
-              activeFilter={activeFilter}
+              activeFilter="ALL"
               showLandmarks={showLandmarks}
               showLocations={showLocations}
               showSchools={showSchools}
@@ -356,13 +376,6 @@ export default function WebMap() {
               className="absolute inset-0 w-full h-full"
               onSelect={handleSelect}
             />
-          )}
-
-          {!loading && activeFilter === 'FLOOD' && (
-            <div role="status" className="absolute top-16 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-10 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/95 p-3 text-xs text-amber-900 shadow-lg">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>No verified flood-zone boundary is available to show. Flood-related route advisories remain available in trip details.</span>
-            </div>
           )}
 
           {panelView === 'closed' && (
