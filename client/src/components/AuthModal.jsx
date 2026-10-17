@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   X, 
@@ -14,6 +15,7 @@ import {
   KeyRound,
   ArrowLeft,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
 
 export default function AuthModal() {
@@ -40,6 +42,7 @@ export default function AuthModal() {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [adminChallengeId, setAdminChallengeId] = useState('');
@@ -154,6 +157,7 @@ export default function AuthModal() {
     setRegUsername('');
     setRegEmail('');
     setAgreeTerms(false);
+    setTermsOpen(false);
     setVerificationEmail('');
     setVerificationCode('');
     setAdminChallengeId('');
@@ -796,29 +800,29 @@ export default function AuthModal() {
 
           {/* TERMS AND CONDITIONS AGREEMENT (REGISTER ONLY) */}
           {authModalMode === 'register' && (
-            <div className="pt-1 pb-0.5">
-              <label className="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
+            <div className="flex items-start gap-2.5 pt-1 pb-0.5 text-xs text-slate-600">
                 <input
                   type="checkbox"
                   id="agreeTerms"
+                  aria-label="I agree to the Terms and Conditions"
                   checked={agreeTerms}
-                  onChange={(e) => setAgreeTerms(e.target.checked)}
+                  onChange={(event) => {
+                    if (event.target.checked) setTermsOpen(true);
+                    else setAgreeTerms(false);
+                  }}
                   className="mt-0.5 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer flex-shrink-0"
                 />
                 <span className="leading-snug">
                   I have read and agree to the{' '}
-                  <a
-                    href="/terms"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className="text-emerald-700 font-bold hover:underline"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={() => setTermsOpen(true)}
                   >
                     Terms and Conditions
-                  </a>
+                  </button>
                   .
                 </span>
-              </label>
             </div>
           )}
 
@@ -946,6 +950,64 @@ export default function AuthModal() {
         </div>
 
       </div>
+      {termsOpen && createPortal((
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setTermsOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signup-terms-title"
+            className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            style={{ height: 'min(90vh, 660px)' }}
+          >
+            <header className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-emerald-700" />
+                <h2 id="signup-terms-title" className="text-lg font-bold text-slate-900">Terms and Conditions</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTermsOpen(false)}
+                aria-label="Close terms and conditions"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <iframe
+              src="/terms?embed=signup"
+              title="InerTayo Terms and Conditions"
+              className="min-h-0 w-full flex-1 bg-white"
+            />
+
+            <footer className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={() => setTermsOpen(false)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAgreeTerms(true);
+                  setTermsOpen(false);
+                }}
+                className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                Agree to terms
+              </button>
+            </footer>
+          </section>
+        </div>
+      ), document.body)}
     </div>
   );
 }

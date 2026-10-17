@@ -297,3 +297,35 @@
 :root[data-theme='dark'] [class~='hover:bg-slate-200']:hover {
   background-color: #475569;
 }
+
+:root[data-theme='dark'] [class~='hover:bg-white']:hover,
+:root[data-theme='dark'] [class~='hover:bg-white/70']:hover,
+:root[data-theme='dark'] [class~='hover:bg-slate-50']:hover,
+:root[data-theme='dark'] [class~='hover:bg-slate-50/70']:hover,
+:root[data-theme='dark'] [class~='hover:bg-slate-50/80']:hover {
+  background-color: #334155;
+}
+
+:root[data-theme='dark'] [class~='hover:bg-slate-100']:hover {
+  background-color: #475569;
+}
+
+:root[data-theme='dark'] [class~='hover:bg-slate-200']:hover {
+  background-color: #64748b;
+}
+
+:root[data-theme='dark'] .group:hover [class~='group-hover:bg-white'] {
+  background-color: #334155;
+}
+
+:root[data-theme='dark'] [class~='hover:text-slate-900']:hover,
+:root[data-theme='dark'] [class~='hover:text-slate-800']:hover,
+:root[data-theme='dark'] [class~='hover:text-slate-700']:hover {
+  color: #ffffff;
+}
+
+:root[data-theme='dark'] [class~='hover:border-slate-300']:hover,
+:root[data-theme='dark'] [class~='hover:border-slate-400']:hover,
+:root[data-theme='dark'] [class~='hover:border-slate-500']:hover {
+  border-color: #94a3b8;
+}

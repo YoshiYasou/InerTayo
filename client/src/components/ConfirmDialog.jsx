@@ -2,8 +2,22 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-export default function ConfirmDialog({ open, title, message, onCancel, onConfirm }) {
+export default function ConfirmDialog({
+  open,
+  title,
+  message,
+  onCancel,
+  onConfirm,
+  confirmLabel = 'Log Out',
+  cancelLabel = 'Cancel',
+  showCancel = true,
+  tone = 'danger'
+}) {
   if (!open) return null;
+
+  const confirmTone = tone === 'danger'
+    ? 'bg-rose-600 hover:bg-rose-700'
+    : 'bg-emerald-700 hover:bg-emerald-800';
 
   return createPortal((
     <div
@@ -32,24 +46,26 @@ export default function ConfirmDialog({ open, title, message, onCancel, onConfir
         <h2 id="confirm-dialog-title" className="text-xl font-bold text-slate-900 pr-8">
           {title}
         </h2>
-        <p id="confirm-dialog-message" className="mt-3 text-sm leading-6 text-slate-600">
+        <p id="confirm-dialog-message" className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">
           {message}
         </p>
 
         <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2.5 rounded-lg text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-          >
-            Cancel
-          </button>
+          {showCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2.5 rounded-lg text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             type="button"
             onClick={onConfirm}
-            className="px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors"
+            className={`px-4 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors ${confirmTone}`}
           >
-            Log Out
+            {confirmLabel}
           </button>
         </div>
       </div>
