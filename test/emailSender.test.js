@@ -34,10 +34,17 @@ async function run() {
             text: '123456'
         });
 
-        global.fetch = async () => ({ ok: false, status: 401 });
+        global.fetch = async () => ({
+            ok: false,
+            status: 403,
+            json: async () => ({
+                name: 'validation_error',
+                message: 'The sender domain is not verified.'
+            })
+        });
         await assert.rejects(
             sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' }),
-            /email provider rejected/i
+            /sender domain is not verified/i
         );
 
         delete process.env.RESEND_FROM;

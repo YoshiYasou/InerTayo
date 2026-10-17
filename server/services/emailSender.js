@@ -21,8 +21,21 @@ async function sendEmail({ to, subject, text }) {
         });
 
         if (!response.ok) {
-            console.error(`[AUTH] Resend email request failed with HTTP ${response.status}.`);
-            throw new Error('The email provider rejected the message.');
+            let providerError = {};
+            try {
+                providerError = await response.json();
+            } catch {
+                providerError = {};
+            }
+            const providerMessage = typeof providerError.message === 'string'
+                ? providerError.message.slice(0, 400)
+                : 'No error detail returned by provider.';
+            const providerCode = typeof providerError.name === 'string'
+                ? providerError.name.slice(0, 80)
+                : 'unknown_error';
+            const diagnostic = `HTTP ${response.status} (${providerCode}): ${providerMessage}`;
+            console.error(`[AUTH] Resend rejected email: ${diagnostic}`);
+            throw new Error(`Resend rejected the email: ${diagnostic}`);
         }
         return;
     }
