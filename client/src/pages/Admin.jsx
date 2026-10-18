@@ -365,10 +365,12 @@ export default function Admin() {
     stop_name: '',
     stop_order: 1,
     description: '',
+    vehicle_type: '',
     is_transfer_point: false,
     latitude: '',
     longitude: '',
   });
+  const selectedStopRoute = routes.find((route) => String(route.id) === String(stopFormData.route_id));
 
   const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
 
@@ -1200,6 +1202,7 @@ export default function Admin() {
       stop_name: '',
       stop_order: 1,
       description: '',
+      vehicle_type: '',
       is_transfer_point: false,
       latitude: '',
       longitude: '',
@@ -1214,6 +1217,7 @@ export default function Admin() {
       stop_name: stop.stop_name,
       stop_order: stop.stop_order,
       description: stop.description || '',
+      vehicle_type: stop.vehicle_type || '',
       is_transfer_point: Boolean(stop.is_transfer_point),
       latitude: stop.latitude ?? '',
       longitude: stop.longitude ?? '',
@@ -2634,6 +2638,21 @@ export default function Admin() {
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
               </div>
               <div>
+                <label className="block font-bold text-slate-700 mb-1">Vehicle Type</label>
+                <select value={stopFormData.vehicle_type}
+                  onChange={(event) => setStopFormData({ ...stopFormData, vehicle_type: event.target.value })}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                  <option value="">Use route vehicle ({selectedStopRoute?.mode_name || 'default'})</option>
+                  <option value="jeepney">Jeepney</option>
+                  <option value="modern_puv">Modern PUV</option>
+                  <option value="bus">Bus</option>
+                  <option value="provincial_bus">Provincial Bus</option>
+                  <option value="tricycle">Tricycle</option>
+                  <option value="boat">Boat</option>
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">The map icon updates to match the selected vehicle.</p>
+              </div>
+              <div>
                 <label className="block font-bold text-slate-700 mb-1">Description</label>
                 <textarea rows="2" value={stopFormData.description}
                   onChange={(event) => setStopFormData({ ...stopFormData, description: event.target.value })}
@@ -2649,6 +2668,7 @@ export default function Admin() {
               <LocationPinPicker
                 latitude={stopFormData.latitude}
                 longitude={stopFormData.longitude}
+                mode={stopFormData.vehicle_type || selectedStopRoute?.mode_name}
                 onPin={(latitude, longitude) => setStopFormData(previous => ({
                   ...previous,
                   latitude: latitude.toFixed(6),

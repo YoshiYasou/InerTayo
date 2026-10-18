@@ -872,6 +872,7 @@ async function runTests() {
             stop_name: 'Admin CRUD Test Stop',
             stop_order: 1,
             description: 'Temporary API test stop.',
+            vehicle_type: 'tricycle',
             is_transfer_point: 0,
             latitude: 16.0435,
             longitude: 120.334
@@ -883,6 +884,7 @@ async function runTests() {
             stop_name: 'Admin CRUD Test Stop Updated',
             stop_order: 1,
             description: 'Updated temporary API test stop.',
+            vehicle_type: 'boat',
             is_transfer_point: 1,
             latitude: 16.044,
             longitude: 120.337
@@ -892,7 +894,9 @@ async function runTests() {
         });
         assert(
             updatedStop.status === 200 && movedRouteStops.data.length === 1 &&
-                movedRouteStops.data[0].stop_name === 'Admin CRUD Test Stop Updated' && movedRouteStops.data[0].stop_order === 1,
+                movedRouteStops.data[0].stop_name === 'Admin CRUD Test Stop Updated' &&
+                movedRouteStops.data[0].stop_order === 1 &&
+                movedRouteStops.data[0].vehicle_type === 'boat',
             'Admin edits and reassigns route stops while preserving sequential order'
         );
 

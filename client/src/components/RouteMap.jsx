@@ -15,6 +15,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Bike, Bus, CarFront, Ship } from 'lucide-react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -141,16 +143,37 @@ const ZOOM_TIER3_MIN      = 16; // ≥16: stops unclustered + landmarks
 const CLUSTER_MAX_ZOOM    = 15; // clustering disabled above this zoom
 
 // ─── DivIcon factories ─────────────────────────────────────────────────────
-function stopDivIcon(color, label, size = 16) {
+const STOP_MODE_ICONS = {
+  tricycle: renderToStaticMarkup(React.createElement(Bike, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  jeepney: renderToStaticMarkup(React.createElement(CarFront, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  bus: renderToStaticMarkup(React.createElement(Bus, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  boat: renderToStaticMarkup(React.createElement(Ship, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+};
+
+function stopDivIcon(color, mode, label, size = 24) {
+  const normalizedMode = String(mode || '').toLowerCase();
+  const modeKey = normalizedMode.includes('tricycle') ? 'tricycle'
+    : normalizedMode.includes('boat') ? 'boat'
+      : normalizedMode.includes('bus') || normalizedMode.includes('provincial') || normalizedMode.includes('modern') ? 'bus'
+        : 'jeepney';
+  const labelText = String(label ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+
   return L.divIcon({
     className: '',
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+    html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;
       background:${color};border:2.5px solid #fff;
       box-shadow:0 1px 4px rgba(0,0,0,.45);
-      display:flex;align-items:center;justify-content:center;
-      color:#fff;font-family:system-ui,sans-serif;
-      font-size:${size > 16 ? '10px' : '9px'};font-weight:800;">${label}</div>`,
-    iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2],
+      display:flex;align-items:center;justify-content:center;">${STOP_MODE_ICONS[modeKey]}
+      <span style="position:absolute;right:-5px;bottom:-4px;min-width:10px;height:10px;
+        padding:0 2px;border:1px solid #fff;border-radius:6px;background:#0f172a;
+        color:#fff;font:700 7px/10px system-ui,sans-serif;text-align:center;">${labelText}</span></div>`,
+    iconSize: [size + 4, size + 4], iconAnchor: [(size + 4) / 2, (size + 4) / 2], popupAnchor: [0, -size / 2],
   });
 }
 
@@ -768,14 +791,14 @@ function LayerManager({
         if (!props.mode.toLowerCase().includes(keyword)) return;
       }
 
-      const size = (props.is_origin || props.is_terminus) ? 20 : props.is_transfer ? 18 : 16;
+      const size = (props.is_origin || props.is_terminus) ? 24 : props.is_transfer ? 22 : 20;
       const bg   = props.is_origin   ? '#059669'
                  : props.is_terminus ? '#e11d48'
                  : props.is_transfer ? '#0f172a'
                  : props.color;
 
       const marker = L.marker([lat, lng], {
-        icon: stopDivIcon(bg, props.label, size),
+        icon: stopDivIcon(bg, props.vehicle_type || props.mode, props.label, size),
         zIndexOffset: 100,
       });
       marker.bindPopup(stopPopupHtml(props));

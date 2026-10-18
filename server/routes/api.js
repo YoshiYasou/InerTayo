@@ -49,6 +49,7 @@ const { haversineDistance } = require('../utils/geoUtils');
 const { sendEmail } = require('../services/emailSender');
 
 const router = express.Router();
+const STOP_VEHICLE_TYPES = new Set(['', 'jeepney', 'modern_puv', 'bus', 'provincial_bus', 'tricycle', 'boat']);
 
 function createUserToken(user) {
     return jwt.sign({
@@ -3423,10 +3424,13 @@ router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (re
 // POST /api/admin/stops - Create stop
 router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { route_id, stop_name, stop_order, description, is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, stop_name, stop_order, description, vehicle_type = '', is_transfer_point, latitude, longitude } = req.body;
 
         if (!route_id || !stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'route_id, stop_name, and stop_order are required.' });
+        }
+        if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
+            return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
         }
 
         const parsedRouteId = parseId(route_id);
@@ -3446,6 +3450,7 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             stop_name: stop_name.trim(),
             stop_order: parsedStopOrder,
             description: description || null,
+            vehicle_type,
             is_transfer_point: is_transfer_point ? 1 : 0,
             latitude: latitude || null,
             longitude: longitude || null
@@ -3467,9 +3472,12 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
-        const { route_id, stop_name, stop_order, description, is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, stop_name, stop_order, description, vehicle_type = '', is_transfer_point, latitude, longitude } = req.body;
         if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'stop_name and stop_order are required.' });
+        }
+        if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
+            return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
         }
 
         const parsedStopOrder = parseInt(stop_order, 10);
@@ -3495,6 +3503,7 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
                 stop_name: stop_name.trim(),
                 stop_order: parsedStopOrder,
                 description: description || null,
+                vehicle_type,
                 is_transfer_point: is_transfer_point ? 1 : 0,
                 latitude: latitude || null,
                 longitude: longitude || null
@@ -4780,6 +4789,7 @@ router.get('/map/layers/stops', async (req, res) => {
                         route_id:    route.id,
                         route_name:  route.route_name,
                         mode:        modeName,
+                        vehicle_type: stop.vehicle_type || '',
                         color,
                         label,
                         is_origin:   isOrigin,

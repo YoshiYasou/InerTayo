@@ -148,6 +148,9 @@ export default function WebMap() {
     if (panelView === 'planner') {
       setPanelView(selectedItem?.type === 'route' ? 'route' : 'closed');
     } else {
+      setSelectedItem(current => current?.type === 'route' ? null : current);
+      setFocusedRoute(null);
+      if (queryParams?.route) navigate('/map');
       setPanelView('planner');
     }
   };
