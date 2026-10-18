@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Crosshair, LocateFixed, Lock, Maximize2, Minimize2, Trash2, Undo2, Unlock } from 'lucide-react';
 
@@ -94,6 +94,8 @@ export default function RouteGeometryEditor({
   dashed = false,
   contextPaths = [],
   fullscreenTargetRef,
+  stops = [],
+  onStopSelected,
 }) {
   const [activePath, setActivePath] = useState('route');
   const activeValue = activePath === 'walking' ? walkingValue : value;
@@ -117,6 +119,8 @@ export default function RouteGeometryEditor({
   const [, setHistoryRevision] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState('');
+  const [stopEndpointTarget, setStopEndpointTarget] = useState('end');
+  const [selectedStopId, setSelectedStopId] = useState('');
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -145,6 +149,14 @@ export default function RouteGeometryEditor({
       dashed: path.dashed === true || String(path.mode || '').toLowerCase().includes('walk'),
     };
   }).filter((path) => path.positions.length > 1);
+  const visibleStops = stops.filter((stop) => {
+    if (stop.latitude == null || stop.longitude == null) return false;
+    const latitude = Number(stop.latitude);
+    const longitude = Number(stop.longitude);
+    return Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+      Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  });
+  const selectedStop = visibleStops.find((stop) => String(stop.id) === selectedStopId);
   const fitPositions = [...positions, ...visibleContextPaths.flatMap((path) => path.positions)];
   const handleIndices = coordinates.length <= 12
     ? coordinates.map((_, index) => index)
@@ -164,6 +176,22 @@ export default function RouteGeometryEditor({
     changeActivePath?.(nextCoordinates.length
       ? JSON.stringify({ type: 'LineString', coordinates: nextCoordinates })
       : '');
+  };
+
+  const connectToStop = (stop) => {
+    if (!isEditing) return;
+    const point = [Number(stop.longitude), Number(stop.latitude)];
+    const nextCoordinates = [...coordinates];
+    if (nextCoordinates.length) {
+      nextCoordinates[stopEndpointTarget === 'start' ? 0 : nextCoordinates.length - 1] = point;
+    } else {
+      nextCoordinates.push(point);
+    }
+    updateCoordinates(nextCoordinates);
+    setActiveHandleIndex(stopEndpointTarget === 'start' ? 0 : nextCoordinates.length - 1);
+    setSelectedSection(null);
+    setSelectedStopId('');
+    onStopSelected?.(stop, stopEndpointTarget);
   };
 
   const undo = () => {
@@ -482,7 +510,49 @@ export default function RouteGeometryEditor({
               Selected section: points {Math.min(selectedSection.start, selectedSection.end) + 1} to {Math.max(selectedSection.start, selectedSection.end) + 1}. Deleting removes the points inside and joins the ends.
             </p>
           )}
-        </div>
+          {visibleStops.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-sky-100 bg-sky-50/70 px-2.5 py-2">
+              <span className="text-xs font-semibold text-slate-700">Connect this leg to a stop:</span>
+              <div className="inline-flex rounded-md border border-sky-200 bg-white p-0.5" role="group" aria-label="Choose route leg endpoint">
+                {['start', 'end'].map((endpoint) => (
+                  <button
+                    key={endpoint}
+                    type="button"
+                    aria-pressed={stopEndpointTarget === endpoint}
+                    disabled={!isEditing}
+                    onClick={() => setStopEndpointTarget(endpoint)}
+                    className={`rounded px-2 py-1 text-xs font-semibold capitalize disabled:cursor-not-allowed disabled:opacity-50 ${stopEndpointTarget === endpoint ? 'bg-sky-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    {endpoint}
+                  </button>
+                ))}
+              </div>
+              <select
+                aria-label="Choose an existing route stop"
+                value={selectedStopId}
+                disabled={!isEditing}
+                onChange={(event) => setSelectedStopId(event.target.value)}
+                className="min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">Choose a stop...</option>
+                {visibleStops.map((stop) => (
+                  <option key={stop.id} value={String(stop.id)}>
+                    {stop.stop_name}{stop.route_name ? ` · ${stop.route_name}` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!isEditing || !selectedStop}
+                onClick={() => selectedStop && connectToStop(selectedStop)}
+                className="rounded-md bg-sky-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Connect
+              </button>
+              <span className="text-xs text-slate-500">or click a stop marker on the map.</span>
+            </div>
+          )}
+            </div>
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
@@ -628,6 +698,28 @@ export default function RouteGeometryEditor({
             onAddPoint={(point) => updateCoordinates([...coordinates, point])}
           />
           <FitInitialRoute positions={fitPositions} />
+          {visibleStops.map((stop) => (
+            <CircleMarker
+              key={`route-stop-${stop.id}`}
+              center={[Number(stop.latitude), Number(stop.longitude)]}
+              radius={7}
+              pathOptions={{
+                color: '#ffffff',
+                weight: 2,
+                fillColor: '#0891b2',
+                fillOpacity: 1,
+                bubblingMouseEvents: false,
+              }}
+              eventHandlers={{
+                click(event) {
+                  event.originalEvent?.stopPropagation();
+                  connectToStop(stop);
+                },
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -6]}>{stop.stop_name}</Tooltip>
+            </CircleMarker>
+          ))}
           {visibleContextPaths.map((path, index) => (
             <Polyline
               key={`context-path-${index}`}
