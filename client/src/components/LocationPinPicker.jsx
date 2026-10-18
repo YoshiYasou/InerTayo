@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Bike, Bus, CarFront, Ship } from 'lucide-react';
+import { Bike, Building2, Bus, CarFront, Landmark, Ship, Signpost } from 'lucide-react';
 import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 
@@ -16,9 +16,17 @@ const MODE_MARKERS = [
   { match: 'bus', icon: Bus, color: '#10b981' },
 ];
 
-function pinIcon(mode) {
+const LOCATION_TYPE_MARKERS = {
+  LANDMARK: { icon: Landmark, color: '#059669' },
+  ESTABLISHMENT: { icon: Building2, color: '#7c3aed' },
+  INTERSECTION: { icon: Signpost, color: '#d97706' },
+  TERMINAL: { icon: Bus, color: '#ea580c' },
+};
+
+function pinIcon(mode, locationType) {
   const normalizedMode = String(mode || '').toLowerCase();
-  const marker = MODE_MARKERS.find(({ match }) => normalizedMode.includes(match));
+  const modeMarker = MODE_MARKERS.find(({ match }) => normalizedMode.includes(match));
+  const marker = modeMarker || LOCATION_TYPE_MARKERS[locationType];
   const color = marker?.color || '#dc2626';
   const icon = marker
     ? `<span style="position:absolute;left:4px;top:4px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center">${renderToStaticMarkup(
@@ -45,12 +53,12 @@ function MapClickHandler({ onPin }) {
   return null;
 }
 
-export default function LocationPinPicker({ latitude, longitude, onPin, mode }) {
+export default function LocationPinPicker({ latitude, longitude, onPin, mode, locationType }) {
   const lat = Number(latitude);
   const lng = Number(longitude);
   const hasPin = latitude !== '' && longitude !== '' && Number.isFinite(lat) && Number.isFinite(lng);
   const position = hasPin ? [lat, lng] : null;
-  const markerIcon = React.useMemo(() => pinIcon(mode), [mode]);
+  const markerIcon = React.useMemo(() => pinIcon(mode, locationType), [mode, locationType]);
 
   return (
     <div className="space-y-1.5">

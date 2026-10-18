@@ -36,8 +36,18 @@ import {
   Search,
   GraduationCap,
   Landmark,
-  ChevronDown
+  ChevronDown,
+  Building2,
+  Signpost,
+  Bus
 } from 'lucide-react';
+
+const LOCATION_TYPE_ICONS = {
+  LANDMARK: Landmark,
+  ESTABLISHMENT: Building2,
+  INTERSECTION: Signpost,
+  TERMINAL: Bus,
+};
 
 function hasPreviewableGeometry(value) {
   try {
@@ -372,8 +382,7 @@ export default function Admin() {
     longitude: '',
   });
   const selectedStopRoute = routes.find((route) => String(route.id) === String(stopFormData.route_id));
-
-  const LOCATION_TYPES = ['STREET', 'ROAD', 'BARANGAY', 'ESTABLISHMENT', 'LANDMARK', 'TERMINAL', 'INTERSECTION', 'RIVER_STOP', 'DESTINATION'];
+  const LOCATION_TYPES = ['LANDMARK', 'ESTABLISHMENT', 'INTERSECTION', 'TERMINAL'];
 
   const searchTerm = adminSearch.trim().toLowerCase();
   const matchesAdminSearch = (values) => !searchTerm || values.some(value =>
@@ -2106,17 +2115,22 @@ export default function Admin() {
                     </td>
                   </tr>
                 ) : (
-                  searchedLocations.map((loc) => (
+                  searchedLocations.map((loc) => {
+                    const TypeIcon = LOCATION_TYPE_ICONS[loc.type] || MapPin;
+                    return (
                     <tr key={loc.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-4 font-semibold text-slate-900">{loc.name}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                           loc.type === 'RIVER_STOP' ? 'bg-blue-50 text-blue-700' :
                           loc.type === 'TERMINAL' ? 'bg-orange-50 text-orange-700' :
                           loc.type === 'BARANGAY' ? 'bg-teal-50 text-teal-700' :
                           loc.type === 'ROAD' || loc.type === 'STREET' ? 'bg-indigo-50 text-indigo-700' :
                           'bg-slate-100 text-slate-600'
-                        }`}>{loc.type}</span>
+                        }`}>
+                          <TypeIcon className="h-3 w-3" aria-hidden="true" />
+                          {loc.type}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-slate-500 max-w-[130px] truncate">{loc.barangay || '—'}</td>
                       <td className="py-3 px-4 text-slate-500 max-w-[160px] truncate">{loc.address || '—'}</td>
@@ -2137,7 +2151,8 @@ export default function Admin() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -2612,6 +2627,7 @@ export default function Admin() {
               <LocationPinPicker
                 latitude={locationFormData.lat}
                 longitude={locationFormData.lng}
+                locationType={locationFormData.type}
                 onPin={(lat, lng) => setLocationFormData(previous => ({
                   ...previous,
                   lat: lat.toFixed(6),
