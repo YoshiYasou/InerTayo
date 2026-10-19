@@ -1260,6 +1260,132 @@ async function runTests() {
         });
         assert(delLocRes.status === 200, 'Admin successfully deletes location');
 
+        // Admin Schools CRUD and public map propagation
+        const newSchoolRes = await makeRequest('POST', '/api/admin/schools', {
+            name: 'Dagupan Test Academy',
+            type: 'SCHOOL',
+            aliases: 'DTA',
+            address: 'Test Street, Dagupan City',
+            barangay: 'Poblacion Oeste',
+            latitude: 16.0430,
+            longitude: 120.3330,
+            entrance_latitude: 16.0431,
+            entrance_longitude: 120.3331,
+            nearby_stops: ['Test Jeepney Stop'],
+            verified: true,
+            active: true
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(newSchoolRes.status === 201 && newSchoolRes.data.schoolId, 'Admin successfully creates a school');
+        const createdSchoolId = newSchoolRes.data.schoolId;
+
+        const listedSchools = await makeRequest('GET', '/api/admin/schools', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(
+            listedSchools.status === 200 && listedSchools.data.some(school => school.id === createdSchoolId),
+            'Admin school list includes newly created schools'
+        );
+
+        const updateSchoolRes = await makeRequest('PUT', `/api/admin/schools/${createdSchoolId}`, {
+            name: 'Dagupan Test Academy Updated',
+            type: 'COLLEGE',
+            aliases: 'DTA Updated',
+            address: 'Updated Test Street, Dagupan City',
+            barangay: 'Poblacion Oeste',
+            latitude: 16.0440,
+            longitude: 120.3340,
+            entrance_latitude: 16.0441,
+            entrance_longitude: 120.3341,
+            nearby_stops: ['Updated Test Stop'],
+            verified: true,
+            active: true
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(updateSchoolRes.status === 200, 'Admin successfully updates school details');
+
+        const schoolsMapLayer = await makeRequest('GET', '/api/map/layers/schools');
+        const updatedSchoolFeature = schoolsMapLayer.data.features.find(feature => feature.properties.id === createdSchoolId);
+        assert(
+            updatedSchoolFeature?.properties.name === 'Dagupan Test Academy Updated' &&
+                updatedSchoolFeature.geometry.coordinates[0] === 120.3341,
+            'Updated school details and entrance coordinates appear on the public map layer'
+        );
+
+        const invalidSchoolRes = await makeRequest('PUT', `/api/admin/schools/${createdSchoolId}`, {
+            name: 'Dagupan Test Academy Updated', type: 'COLLEGE', latitude: 100, longitude: 120
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(invalidSchoolRes.status === 400, 'Admin school updates reject out-of-range coordinates');
+
+        const delSchoolRes = await makeRequest('DELETE', `/api/admin/schools/${createdSchoolId}`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(delSchoolRes.status === 200, 'Admin successfully deletes a school');
+
+        // Admin landmark positioning and public map propagation
+        const adminLandmarksRes = await makeRequest('GET', '/api/admin/landmarks', null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        const landmarkToMove = adminLandmarksRes.data.find(landmark => landmark.name === 'SM Center Dagupan');
+        assert(adminLandmarksRes.status === 200 && landmarkToMove, 'Admin landmark list includes existing map landmarks');
+
+        const movedCoordinates = {
+            latitude: landmarkToMove.latitude + 0.0002,
+            longitude: landmarkToMove.longitude + 0.0002
+        };
+        const moveLandmarkRes = await makeRequest('PUT', `/api/admin/landmarks/${landmarkToMove.id}`, movedCoordinates, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(moveLandmarkRes.status === 200, 'Admin can move an existing landmark');
+
+        const movedLandmarkLayer = await makeRequest('GET', '/api/map/layers/landmarks');
+        const movedLandmarkFeature = movedLandmarkLayer.data.features.find(feature => feature.properties.name === landmarkToMove.name);
+        assert(
+            movedLandmarkFeature?.geometry.coordinates[1] === movedCoordinates.latitude &&
+                movedLandmarkFeature.geometry.coordinates[0] === movedCoordinates.longitude,
+            'Moved landmark coordinates immediately appear on the public map layer'
+        );
+
+        const invalidLandmarkMove = await makeRequest('PUT', `/api/admin/landmarks/${landmarkToMove.id}`, {
+            latitude: 91, longitude: movedCoordinates.longitude
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(invalidLandmarkMove.status === 400, 'Admin landmark moves reject out-of-range coordinates');
+
+        const restoreLandmarkRes = await makeRequest('PUT', `/api/admin/landmarks/${landmarkToMove.id}`, {
+            latitude: landmarkToMove.latitude,
+            longitude: landmarkToMove.longitude
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(restoreLandmarkRes.status === 200, 'Landmark test restores the original map position');
+
+        const newLandmarkRes = await makeRequest('POST', '/api/admin/landmarks', {
+            name: 'Admin CRUD Test Landmark',
+            type: 'PLAZA',
+            latitude: 16.052,
+            longitude: 120.347
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(newLandmarkRes.status === 201 && newLandmarkRes.data.landmarkId, 'Admin can create a landmark');
+        const createdLandmarkId = newLandmarkRes.data.landmarkId;
+
+        const createdLandmarkLayer = await makeRequest('GET', '/api/map/layers/landmarks');
+        assert(
+            createdLandmarkLayer.data.features.some(feature => feature.properties.id === createdLandmarkId),
+            'New landmarks immediately appear on the public map layer'
+        );
+
+        const duplicateLandmarkRes = await makeRequest('POST', '/api/admin/landmarks', {
+            name: 'Admin CRUD Test Landmark', type: 'PLAZA', latitude: 16.052, longitude: 120.347
+        }, { 'Authorization': `Bearer ${adminToken}` });
+        assert(duplicateLandmarkRes.status === 409, 'Duplicate landmark names are rejected');
+
+        const deleteLandmarkRes = await makeRequest('DELETE', `/api/admin/landmarks/${createdLandmarkId}`, null, {
+            'Authorization': `Bearer ${adminToken}`
+        });
+        assert(deleteLandmarkRes.status === 200, 'Admin can delete a landmark');
+
+        const deletedLandmarkLayer = await makeRequest('GET', '/api/map/layers/landmarks');
+        assert(
+            !deletedLandmarkLayer.data.features.some(feature => feature.properties.id === createdLandmarkId),
+            'Deleted landmarks disappear from the public map layer'
+        );
+
         // Admin Boat Details API
         const boatDetailsRes = await makeRequest('GET', '/api/admin/boat-details', null, {
             'Authorization': `Bearer ${adminToken}`

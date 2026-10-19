@@ -2510,6 +2510,201 @@ router.get('/admin/saved-routes', authenticateToken, requireAdmin, async (req, r
 // ADMIN LOCATIONS CRUD
 // ============================================================================
 
+const VALID_SCHOOL_TYPES = ['SCHOOL', 'COLLEGE', 'UNIVERSITY'];
+
+router.get('/admin/landmarks', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const landmarks = await Landmark.find({ type: { $ne: 'GEOCODED' } }, {
+            id: 1, name: 1, latitude: 1, longitude: 1, type: 1, _id: 0
+        }).sort({ name: 1 }).lean();
+        res.json(landmarks);
+    } catch (err) {
+        console.error('Error fetching admin landmarks:', err);
+        res.status(500).json({ error: 'Failed to retrieve landmarks.' });
+    }
+});
+
+router.post('/admin/landmarks', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        const type = typeof req.body.type === 'string' ? req.body.type.trim().toUpperCase() : '';
+        const latitude = Number(req.body.latitude);
+        const longitude = Number(req.body.longitude);
+
+        if (!name || name.length > 160) {
+            return res.status(400).json({ error: 'Landmark name is required and must be at most 160 characters.' });
+        }
+        if (!type || type.length > 40) {
+            return res.status(400).json({ error: 'Landmark type is required and must be at most 40 characters.' });
+        }
+        if (req.body.latitude === undefined || req.body.latitude === null || String(req.body.latitude).trim() === '' ||
+            req.body.longitude === undefined || req.body.longitude === null || String(req.body.longitude).trim() === '' ||
+            !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+            !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+            return res.status(400).json({ error: 'Valid latitude and longitude coordinates are required.' });
+        }
+        if (type === 'GEOCODED') {
+            return res.status(400).json({ error: 'GEOCODED is reserved for automatically found locations.' });
+        }
+
+        const landmarkId = await nextId('Landmark');
+        await Landmark.create({ id: landmarkId, name, type, latitude, longitude });
+        invalidateMapCache();
+        res.status(201).json({ message: 'Landmark created successfully.', landmarkId });
+    } catch (err) {
+        if (err.code === 11000) return res.status(409).json({ error: 'A landmark with this name already exists.' });
+        console.error('Error creating landmark:', err);
+        res.status(500).json({ error: 'Failed to create landmark.' });
+    }
+});
+
+router.put('/admin/landmarks/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const landmarkId = parseId(req.params.id);
+        if (landmarkId === null) return res.status(400).json({ error: 'Invalid landmark ID format.' });
+
+        const latitudeValue = req.body.latitude;
+        const longitudeValue = req.body.longitude;
+        if (latitudeValue === undefined || latitudeValue === null || String(latitudeValue).trim() === '' ||
+            longitudeValue === undefined || longitudeValue === null || String(longitudeValue).trim() === '') {
+            return res.status(400).json({ error: 'Valid latitude and longitude coordinates are required.' });
+        }
+
+        const latitude = Number(latitudeValue);
+        const longitude = Number(longitudeValue);
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+            !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+            return res.status(400).json({ error: 'Valid latitude and longitude coordinates are required.' });
+        }
+
+        const update = await Landmark.updateOne(
+            { id: landmarkId, type: { $ne: 'GEOCODED' } },
+            { $set: { latitude, longitude } }
+        );
+        if (!update.matchedCount) return res.status(404).json({ error: 'Landmark not found.' });
+        invalidateMapCache();
+        res.json({ message: 'Landmark coordinates updated successfully.' });
+    } catch (err) {
+        console.error('Error updating landmark coordinates:', err);
+        res.status(500).json({ error: 'Failed to update landmark coordinates.' });
+    }
+});
+
+router.delete('/admin/landmarks/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const landmarkId = parseId(req.params.id);
+        if (landmarkId === null) return res.status(400).json({ error: 'Invalid landmark ID format.' });
+        const result = await Landmark.deleteOne({ id: landmarkId, type: { $ne: 'GEOCODED' } });
+        if (!result.deletedCount) return res.status(404).json({ error: 'Landmark not found.' });
+        invalidateMapCache();
+        res.json({ message: 'Landmark deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting landmark:', err);
+        res.status(500).json({ error: 'Failed to delete landmark.' });
+    }
+});
+
+function normalizeSchoolInput(body) {
+    const { name, type, latitude, longitude, entrance_latitude, entrance_longitude, nearby_stops } = body;
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+        return { error: 'School name is required.' };
+    }
+    if (!type || !VALID_SCHOOL_TYPES.includes(type.toUpperCase())) {
+        return { error: `Invalid school type. Must be one of: ${VALID_SCHOOL_TYPES.join(', ')}` };
+    }
+
+    const coordinate = (value, minimum, maximum) => {
+        if (value === undefined || value === null || value === '') return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : NaN;
+    };
+    const lat = coordinate(latitude, -90, 90);
+    const lng = coordinate(longitude, -180, 180);
+    const entranceLat = coordinate(entrance_latitude, -90, 90);
+    const entranceLng = coordinate(entrance_longitude, -180, 180);
+    if (lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+        return { error: 'Valid campus latitude and longitude are required.' };
+    }
+    if (Number.isNaN(entranceLat) || Number.isNaN(entranceLng) || (entranceLat === null) !== (entranceLng === null)) {
+        return { error: 'Entrance latitude and longitude must both be valid coordinates.' };
+    }
+
+    const stops = Array.isArray(nearby_stops)
+        ? nearby_stops
+        : typeof nearby_stops === 'string' ? nearby_stops.split(/\r?\n/) : [];
+    return {
+        school: {
+            name: name.trim(),
+            type: type.toUpperCase(),
+            aliases: body.aliases ? String(body.aliases).trim() : null,
+            address: body.address ? String(body.address).trim() : null,
+            barangay: body.barangay ? String(body.barangay).trim() : null,
+            latitude: lat,
+            longitude: lng,
+            entrance_latitude: entranceLat,
+            entrance_longitude: entranceLng,
+            nearby_stops: stops.map(stop => String(stop).trim()).filter(Boolean),
+            verified: body.verified ? 1 : 0,
+            active: body.active === false || body.active === 0 || body.active === '0' ? 0 : 1,
+            updated_at: new Date()
+        }
+    };
+}
+
+router.get('/admin/schools', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const schools = await School.find({}).sort({ name: 1 }).lean();
+        res.json(schools);
+    } catch (err) {
+        console.error('Error fetching admin schools:', err);
+        res.status(500).json({ error: 'Failed to retrieve schools.' });
+    }
+});
+
+router.post('/admin/schools', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const result = normalizeSchoolInput(req.body);
+        if (result.error) return res.status(400).json({ error: result.error });
+        const schoolId = await nextId('School');
+        await School.create({ id: schoolId, ...result.school, created_at: new Date() });
+        invalidateMapCache();
+        res.status(201).json({ message: 'School created successfully.', schoolId });
+    } catch (err) {
+        console.error('Error creating school:', err);
+        res.status(500).json({ error: 'Failed to create school.' });
+    }
+});
+
+router.put('/admin/schools/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const schoolId = parseId(req.params.id);
+        if (schoolId === null) return res.status(400).json({ error: 'Invalid school ID format.' });
+        const result = normalizeSchoolInput(req.body);
+        if (result.error) return res.status(400).json({ error: result.error });
+        const update = await School.updateOne({ id: schoolId }, { $set: result.school });
+        if (!update.matchedCount) return res.status(404).json({ error: 'School not found.' });
+        invalidateMapCache();
+        res.json({ message: 'School updated successfully.' });
+    } catch (err) {
+        console.error('Error updating school:', err);
+        res.status(500).json({ error: 'Failed to update school.' });
+    }
+});
+
+router.delete('/admin/schools/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const schoolId = parseId(req.params.id);
+        if (schoolId === null) return res.status(400).json({ error: 'Invalid school ID format.' });
+        const result = await School.deleteOne({ id: schoolId });
+        if (!result.deletedCount) return res.status(404).json({ error: 'School not found.' });
+        invalidateMapCache();
+        res.json({ message: 'School deleted successfully.' });
+    } catch (err) {
+        console.error('Error deleting school:', err);
+        res.status(500).json({ error: 'Failed to delete school.' });
+    }
+});
+
 const VALID_LOCATION_TYPES = [
     'STREET', 'ROAD', 'LANDMARK', 'ESTABLISHMENT', 'TERMINAL',
     'STOP', 'INTERSECTION', 'BARANGAY', 'RIVER_STOP', 'DESTINATION'

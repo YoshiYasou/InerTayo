@@ -1,0 +1,60 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=e8]
+        - generic [ref=e9]:
+          - generic [ref=e10]: InerTayo
+          - generic [ref=e11]: Dagupan Transit System
+      - navigation [ref=e12]:
+        - button "Routes" [ref=e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=e14] [cursor=pointer]
+        - button "About" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - button "Switch to dark mode" [ref=e17] [cursor=pointer]
+        - button "Launch Web Map" [ref=e20] [cursor=pointer]
+        - generic [ref=e24]:
+          - button "Sign In" [ref=e25] [cursor=pointer]
+          - button "Register" [ref=e26] [cursor=pointer]
+  - main [ref=e27]:
+    - generic [ref=e29]:
+      - heading "Administrator Access Required" [level=2] [ref=e34]
+      - paragraph [ref=e35]: You must be logged into an administrator account to access the InerTayo transit management portal.
+      - button "Sign In as Admin" [ref=e36] [cursor=pointer]
+  - contentinfo [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41] [cursor=pointer]:
+            - img "InerTayo logo" [ref=e42]
+            - generic [ref=e43]: InerTayo
+          - paragraph [ref=e44]: The premier route-finding application for Dagupan, Pangasinan. Providing the most efficient combinations of local public transport modes.
+        - generic [ref=e45]:
+          - heading "Transit Tools" [level=4] [ref=e46]
+          - list [ref=e47]:
+            - listitem [ref=e48]:
+              - button "Web Map" [ref=e49] [cursor=pointer]
+            - listitem [ref=e50]:
+              - button "Route Directory" [ref=e51] [cursor=pointer]
+            - listitem [ref=e52]:
+              - button "Fare Calculator" [ref=e53] [cursor=pointer]
+        - generic [ref=e54]:
+          - heading "Support" [level=4] [ref=e55]
+          - list [ref=e56]:
+            - listitem [ref=e57]:
+              - button "Help Center" [ref=e58] [cursor=pointer]
+            - listitem [ref=e59]:
+              - button "Commuter Guide" [ref=e60] [cursor=pointer]
+            - listitem [ref=e61]:
+              - button "Feedback" [ref=e62] [cursor=pointer]
+            - listitem [ref=e63]:
+              - button "Terms & Conditions" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - paragraph [ref=e67]: © 2026 InerTayo. Built with care for the Filipino Commuter.
+          - generic [ref=e68]: •
+          - button "Terms & Conditions" [ref=e69] [cursor=pointer]
+        - generic [ref=e70]:
+          - button "Facebook" [ref=e71] [cursor=pointer]
+          - button "Twitter" [ref=e74] [cursor=pointer]
+          - button "Instagram" [ref=e77] [cursor=pointer]

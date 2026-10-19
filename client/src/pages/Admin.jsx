@@ -260,6 +260,8 @@ export default function Admin() {
   const [feedbackList, setFeedbackList] = useState([]);
   const [modes, setModes] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [schools, setSchools] = useState([]);
+  const [landmarks, setLandmarks] = useState([]);
   const [routeStops, setRouteStops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adminSearch, setAdminSearch] = useState('');
@@ -369,6 +371,16 @@ export default function Admin() {
     description: '',
     status: 'ACTIVE'
   });
+  const [schoolModalOpen, setSchoolModalOpen] = useState(false);
+  const [editingSchool, setEditingSchool] = useState(null);
+  const [schoolFormData, setSchoolFormData] = useState({
+    name: '', type: 'SCHOOL', aliases: '', address: '', barangay: '',
+    latitude: '', longitude: '', entrance_latitude: '', entrance_longitude: '',
+    nearby_stops: '', verified: false, active: true
+  });
+  const [landmarkModalOpen, setLandmarkModalOpen] = useState(false);
+  const [editingLandmark, setEditingLandmark] = useState(null);
+  const [landmarkFormData, setLandmarkFormData] = useState({ name: '', type: 'MALL', latitude: '', longitude: '' });
   const [stopModalOpen, setStopModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState(null);
   const [stopFormData, setStopFormData] = useState({
@@ -409,6 +421,13 @@ export default function Admin() {
   const searchedLocations = locations.filter(location => matchesAdminSearch([
     location.name, location.type, location.barangay, location.address, location.status,
     location.search_keywords, location.description
+  ]));
+  const searchedSchools = schools.filter(school => matchesAdminSearch([
+    school.name, school.type, school.aliases, school.address, school.barangay,
+    ...(Array.isArray(school.nearby_stops) ? school.nearby_stops : [])
+  ]));
+  const searchedLandmarks = landmarks.filter(landmark => matchesAdminSearch([
+    landmark.name, landmark.type, landmark.latitude, landmark.longitude
   ]));
   const searchedRouteStops = routeStops.filter(stop => matchesAdminSearch([
     stop.stop_name,
@@ -504,7 +523,7 @@ export default function Admin() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [statsRes, savedRouteInsightsRes, routesRes, advRes, feedRes, modesRes, locsRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
+      const [statsRes, savedRouteInsightsRes, routesRes, advRes, feedRes, modesRes, locsRes, schoolsRes, landmarksRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/admin/saved-routes', { headers }).then(r => r.json()),
         fetch('/api/routes').then(r => r.json()),
@@ -512,6 +531,8 @@ export default function Admin() {
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
         fetch('/api/transport-modes').then(r => r.json()),
         fetch('/api/admin/locations', { headers }).then(r => r.json()),
+        fetch('/api/admin/schools', { headers }).then(r => r.json()),
+        fetch('/api/landmarks').then(r => r.json()),
         fetch('/api/admin/stops', { headers }).then(r => r.json()),
         fetch('/api/fares/tricycles').then(r => r.json()).catch(() => []),
         fetch('/api/fares/routes').then(r => r.json()).catch(() => []),
@@ -536,6 +557,8 @@ export default function Admin() {
       setFeedbackList(feedRes);
       setModes(modesRes);
       setLocations(Array.isArray(locsRes) ? locsRes : (locsRes.locations || []));
+      setSchools(Array.isArray(schoolsRes) ? schoolsRes : []);
+      setLandmarks(Array.isArray(landmarksRes) ? landmarksRes : []);
       setRouteStops(Array.isArray(stopRecords) ? stopRecords : []);
       setFareTricycles(Array.isArray(tricyclesRes) ? tricyclesRes : []);
       setFareRoutes(Array.isArray(routeFaresRes) ? routeFaresRes : []);
@@ -1232,6 +1255,132 @@ export default function Admin() {
       loadAdminData();
     } catch (err) {
       await showAdminNotice('Location could not be deleted', 'Failed to delete location.');
+    }
+  };
+
+  const openNewSchoolModal = () => {
+    setEditingSchool(null);
+    setSchoolFormData({
+      name: '', type: 'SCHOOL', aliases: '', address: '', barangay: '',
+      latitude: '', longitude: '', entrance_latitude: '', entrance_longitude: '',
+      nearby_stops: '', verified: false, active: true
+    });
+    setSchoolModalOpen(true);
+  };
+
+  const openEditSchoolModal = (school) => {
+    setEditingSchool(school);
+    let nearbyStops = school.nearby_stops || [];
+    if (typeof nearbyStops === 'string') {
+      try { nearbyStops = JSON.parse(nearbyStops); } catch { nearbyStops = nearbyStops.split(/\r?\n/); }
+    }
+    setSchoolFormData({
+      name: school.name || '', type: school.type || 'SCHOOL', aliases: school.aliases || '',
+      address: school.address || '', barangay: school.barangay || '',
+      latitude: school.latitude ?? '', longitude: school.longitude ?? '',
+      entrance_latitude: school.entrance_latitude ?? '', entrance_longitude: school.entrance_longitude ?? '',
+      nearby_stops: Array.isArray(nearbyStops) ? nearbyStops.join('\n') : '',
+      verified: Boolean(school.verified), active: school.active !== 0
+    });
+    setSchoolModalOpen(true);
+  };
+
+  const handleSaveSchool = async (event) => {
+    event.preventDefault();
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const body = {
+      ...schoolFormData,
+      latitude: Number(schoolFormData.latitude),
+      longitude: Number(schoolFormData.longitude),
+      entrance_latitude: schoolFormData.entrance_latitude === '' ? null : Number(schoolFormData.entrance_latitude),
+      entrance_longitude: schoolFormData.entrance_longitude === '' ? null : Number(schoolFormData.entrance_longitude),
+      nearby_stops: schoolFormData.nearby_stops.split(/\r?\n/).map(stop => stop.trim()).filter(Boolean)
+    };
+    try {
+      const response = await fetch(editingSchool ? `/api/admin/schools/${editingSchool.id}` : '/api/admin/schools', {
+        method: editingSchool ? 'PUT' : 'POST', headers, body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'School save was rejected by the server.');
+      }
+      setSchoolModalOpen(false);
+      await loadAdminData();
+    } catch (error) {
+      await showAdminNotice('School could not be saved', `Failed to save school: ${error.message}`);
+    }
+  };
+
+  const handleDeleteSchool = async (school) => {
+    if (!await confirmAdminAction('Delete school?', `Delete ${school.name} from the web map?`, 'Delete')) return;
+    try {
+      const response = await fetch(`/api/admin/schools/${school.id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('School deletion was rejected by the server.');
+      await loadAdminData();
+    } catch (error) {
+      await showAdminNotice('School could not be deleted', `Failed to delete school: ${error.message}`);
+    }
+  };
+
+  const openEditLandmarkModal = (landmark) => {
+    setEditingLandmark(landmark);
+    setLandmarkFormData({
+      name: landmark.name,
+      type: landmark.type,
+      latitude: landmark.latitude,
+      longitude: landmark.longitude,
+    });
+    setLandmarkModalOpen(true);
+  };
+
+  const openNewLandmarkModal = () => {
+    setEditingLandmark(null);
+    setLandmarkFormData({ name: '', type: 'MALL', latitude: '', longitude: '' });
+    setLandmarkModalOpen(true);
+  };
+
+  const handleSaveLandmark = async (event) => {
+    event.preventDefault();
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    try {
+      const response = await fetch(editingLandmark ? `/api/admin/landmarks/${editingLandmark.id}` : '/api/admin/landmarks', {
+        method: editingLandmark ? 'PUT' : 'POST',
+        headers,
+        body: JSON.stringify({
+          ...(editingLandmark ? {} : {
+            name: landmarkFormData.name,
+            type: landmarkFormData.type,
+          }),
+          latitude: Number(landmarkFormData.latitude),
+          longitude: Number(landmarkFormData.longitude),
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Landmark update was rejected by the server.');
+      }
+      setLandmarkModalOpen(false);
+      await loadAdminData();
+    } catch (error) {
+      await showAdminNotice('Landmark could not be saved', `Failed to save landmark: ${error.message}`);
+    }
+  };
+
+  const handleDeleteLandmark = async (landmark) => {
+    if (!await confirmAdminAction('Delete landmark?', `Remove ${landmark.name} from the map and search results?`, 'Delete')) return;
+    try {
+      const response = await fetch(`/api/admin/landmarks/${landmark.id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Landmark deletion was rejected by the server.');
+      }
+      await loadAdminData();
+    } catch (error) {
+      await showAdminNotice('Landmark could not be deleted', `Failed to delete landmark: ${error.message}`);
     }
   };
 
@@ -2072,92 +2221,104 @@ export default function Admin() {
         )}
 
       {/* ========================================================================= */}
-      {/* TAB 4: LOCATIONS / PLACES & STOPS MANAGEMENT */}
+      {/* TAB 4: LANDMARKS, SCHOOLS & STOPS MANAGEMENT */}
       {/* ========================================================================= */}
       {activeTab === 'locations' && (
         <div className="space-y-6">
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Places, Terminals & River Stops</h3>
-              <p className="text-xs text-slate-500">Manage searchable places, terminals, and docks. Terminal and river-stop locations are also used by boat-route configuration.</p>
+              <h3 className="text-lg font-bold text-slate-900">Landmarks</h3>
+              <p className="text-xs text-slate-500">Move existing map landmarks by editing coordinates or placing a pin on the map.</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              {renderAdminSearch('Search places and stops...')}
-              <button
-                onClick={openNewLocationModal}
-                className="py-2.5 px-4 bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4" />
-                Add Place / Terminal
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {renderAdminSearch('Search landmarks...')}
+              <button type="button" onClick={openNewLandmarkModal} className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800">
+                <Plus className="h-4 w-4" /> Add Landmark
               </button>
             </div>
           </div>
 
           <div className="overflow-x-auto -mx-6 px-6">
-            <table className="min-w-[700px] w-full text-left text-xs text-slate-600">
+            <table className="min-w-[620px] w-full text-left text-xs text-slate-600">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">Name</th>
                   <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4">Barangay</th>
-                  <th className="py-3 px-4">Address</th>
                   <th className="py-3 px-4">Coordinates</th>
-                  <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {searchedLocations.length === 0 ? (
+                {searchedLandmarks.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center text-slate-400 py-8">
-                      {locations.length ? 'No locations match your search.' : 'No locations configured yet.'}
+                    <td colSpan="4" className="text-center text-slate-400 py-8">
+                      {landmarks.length ? 'No landmarks match your search.' : 'No map landmarks configured.'}
                     </td>
                   </tr>
                 ) : (
-                  searchedLocations.map((loc) => {
-                    const TypeIcon = LOCATION_TYPE_ICONS[loc.type] || MapPin;
-                    return (
-                    <tr key={loc.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{loc.name}</td>
-                      <td className="py-3 px-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          loc.type === 'RIVER_STOP' ? 'bg-blue-50 text-blue-700' :
-                          loc.type === 'TERMINAL' ? 'bg-orange-50 text-orange-700' :
-                          loc.type === 'BARANGAY' ? 'bg-teal-50 text-teal-700' :
-                          loc.type === 'ROAD' || loc.type === 'STREET' ? 'bg-indigo-50 text-indigo-700' :
-                          'bg-slate-100 text-slate-600'
-                        }`}>
-                          <TypeIcon className="h-3 w-3" aria-hidden="true" />
-                          {loc.type}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-500 max-w-[130px] truncate">{loc.barangay || '—'}</td>
-                      <td className="py-3 px-4 text-slate-500 max-w-[160px] truncate">{loc.address || '—'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-400">{Number(loc.latitude ?? loc.lat).toFixed(4)}, {Number(loc.longitude ?? loc.lng).toFixed(4)}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          loc.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                        }`}>{loc.status}</span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button onClick={() => openEditLocationModal(loc)} className="p-2 text-slate-400 hover:text-emerald-700 rounded-lg hover:bg-slate-100" title="Edit">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDeleteLocation(loc.id)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                  searchedLandmarks.map(landmark => (
+                    <tr key={landmark.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 px-4 font-semibold text-slate-900">{landmark.name}</td>
+                      <td className="py-3.5 px-4">{landmark.type}</td>
+                      <td className="py-3.5 px-4 font-mono text-slate-500">{Number(landmark.latitude).toFixed(5)}, {Number(landmark.longitude).toFixed(5)}</td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button type="button" onClick={() => openEditLandmarkModal(landmark)} title={`Move ${landmark.name}`} aria-label={`Move ${landmark.name}`} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-700">
+                          <Edit className="h-3.5 w-3.5" /> Move
+                        </button>
+                        <button type="button" onClick={() => handleDeleteLandmark(landmark)} title={`Delete ${landmark.name}`} aria-label={`Delete ${landmark.name}`} className="ml-1 rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
-                    );
-                  })
+                  ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
+        <section className="overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Schools</h3>
+              <p className="mt-1 text-xs text-slate-500">Manage school details, map positions, verification, and nearby transit stops.</p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {renderAdminSearch('Search schools...')}
+              <button type="button" onClick={openNewSchoolModal} className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800">
+                <Plus className="h-4 w-4" /> Add School
+              </button>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
+              <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Name</th><th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Barangay</th><th className="px-4 py-3">Map Coordinates</th>
+                  <th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {searchedSchools.length === 0 ? (
+                  <tr><td colSpan="6" className="py-8 text-center text-slate-400">{schools.length ? 'No schools match your search.' : 'No schools configured yet.'}</td></tr>
+                ) : searchedSchools.map(school => (
+                  <tr key={school.id} className="hover:bg-slate-50/70">
+                    <td className="px-4 py-3.5 font-semibold text-slate-900">{school.name}</td>
+                    <td className="px-4 py-3.5">{school.type}</td>
+                    <td className="px-4 py-3.5">{school.barangay || '—'}</td>
+                    <td className="px-4 py-3.5 font-mono text-slate-500">{Number(school.entrance_latitude ?? school.latitude).toFixed(4)}, {Number(school.entrance_longitude ?? school.longitude).toFixed(4)}</td>
+                    <td className="px-4 py-3.5"><span className={`rounded px-2 py-0.5 text-[10px] font-bold ${school.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{school.active ? 'ACTIVE' : 'INACTIVE'}{school.verified ? ' · VERIFIED' : ''}</span></td>
+                    <td className="px-4 py-3.5 text-right">
+                      <button type="button" onClick={() => openEditSchoolModal(school)} title={`Edit ${school.name}`} aria-label={`Edit ${school.name}`} className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-700"><Edit className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => handleDeleteSchool(school)} title={`Delete ${school.name}`} aria-label={`Delete ${school.name}`} className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
@@ -2561,6 +2722,172 @@ export default function Admin() {
       </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* LANDMARK MOVE MODAL */}
+      {/* ========================================================================= */}
+      {landmarkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-7">
+            <button type="button" onClick={() => setLandmarkModalOpen(false)} className="absolute right-5 top-5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close landmark editor">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="mb-1 pr-8 text-xl font-bold text-slate-900">{editingLandmark ? 'Move Landmark' : 'Add Landmark'}</h3>
+            {editingLandmark ? <p className="mb-5 text-sm text-slate-500">{editingLandmark.name}</p> : <p className="mb-5 text-sm text-slate-500">Add a searchable map landmark and set its location.</p>}
+            <form onSubmit={handleSaveLandmark} className="space-y-4 text-xs">
+              {!editingLandmark && (
+                <>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700">Landmark Name *</label>
+                    <input type="text" required maxLength="160" value={landmarkFormData.name}
+                      onChange={event => setLandmarkFormData({ ...landmarkFormData, name: event.target.value })}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700">Type *</label>
+                    <input type="text" required maxLength="40" value={landmarkFormData.type}
+                      onChange={event => setLandmarkFormData({ ...landmarkFormData, type: event.target.value })}
+                      placeholder="e.g. MALL, PLAZA, TERMINAL"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+                  </div>
+                </>
+              )}
+              <LocationPinPicker
+                latitude={landmarkFormData.latitude}
+                longitude={landmarkFormData.longitude}
+                locationType="LANDMARK"
+                onPin={(latitude, longitude) => setLandmarkFormData(previous => ({
+                  ...previous,
+                  latitude: latitude.toFixed(6),
+                  longitude: longitude.toFixed(6),
+                }))}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <label className="font-semibold text-slate-600">Latitude
+                  <input type="number" step="any" min="-90" max="90" required value={landmarkFormData.latitude}
+                    onChange={event => setLandmarkFormData({ ...landmarkFormData, latitude: event.target.value })}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                </label>
+                <label className="font-semibold text-slate-600">Longitude
+                  <input type="number" step="any" min="-180" max="180" required value={landmarkFormData.longitude}
+                    onChange={event => setLandmarkFormData({ ...landmarkFormData, longitude: event.target.value })}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                </label>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => setLandmarkModalOpen(false)} className="rounded-lg bg-slate-100 px-4 py-2.5 font-bold text-slate-700 hover:bg-slate-200">Cancel</button>
+                <button type="submit" className="rounded-lg bg-emerald-700 px-5 py-2.5 font-bold text-white hover:bg-emerald-800">{editingLandmark ? 'Save Position' : 'Add Landmark'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SCHOOL ADD/EDIT MODAL */}
+      {/* ========================================================================= */}
+      {schoolModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-7">
+            <button type="button" onClick={() => setSchoolModalOpen(false)} className="absolute right-5 top-5 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close school form">
+              <X className="h-5 w-5" />
+            </button>
+            <h3 className="mb-5 pr-8 text-xl font-bold text-slate-900">{editingSchool ? 'Edit School' : 'Add School'}</h3>
+            <form onSubmit={handleSaveSchool} className="space-y-4 text-xs">
+              <div>
+                <label className="mb-1 block font-bold text-slate-700">School Name *</label>
+                <input type="text" required value={schoolFormData.name}
+                  onChange={event => setSchoolFormData({ ...schoolFormData, name: event.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700">Type *</label>
+                  <select value={schoolFormData.type} onChange={event => setSchoolFormData({ ...schoolFormData, type: event.target.value })}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm">
+                    <option value="SCHOOL">School</option><option value="COLLEGE">College</option><option value="UNIVERSITY">University</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700">Barangay</label>
+                  <input type="text" value={schoolFormData.barangay} onChange={event => setSchoolFormData({ ...schoolFormData, barangay: event.target.value })}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block font-bold text-slate-700">Aliases</label>
+                <input type="text" value={schoolFormData.aliases} onChange={event => setSchoolFormData({ ...schoolFormData, aliases: event.target.value })}
+                  placeholder="Alternate or abbreviated names" className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block font-bold text-slate-700">Address</label>
+                <input type="text" value={schoolFormData.address} onChange={event => setSchoolFormData({ ...schoolFormData, address: event.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+              </div>
+              <div>
+                <p className="mb-2 font-bold text-slate-700">Campus coordinates *</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="font-semibold text-slate-600">Latitude
+                    <input type="number" step="any" min="-90" max="90" required value={schoolFormData.latitude}
+                      onChange={event => setSchoolFormData({ ...schoolFormData, latitude: event.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                  </label>
+                  <label className="font-semibold text-slate-600">Longitude
+                    <input type="number" step="any" min="-180" max="180" required value={schoolFormData.longitude}
+                      onChange={event => setSchoolFormData({ ...schoolFormData, longitude: event.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="font-bold text-slate-700">Map entrance pin (optional; defaults to campus coordinates)</p>
+                <LocationPinPicker
+                  latitude={schoolFormData.entrance_latitude}
+                  longitude={schoolFormData.entrance_longitude}
+                  locationType="LANDMARK"
+                  onPin={(latitude, longitude) => setSchoolFormData(previous => ({
+                    ...previous,
+                    entrance_latitude: latitude.toFixed(6),
+                    entrance_longitude: longitude.toFixed(6)
+                  }))}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="font-semibold text-slate-600">Entrance latitude
+                    <input type="number" step="any" min="-90" max="90" value={schoolFormData.entrance_latitude}
+                      onChange={event => setSchoolFormData({ ...schoolFormData, entrance_latitude: event.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                  </label>
+                  <label className="font-semibold text-slate-600">Entrance longitude
+                    <input type="number" step="any" min="-180" max="180" value={schoolFormData.entrance_longitude}
+                      onChange={event => setSchoolFormData({ ...schoolFormData, entrance_longitude: event.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 font-mono text-sm" />
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block font-bold text-slate-700">Nearby transit stops</label>
+                <textarea rows="3" value={schoolFormData.nearby_stops}
+                  onChange={event => setSchoolFormData({ ...schoolFormData, nearby_stops: event.target.value })}
+                  placeholder="One stop per line" className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm" />
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                  <input type="checkbox" checked={schoolFormData.verified} onChange={event => setSchoolFormData({ ...schoolFormData, verified: event.target.checked })}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" /> Verified
+                </label>
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                  <input type="checkbox" checked={schoolFormData.active} onChange={event => setSchoolFormData({ ...schoolFormData, active: event.target.checked })}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" /> Show on web map
+                </label>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => setSchoolModalOpen(false)} className="rounded-lg bg-slate-100 px-4 py-2.5 font-bold text-slate-700 hover:bg-slate-200">Cancel</button>
+                <button type="submit" className="rounded-lg bg-emerald-700 px-5 py-2.5 font-bold text-white hover:bg-emerald-800">{editingSchool ? 'Save School' : 'Add School'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* LOCATION ADD/EDIT MODAL */}
