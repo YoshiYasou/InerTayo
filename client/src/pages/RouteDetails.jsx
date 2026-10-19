@@ -100,8 +100,28 @@ export default function RouteDetails() {
   }
 
   const isDetour = Boolean(route.active_detour) || route.status === 'DETOUR_ACTIVE';
+  const selectedTravelTime = isDetour
+    ? route.active_detour?.detour_time || route.active_travel_time
+    : route.estimated_time;
+  const normalGeometry = route.use_corrected_geometry === 1 && route.geometry_corrected
+    ? route.geometry_corrected
+    : route.geometry_original;
+  const selectedRoute = route.active_detour
+    ? {
+      ...route,
+      geometry: route.active_detour.detour_geometry,
+      path_segments: [],
+      route_path_segments: [],
+      active_travel_time: selectedTravelTime,
+      geometry_needs_review: false
+    }
+    : {
+      ...route,
+      geometry: normalGeometry || route.geometry,
+      active_travel_time: selectedTravelTime
+    };
   const hasActiveAdvisory = Array.isArray(route.advisories) && route.advisories.length > 0;
-  const visibleSteps = route.active_detour?.detour_steps?.length
+  const visibleSteps = isDetour && route.active_detour?.detour_steps?.length
     ? route.active_detour.detour_steps.map((step, index) => ({
       id: `active-detour-step-${index}`,
       step_number: index + 1,
@@ -109,7 +129,7 @@ export default function RouteDetails() {
       instruction: step.instruction,
       location_info: step.location_info || ''
     }))
-    : route.active_detour?.detour_instructions
+    : isDetour && route.active_detour?.detour_instructions
       ? route.active_detour.detour_instructions.split(/\r?\n/).filter(Boolean).map((instruction, index) => ({
       id: `active-detour-step-${index}`,
       step_number: index + 1,
@@ -158,7 +178,7 @@ export default function RouteDetails() {
               {/* Travel Time */}
               <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 rounded-full text-xs font-semibold text-slate-700">
                 <Clock className="w-3.5 h-3.5 text-slate-500" />
-                <span>{route.active_travel_time || route.estimated_time} mins total</span>
+                <span>{selectedTravelTime || route.estimated_time} mins total</span>
               </div>
 
               {/* Total Fare Range per §0.7 */}
@@ -212,8 +232,8 @@ export default function RouteDetails() {
               <p className="font-bold">{route.advisories[0].title}: {route.advisories[0].affected_road}</p>
               <p className="text-xs mt-1 text-amber-800 leading-relaxed">
                 {route.active_detour
-                  ? `${route.active_detour.title}: ${route.active_detour.affected_road}. Follow the alternate path and instructions below; estimated travel time is ${route.active_travel_time} mins.`
-                  : `${route.advisories[0].description} Estimated travel time has been updated to ${route.active_travel_time} mins to reflect the advisory.`}
+                  ? `${route.active_detour.title}: ${route.active_detour.affected_road}. Follow the alternate path and instructions below; estimated travel time is ${selectedTravelTime} mins.`
+                  : `${route.advisories[0].description} Estimated travel time has been updated to ${selectedTravelTime} mins to reflect the advisory.`}
               </p>
             </div>
           </div>
@@ -241,7 +261,7 @@ export default function RouteDetails() {
           {/* Left Column: Route Steps & Directions */}
           <div className="lg:col-span-7">
             <h2 className="text-xl font-bold text-slate-900 mb-6">
-              Route Steps & Directions
+              {isDetour ? 'Flood Detour Steps & Directions' : 'Route Steps & Directions'}
             </h2>
 
             <div className="relative pl-6 sm:pl-8 space-y-8 before:absolute before:left-3.5 sm:before:left-4.5 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200">
@@ -335,8 +355,8 @@ export default function RouteDetails() {
                   )}
                   <div className="relative h-52 sm:h-64 lg:h-72 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-200">
                     <RouteMap
-                      routes={[route]}
-                      selectedJourney={route.active_detour ? { legs: [{
+                      routes={[selectedRoute]}
+                      selectedJourney={isDetour && route.active_detour ? { legs: [{
                         coordinates: [],
                         floodedCoordinates: readLineStringCoordinates(route.active_detour.flooded_geometry),
                         advisoryTitle: route.active_detour.title
@@ -344,7 +364,7 @@ export default function RouteDetails() {
                       interactive={true}
                       showAdvisories={true}
                       showStopClusterCounts={false}
-                      allowUnverifiedPreview={Boolean(route.geometry_needs_review)}
+                      allowUnverifiedPreview={Boolean(selectedRoute.geometry_needs_review)}
                       className="absolute inset-0 w-full h-full"
                     />
                   </div>

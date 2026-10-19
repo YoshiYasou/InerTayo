@@ -6,7 +6,7 @@ const AuditLogSchema = new mongoose.Schema({
     user_id: { type: Number, required: true, index: true },
     username: { type: String, required: true },
     role: { type: String, required: true, enum: ['COMMUTER', 'ADMIN'] },
-    action: { type: String, required: true, enum: ['LOGIN', 'LOGOUT', 'ROUTE_SAVED', 'ROUTE_UNSAVED'], index: true },
+    action: { type: String, required: true, enum: ['ACCOUNT_CREATED', 'LOGIN', 'LOGOUT', 'ROUTE_SAVED', 'ROUTE_UNSAVED'], index: true },
     route_id: { type: Number, default: null },
     route_name: { type: String, default: null },
     created_at: { type: Date, default: Date.now, index: true }

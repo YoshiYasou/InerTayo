@@ -771,6 +771,41 @@ async function runTests() {
             'Valid admin email code completes sign-in and returns an ADMIN JWT'
         );
         const adminToken = adminVerification.data.token;
+        const adminAuthHeaders = { Authorization: ['Bearer', adminToken].join(' ') };
+
+        const jeepneyMode = modesRes.data.find(mode => mode.name === 'Jeepney');
+        const jeepneyRouteId = routesRes.data.find(route => route.transport_mode_id === jeepneyMode.id)?.id;
+        const deactivateJeepney = await makeRequest('PUT', `/api/admin/transport-modes/${jeepneyMode.id}`, {
+            name: jeepneyMode.name,
+            description: jeepneyMode.description,
+            icon: jeepneyMode.icon,
+            status: 'INACTIVE'
+        }, adminAuthHeaders);
+        const commuterRoutesWithoutJeepney = await makeRequest('GET', '/api/routes');
+        const inactiveJeepneyDetails = await makeRequest('GET', `/api/routes/${jeepneyRouteId}`);
+        const adminRoutesWithInactiveMode = await makeRequest('GET', '/api/routes?include_inactive=true', null, adminAuthHeaders);
+        const jeepneyLayerWithoutMode = await makeRequest('GET', '/api/map/layers/jeepneys');
+        const publicModesWithoutJeepney = await makeRequest('GET', '/api/transport-modes');
+        assert(
+            deactivateJeepney.status === 200 &&
+                commuterRoutesWithoutJeepney.data.every(route => route.transport_mode_id !== jeepneyMode.id) &&
+                inactiveJeepneyDetails.status === 404 &&
+                adminRoutesWithInactiveMode.data.some(route => route.transport_mode_id === jeepneyMode.id) &&
+                jeepneyLayerWithoutMode.data.features.every(feature => feature.properties.mode !== jeepneyMode.name) &&
+                publicModesWithoutJeepney.data.every(mode => mode.id !== jeepneyMode.id),
+            'Deactivating a transport mode hides its routes from commuters and map while preserving admin access'
+        );
+        const reactivateJeepney = await makeRequest('PUT', `/api/admin/transport-modes/${jeepneyMode.id}`, {
+            name: jeepneyMode.name,
+            description: jeepneyMode.description,
+            icon: jeepneyMode.icon,
+            status: 'ACTIVE'
+        }, adminAuthHeaders);
+        assert(
+            reactivateJeepney.status === 200 && jeepneyRouteId &&
+                (await makeRequest('GET', '/api/routes')).data.some(route => route.id === jeepneyRouteId),
+            'Reactivating a transport mode restores its routes to commuter results'
+        );
 
         const activityRoute = routesRes.data.find(route =>
             !savedListRes.data.some(savedRoute => savedRoute.id === route.id)
@@ -791,16 +826,20 @@ async function runTests() {
             'Authorization': `Bearer ${adminToken}`
         });
         const auditLogRecords = Array.isArray(adminAuditLogs.data) ? adminAuditLogs.data : [];
+        const accountCreatedEvent = auditLogRecords.find(log =>
+            log.action === 'ACCOUNT_CREATED' && log.username === 'testcommuter' && log.role === 'COMMUTER'
+        );
         const savedRouteEvent = auditLogRecords.find(log =>
             log.action === 'ROUTE_SAVED' && log.username === 'testcommuter' &&
             log.route_id === activityRoute.id && log.route_name === activityRoute.route_name
         );
         assert(
             adminAuditLogs.status === 200 && Array.isArray(adminAuditLogs.data) &&
+                accountCreatedEvent && accountCreatedEvent.created_at && !Object.hasOwn(accountCreatedEvent, 'email') &&
                 auditLogRecords.some(log => log.action === 'LOGIN' && log.username === 'admin') &&
                 auditLogRecords.some(log => log.action === 'LOGOUT' && log.username === 'testcommuter') &&
                 savedRouteEvent && savedRouteEvent.created_at && !Object.hasOwn(savedRouteEvent, 'email'),
-            'Admin audit logs include login, logout, and saved-route activity with timestamps and route details'
+            'Admin audit logs include account creation, login, logout, and saved-route activity without exposing email'
         );
         await makeRequest('DELETE', `/api/saved-routes/${activityRoute.id}`, null, {
             'Authorization': `Bearer ${commuterToken}`
@@ -1516,7 +1555,8 @@ async function runTests() {
         assert(putEmptyModeName.status === 400, 'GAP-7: PUT /api/admin/transport-modes/:id with empty name returns 400');
 
         const putNonExistentMode = await makeRequest('PUT', '/api/admin/transport-modes/99999', {
-            name: 'Hovercraft'
+            name: 'Hovercraft',
+            status: 'ACTIVE'
         }, { 'Authorization': `Bearer ${adminToken}` });
         assert(putNonExistentMode.status === 404, 'GAP-7: PUT /api/admin/transport-modes/99999 returns 404');
 

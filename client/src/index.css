@@ -44,6 +44,12 @@
   min-height: 18rem;
 }
 
+:root[data-theme='dark'] .route-geometry-editor:fullscreen,
+:root[data-theme='dark'] .route-path-editor-shell:fullscreen {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -372,4 +378,64 @@
 :root[data-theme='dark'] [class~='hover:border-slate-400']:hover,
 :root[data-theme='dark'] [class~='hover:border-slate-500']:hover {
   border-color: #94a3b8;
+}
+
+:root[data-theme='dark'] .route-geometry-editor button[class~='text-slate-600'],
+:root[data-theme='dark'] .route-geometry-editor button[class~='text-slate-700'] {
+  color: #e2e8f0;
+  background-color: #1e293b;
+  border-color: #64748b;
+}
+
+:root[data-theme='dark'] .route-geometry-editor button[class~='hover:bg-slate-100']:hover:not(:disabled) {
+  color: #fff;
+  background-color: #334155;
+  border-color: #94a3b8;
+}
+
+:root[data-theme='dark'] .route-geometry-editor button:disabled {
+  color: #cbd5e1;
+  opacity: 0.9;
+}
+
+:root[data-theme='dark'] .route-stop-connector {
+  border-color: #0369a1;
+  background-color: #0c2238;
+}
+
+:root[data-theme='dark'] .route-stop-connector > span:first-child {
+  color: #e0f2fe;
+}
+
+:root[data-theme='dark'] .route-stop-connector [role='group'] {
+  border-color: #0284c7;
+  background-color: #0f172a;
+}
+
+:root[data-theme='dark'] .route-stop-connector [role='group'] button:not([class~='bg-sky-700']) {
+  color: #cbd5e1;
+}
+
+:root[data-theme='dark'] .route-stop-connector [role='group'] button:not([class~='bg-sky-700']):hover {
+  background-color: #334155;
+  color: #fff;
+}
+
+:root[data-theme='dark'] .route-stop-selector,
+:root[data-theme='dark'] .route-stop-selector option {
+  border-color: #475569;
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+:root[data-theme='dark'] .route-stop-selector:disabled {
+  opacity: 0.9;
+}
+
+:root[data-theme='dark'] .route-stop-connector button:disabled {
+  opacity: 0.85;
+}
+
+:root[data-theme='dark'] .route-stop-connector > .route-stop-helper {
+  color: #bae6fd;
 }

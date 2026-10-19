@@ -30,6 +30,7 @@ import {
   Activity,
   LogIn,
   LogOut,
+  UserPlus,
   Layers,
   Ship,
   FileSpreadsheet,
@@ -526,10 +527,10 @@ export default function Admin() {
       const [statsRes, savedRouteInsightsRes, routesRes, advRes, feedRes, modesRes, locsRes, schoolsRes, landmarksRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/admin/saved-routes', { headers }).then(r => r.json()),
-        fetch('/api/routes').then(r => r.json()),
+        fetch('/api/routes?include_inactive=true', { headers }).then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
-        fetch('/api/transport-modes').then(r => r.json()),
+        fetch('/api/admin/transport-modes', { headers }).then(r => r.json()),
         fetch('/api/admin/locations', { headers }).then(r => r.json()),
         fetch('/api/admin/schools', { headers }).then(r => r.json()),
         fetch('/api/landmarks').then(r => r.json()),
@@ -588,14 +589,15 @@ export default function Admin() {
     setRouteMapEditorTab('normal');
     setRouteSteps([]);
     setOriginalRouteSteps([]);
-    setRoutePathSegments([{ mode: modes[0]?.name || 'Jeepney', geometry: '' }]);
+    const firstActiveMode = modes.find((mode) => mode.status === 'ACTIVE') || modes[0];
+    setRoutePathSegments([{ mode: firstActiveMode?.name || 'Jeepney', geometry: '' }]);
     setActivePathSegmentIndex(0);
     setRoutePreviewOpen(false);
     setGeometryValidation(null);
     setRouteValidationWarnings([]);
     setRouteFormData({
       route_name: '',
-      transport_mode_id: modes[0]?.id || 1,
+      transport_mode_id: firstActiveMode?.id || 1,
       origin: '',
       destination: '',
       estimated_time: 15,
@@ -630,7 +632,9 @@ export default function Admin() {
     setRouteValidationWarnings([]);
     let routeDetails = route;
     try {
-      const detailResponse = await fetch(`/api/routes/${route.id}`);
+      const detailResponse = await fetch(`/api/routes/${route.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (detailResponse.ok) routeDetails = await detailResponse.json();
     } catch (error) {
       console.error('Could not load route path legs:', error);
@@ -847,7 +851,8 @@ export default function Admin() {
       const lastPoint = parsed?.type === 'LineString' ? parsed.coordinates?.at(-1) : null;
       if (Array.isArray(lastPoint)) geometry = JSON.stringify({ type: 'LineString', coordinates: [lastPoint] });
     } catch {}
-    setRoutePathSegments((segments) => [...segments, { mode: modes[0]?.name || 'Jeepney', geometry }]);
+    const firstActiveMode = modes.find((mode) => mode.status === 'ACTIVE') || modes[0];
+    setRoutePathSegments((segments) => [...segments, { mode: firstActiveMode?.name || 'Jeepney', geometry }]);
     setActivePathSegmentIndex(routePathSegments.length);
   };
 
@@ -990,7 +995,9 @@ export default function Admin() {
         routeId = data.routeId;
       }
 
-      const savedRouteResponse = await fetch(`/api/routes/${routeId}`);
+      const savedRouteResponse = await fetch(`/api/routes/${routeId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const savedRoute = await savedRouteResponse.json().catch(() => ({}));
       if (!savedRouteResponse.ok || !matchesPathSegments(savedRoute.path_segments, routePathSegments)) {
         throw new Error('The server did not confirm the latest route legs. Your editor is still open; reload the app server and publish again.');
@@ -1459,7 +1466,7 @@ export default function Admin() {
   const handleToggleModeStatus = async (mode) => {
     const newStatus = mode.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
-      await fetch(`/api/admin/transport-modes/${mode.id}`, {
+      const response = await fetch(`/api/admin/transport-modes/${mode.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -1472,9 +1479,10 @@ export default function Admin() {
           status: newStatus
         })
       });
-      loadAdminData();
+      if (!response.ok) throw new Error('Transport mode update was rejected by the server.');
+      await loadAdminData();
     } catch (err) {
-      await showAdminNotice('Transport mode could not be updated', 'Failed to update transport mode status.');
+      await showAdminNotice('Transport mode could not be updated', err.message || 'Failed to update transport mode status.');
     }
   };
 
@@ -2139,7 +2147,7 @@ export default function Admin() {
                   <h3 className="text-lg font-bold text-slate-900">User Activity</h3>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Latest 200 sign-ins, sign-outs, and saved-route changes.
+                  Latest 200 account creations, sign-ins, sign-outs, and saved-route changes.
                 </p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -2184,10 +2192,12 @@ export default function Admin() {
                       </td>
                     </tr>
                   ) : searchedActivityLogs.map((log) => {
+                    const isAccountCreated = log.action === 'ACCOUNT_CREATED';
                     const isLogin = log.action === 'LOGIN';
                     const isLogout = log.action === 'LOGOUT';
-                    const ActionIcon = isLogin ? LogIn : isLogout ? LogOut : Bookmark;
+                    const ActionIcon = isAccountCreated ? UserPlus : isLogin ? LogIn : isLogout ? LogOut : Bookmark;
                     const actionLabel = {
+                      ACCOUNT_CREATED: 'Created account',
                       LOGIN: 'Signed in',
                       LOGOUT: 'Signed out',
                       ROUTE_SAVED: 'Saved route',
@@ -3169,7 +3179,9 @@ export default function Admin() {
                     }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                   >
-                    {modes.map(m => (
+                    {modes.filter((mode) =>
+                      mode.status === 'ACTIVE' || mode.id === Number(routeFormData.transport_mode_id)
+                    ).map(m => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
@@ -3538,7 +3550,12 @@ export default function Admin() {
                           ))}
                           className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-xs"
                         >
-                          {[...new Set(['Walk', ...modes.map((mode) => mode.name)])].map((mode) => (
+                          {[...new Set([
+                            'Walk',
+                            ...modes
+                              .filter((mode) => mode.status === 'ACTIVE' || mode.name === step.mode)
+                              .map((mode) => mode.name)
+                          ])].map((mode) => (
                             <option key={mode} value={mode}>{mode}</option>
                           ))}
                         </select>
@@ -3691,15 +3708,9 @@ export default function Admin() {
                     <button
                       type="button"
                       onClick={addRoutePathSegment}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
                       <Plus className="h-4 w-4" /> Add leg
-                    </button>
-                    <button
-                      type="submit"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800"
-                    >
-                      Publish route
                     </button>
                   </div>
 
@@ -3734,7 +3745,9 @@ export default function Admin() {
                               className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium"
                             >
                               <option value="Walk">Walking</option>
-                              {modes.map((mode) => <option key={mode.id} value={mode.name}>{mode.name}</option>)}
+                              {modes
+                                .filter((mode) => mode.status === 'ACTIVE' || mode.name === activeMode)
+                                .map((mode) => <option key={mode.id} value={mode.name}>{mode.name}</option>)}
                             </select>
                           </label>
                           <div className="flex items-center gap-1">

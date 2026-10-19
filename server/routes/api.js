@@ -327,7 +327,7 @@ router.post('/admin/routes/validate-geometry', authenticateToken, requireAdmin, 
 // GET /api/transport-modes - List all transport modes
 router.get('/transport-modes', async (req, res) => {
     try {
-        const modes = await TransportMode.find().sort({ id: 1 }).lean();
+        const modes = await TransportMode.find({ status: 'ACTIVE' }).sort({ id: 1 }).lean();
         res.json(modes);
     } catch (err) {
         console.error('Error fetching transport modes:', err);
@@ -454,7 +454,9 @@ router.get('/search/suggestions', async (req, res) => {
         const modes = await TransportMode.find().lean();
         const modeMap = new Map(modes.map(m => [m.id, m]));
 
-        const routeSuggestions = matchingRoutes.slice(0, 6).map(r => {
+        const routeSuggestions = matchingRoutes.filter(route =>
+            modeMap.get(route.transport_mode_id)?.status === 'ACTIVE'
+        ).slice(0, 6).map(r => {
             const m = modeMap.get(r.transport_mode_id) || {};
             return {
                 id: r.id,
@@ -564,7 +566,9 @@ router.get('/locations/:id', async (req, res) => {
         const modes = await TransportMode.find().lean();
         const modeMap = new Map(modes.map(m => [m.id, m]));
 
-        const connectedRoutes = matchingRoutes.map(r => {
+        const connectedRoutes = matchingRoutes.filter(route =>
+            modeMap.get(route.transport_mode_id)?.status === 'ACTIVE'
+        ).map(r => {
             const m = modeMap.get(r.transport_mode_id) || {};
             return {
                 id: r.id,
@@ -885,7 +889,7 @@ router.get('/geocode', async (req, res) => {
 });
 
 // GET /api/routes - Search, filter, and sort routes
-router.get('/routes', async (req, res) => {
+router.get('/routes', optionalAuth, async (req, res) => {
     try {
         const { search, mode, sort, from, to, use_corrected } = req.query;
         const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
@@ -908,7 +912,10 @@ router.get('/routes', async (req, res) => {
         const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
 
         // Mode filter
-        let filteredRoutes = allRoutes;
+        const includeInactiveModes = req.user?.role === 'ADMIN' && req.query.include_inactive === 'true';
+        let filteredRoutes = includeInactiveModes
+            ? allRoutes
+            : allRoutes.filter(route => modeMap.get(route.transport_mode_id)?.status === 'ACTIVE');
         if (mode && mode !== 'All Modes' && mode !== 'ALL') {
             filteredRoutes = filteredRoutes.filter(r => {
                 const m = modeMap.get(r.transport_mode_id);
@@ -1118,6 +1125,7 @@ router.get('/routes/nearby', async (req, res) => {
         let allRoutes = await Route.find().lean();
         const allModes = await TransportMode.find().lean();
         const modeMap = new Map(allModes.map(m => [m.id, m]));
+        allRoutes = allRoutes.filter(route => modeMap.get(route.transport_mode_id)?.status === 'ACTIVE');
         const boatDetails = await BoatRouteDetail.find().lean();
         const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
 
@@ -1244,7 +1252,7 @@ router.get('/routes/nearby', async (req, res) => {
 });
 
 // GET /api/routes/:id - Single route with stops, steps, and fare breakdown
-router.get('/routes/:id', async (req, res) => {
+router.get('/routes/:id', optionalAuth, async (req, res) => {
     try {
         const routeId = parseId(req.params.id);
         if (routeId === null) {
@@ -1260,6 +1268,9 @@ router.get('/routes/:id', async (req, res) => {
         }
 
         const mode = await TransportMode.findOne({ id: route.transport_mode_id }).lean();
+        if (mode?.status !== 'ACTIVE' && req.user?.role !== 'ADMIN') {
+            return res.status(404).json({ error: 'Route not found.' });
+        }
         const boatDetail = await BoatRouteDetail.findOne({ route_id: routeId }).lean();
 
         let boatDetailsWithNames = null;
@@ -1406,6 +1417,9 @@ router.get('/routes/:id/geojson', async (req, res) => {
         }
 
         const mode = await TransportMode.findOne({ id: route.transport_mode_id }).lean();
+        if (mode?.status !== 'ACTIVE') {
+            return res.status(404).json({ error: 'Route not found.' });
+        }
         const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
         const boatDetail = /boat/i.test(mode?.name || '')
             ? await BoatRouteDetail.findOne({ route_id: routeId }).lean()
@@ -1768,6 +1782,7 @@ router.post('/auth/register', async (req, res) => {
         });
 
         const user = { id: userId, username: trimmedUsername, email: trimmedEmail, role: 'COMMUTER' };
+        await recordUserActivity(user, 'ACCOUNT_CREATED');
         await recordUserActivity(user, 'LOGIN');
         return res.status(201).json({
             message: 'Account created successfully.',
@@ -2946,6 +2961,9 @@ router.put('/admin/transport-modes/:id', authenticateToken, requireAdmin, async 
         if (!name || typeof name !== 'string' || name.trim() === '') {
             return res.status(400).json({ error: 'Mode name is required.' });
         }
+        if (!['ACTIVE', 'INACTIVE'].includes(status)) {
+            return res.status(400).json({ error: 'Status must be ACTIVE or INACTIVE.' });
+        }
 
         const existing = await TransportMode.findOne({ id: modeId });
         if (!existing) {
@@ -2958,10 +2976,11 @@ router.put('/admin/transport-modes/:id', authenticateToken, requireAdmin, async 
                 name: name.trim(),
                 description: description ? description.trim() : null,
                 icon: icon ? icon.trim() : null,
-                status: status || 'ACTIVE'
+                status
             }
         );
 
+        invalidateMapCache();
         res.json({ message: 'Transport mode updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update transport mode.' });
@@ -3296,6 +3315,10 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
             estimated_time === undefined || estimated_time === null || estimated_time === '') {
             return res.status(400).json({ error: 'Missing required route fields.' });
         }
+        const transportMode = await TransportMode.findOne({ id: Number(transport_mode_id) }).lean();
+        if (!transportMode || transportMode.status !== 'ACTIVE') {
+            return res.status(400).json({ error: 'Routes can only be created with an active transport mode.' });
+        }
 
         const parsedEstimatedTime = parseInt(estimated_time, 10);
         if (isNaN(parsedEstimatedTime) || parsedEstimatedTime <= 0) {
@@ -3456,6 +3479,10 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
         const existing = await Route.findOne({ id: routeId });
         if (!existing) {
             return res.status(404).json({ error: 'Route not found.' });
+        }
+        const transportMode = await TransportMode.findOne({ id: Number(transport_mode_id) }).lean();
+        if (!transportMode || (transportMode.status !== 'ACTIVE' && existing.transport_mode_id !== Number(transport_mode_id))) {
+            return res.status(400).json({ error: 'Routes can only be assigned to an active transport mode.' });
         }
 
         const updateData = {
@@ -4780,6 +4807,7 @@ async function handleRouteLayer(req, res, modeKeyword) {
         for (const route of allRoutes) {
             const m = modeMap.get(route.transport_mode_id) || {};
             const modeName = m.name || '';
+            if (m.status !== 'ACTIVE') continue;
             if (!modeName.toLowerCase().includes(modeKeyword)) continue;
             if (modeKeyword === 'boat' && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') continue;
 
@@ -4955,6 +4983,7 @@ router.get('/map/layers/stops', async (req, res) => {
             const modeName = m.name || '';
             const color = layerModeColor(modeName);
             const stops = stopsByRoute.get(route.id) || [];
+            if (m.status !== 'ACTIVE') continue;
             if (/boat/i.test(modeName) && boatDetailsByRoute.get(route.id)?.operating_status !== 'ACTIVE') continue;
             const routeGeometry = (ROUTING_CONFIG.USE_CORRECTED_GEOMETRY
                 && route.use_corrected_geometry === 1

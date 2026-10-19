@@ -511,7 +511,7 @@ export default function RouteGeometryEditor({
             </p>
           )}
           {visibleStops.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-sky-100 bg-sky-50/70 px-2.5 py-2">
+            <div className="route-stop-connector mt-2 flex flex-wrap items-center gap-2 rounded-md border border-sky-100 bg-sky-50/70 px-2.5 py-2">
               <span className="text-xs font-semibold text-slate-700">Connect this leg to a stop:</span>
               <div className="inline-flex rounded-md border border-sky-200 bg-white p-0.5" role="group" aria-label="Choose route leg endpoint">
                 {['start', 'end'].map((endpoint) => (
@@ -532,7 +532,7 @@ export default function RouteGeometryEditor({
                 value={selectedStopId}
                 disabled={!isEditing}
                 onChange={(event) => setSelectedStopId(event.target.value)}
-                className="min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                className="route-stop-selector min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="">Choose a stop...</option>
                 {visibleStops.map((stop) => (
@@ -549,7 +549,7 @@ export default function RouteGeometryEditor({
               >
                 Connect
               </button>
-              <span className="text-xs text-slate-500">or click a stop marker on the map.</span>
+              <span className="route-stop-helper text-xs text-slate-500">or click a stop marker on the map.</span>
             </div>
           )}
             </div>

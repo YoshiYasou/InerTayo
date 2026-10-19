@@ -19,6 +19,17 @@ import {
   PanelLeftClose
 } from 'lucide-react';
 
+function readLineStringCoordinates(value) {
+  try {
+    const geometry = typeof value === 'string' ? JSON.parse(value) : value;
+    return geometry?.type === 'LineString' && Array.isArray(geometry.coordinates)
+      ? geometry.coordinates
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function WebMap() {
   const { navigate, queryParams } = useRouter();
 
@@ -94,8 +105,18 @@ export default function WebMap() {
       })
       .then(route => {
         if (cancelled) return;
-        setFocusedRoute(route);
-        setSelectedItem({ type: 'route', data: route });
+        const selectedRoute = route.active_detour
+          ? {
+            ...route,
+            geometry: route.active_detour.detour_geometry,
+            path_segments: [],
+            route_path_segments: [],
+            active_travel_time: route.active_detour.detour_time || route.active_travel_time,
+            geometry_needs_review: false
+          }
+          : route;
+        setFocusedRoute(selectedRoute);
+        setSelectedItem({ type: 'route', data: selectedRoute });
       })
       .catch(error => {
         if (!cancelled) {
@@ -369,7 +390,15 @@ export default function WebMap() {
               showLocations={showLocations}
               showSchools={showSchools}
               schools={schools}
-              selectedJourney={queryParams?.route ? null : selectedJourney}
+              selectedJourney={queryParams?.route
+                ? focusedRoute?.active_detour
+                  ? { legs: [{
+                    coordinates: [],
+                    floodedCoordinates: readLineStringCoordinates(focusedRoute.active_detour.flooded_geometry),
+                    advisoryTitle: focusedRoute.active_detour.title
+                  }] }
+                  : null
+                : selectedJourney}
               selectedRouteId={queryParams?.route || (selectedItem?.type === 'route' ? selectedItem.data.id : null)}
               routeOnly={Boolean(queryParams?.route)}
               allowUnverifiedPreview={queryParams?.route ? Boolean(focusedRoute?.geometry_needs_review) : selectedItem?.type === 'route' && Boolean(selectedItem.data.geometry_needs_review)}
@@ -396,13 +425,15 @@ export default function WebMap() {
           {/* Non-route map selections remain as compact map overlays. */}
           {selectedItem && selectedItem.type !== 'route' && (
             <div className="absolute bottom-16 lg:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-200/90 z-20 animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <div className="flex min-h-11 items-center justify-between gap-3 mb-2">
+                <span className="text-[10px] font-bold uppercase leading-tight tracking-wider text-slate-400">
                   {selectedItem.type === 'stop' ? 'Selected Transit Stop' : selectedItem.type === 'school' ? 'Verified Dagupan Institution' : selectedItem.type === 'landmark' ? 'Reference Landmark' : 'Advisory Info'}
                 </span>
                 <button
+                  type="button"
                   onClick={() => setSelectedItem(null)}
-                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-slate-700 font-bold rounded-lg hover:bg-slate-100"
+                  aria-label="Close selected map details"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg font-bold text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 >
                   ✕
                 </button>

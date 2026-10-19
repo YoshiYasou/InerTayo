@@ -307,6 +307,7 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     const routes = [];
     for (const r of rawRoutes) {
         const mode = modeMap.get(r.transport_mode_id) || {};
+        if (mode.status !== 'ACTIVE') continue;
         const boat = boatMap.get(r.id);
         const routeAdvisories = advisoriesByRoute.get(r.id) || [];
         const routeLinks = routeAdvisories.map(advisory => advisory.routeAdvisory);

@@ -19,7 +19,6 @@ export default function Home() {
   const { navigate } = useRouter();
   const [fromLocation, setFromLocation] = useState('Dagupan Plaza');
   const [toLocation, setToLocation] = useState('Bonuan Beach, Dagupan');
-  const [preference, setPreference] = useState('fastest'); // 'fastest' | 'cheapest'
   const [activeAdvisory, setActiveAdvisory] = useState(null);
   const [modes, setModes] = useState([]);
 
@@ -57,7 +56,7 @@ export default function Home() {
     navigate('/routes', {
       from: fromLocation,
       to: toLocation,
-      sort: preference === 'fastest' ? 'Fastest Travel Time' : 'Cheapest Fare'
+      sort: 'Fastest Travel Time'
     });
   };
 
@@ -130,32 +129,6 @@ export default function Home() {
                       />
                     </div>
 
-                  </div>
-
-                  {/* Fastest / Cheapest Toggle */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setPreference('fastest')}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        preference === 'fastest'
-                          ? 'bg-slate-900 text-white shadow-sm'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      Fastest
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPreference('cheapest')}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        preference === 'cheapest'
-                          ? 'bg-slate-900 text-white shadow-sm'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      Cheapest
-                    </button>
                   </div>
 
                   {/* Primary Action Button */}
