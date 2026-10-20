@@ -316,6 +316,9 @@ export default function JourneyPlanner({
                 const isSelected = selectedJourney?.id === itinerary.id;
                 const isExpanded = expandedId === itinerary.id;
                 const isDetour = itinerary.floodStatus === 'DETOUR_ACTIVE';
+                const transitLegs = itinerary.legs.filter((leg) => leg.type === 'TRANSIT');
+                const transferCount = Math.max(0, transitLegs.length - 1);
+                const transitModes = transitLegs.map((leg) => leg.mode).filter(Boolean);
 
                 return (
                   <div
@@ -347,6 +350,26 @@ export default function JourneyPlanner({
                           <h4 className="text-xs font-bold text-slate-700 mt-1">
                             {itinerary.title}
                           </h4>
+                          <span
+                            aria-label={transitLegs.length === 0
+                              ? 'Walking route with no vehicle transfers'
+                              : transferCount === 0
+                                ? 'Direct route with zero transfers'
+                                : `${transferCount} ${transferCount === 1 ? 'transfer' : 'transfers'} via ${transitModes.join(' to ')}`}
+                            className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                              transitLegs.length === 0
+                                ? 'border-slate-200 bg-slate-100 text-slate-600'
+                                : transferCount === 0
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                  : 'border-amber-200 bg-amber-50 text-amber-900'
+                            }`}
+                          >
+                            {transitLegs.length === 0
+                              ? 'Walking route'
+                              : transferCount === 0
+                                ? 'Direct route · 0 transfers'
+                                : `${transferCount} ${transferCount === 1 ? 'transfer' : 'transfers'} · ${transitModes.join(' → ')}`}
+                          </span>
                           {itinerary.floodStatus && itinerary.floodStatus !== 'CLEAR' && (
                             <span className={`mt-1 inline-flex rounded px-2 py-0.5 text-[10px] font-bold ${isDetour ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-800'}`}>
                               {isDetour ? 'Active detour' : 'Flood advisory'}
