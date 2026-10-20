@@ -72,6 +72,26 @@ async function recordUserActivity(user, action, route = null) {
     });
 }
 
+async function recordAdminActivity(user, action, details, route = null) {
+    await AuditLog.create({
+        id: await nextId('AuditLog'),
+        user_id: user.id,
+        username: user.username,
+        role: user.role,
+        action,
+        route_id: route?.id ?? null,
+        route_name: route?.route_name ?? null,
+        details
+    });
+}
+
+function formatAuditFareRange(range) {
+    if (!range || !Number.isFinite(Number(range.min)) || !Number.isFinite(Number(range.max))) return 'not set';
+    const min = Number(range.min).toFixed(2);
+    const max = Number(range.max).toFixed(2);
+    return min === max ? `₱${min}` : `₱${min}–₱${max}`;
+}
+
 function maskEmail(email) {
     const [name, domain] = email.split('@');
     return `${name.slice(0, 1)}${'*'.repeat(Math.max(name.length - 1, 2))}@${domain}`;
@@ -891,6 +911,7 @@ router.get('/geocode', async (req, res) => {
 // GET /api/routes - Search, filter, and sort routes
 router.get('/routes', optionalAuth, async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const { search, mode, sort, from, to, use_corrected } = req.query;
         const useCorrected = (use_corrected !== 'false') && ROUTING_CONFIG.USE_CORRECTED_GEOMETRY;
 
@@ -1254,6 +1275,7 @@ router.get('/routes/nearby', async (req, res) => {
 // GET /api/routes/:id - Single route with stops, steps, and fare breakdown
 router.get('/routes/:id', optionalAuth, async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const routeId = parseId(req.params.id);
         if (routeId === null) {
             return res.status(400).json({ error: 'Invalid route ID format.' });
@@ -1524,6 +1546,7 @@ router.get('/advisories', async (req, res) => {
 // GET /api/fares/tricycles - Zone-based tricycle fares with optional barangay filter
 router.get('/fares/tricycles', async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const { barangay } = req.query;
         const filter = {};
         if (barangay && barangay.trim()) {
@@ -1540,6 +1563,7 @@ router.get('/fares/tricycles', async (req, res) => {
 // GET /api/fares/routes - Route fares for jeepneys, modern PUVs, and provincial buses
 router.get('/fares/routes', async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const { mode } = req.query;
         const filter = {};
         if (mode) {
@@ -1560,6 +1584,7 @@ router.get('/fares/routes', async (req, res) => {
 // GET /api/fares/boats - Water boat services and fare notes
 router.get('/fares/boats', async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const fares = await BoatFare.find().sort({ service_type: 1 }).lean();
         res.json(fares);
     } catch (err) {
@@ -2468,6 +2493,7 @@ router.get('/admin/stats', authenticateToken, requireAdmin, async (req, res) => 
 
 router.get('/admin/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const requestedLimit = Number.parseInt(req.query.limit, 10);
         const limit = Number.isInteger(requestedLimit)
             ? Math.min(Math.max(requestedLimit, 1), 500)
@@ -3398,6 +3424,12 @@ router.post('/admin/routes', authenticateToken, requireAdmin, async (req, res) =
         }
 
         invalidateMapCache();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_ROUTE_CREATED',
+            `Created route "${route_name.trim()}" with fare ${formatAuditFareRange({ min: parsedMinFare, max: parsedMaxFare })}.`,
+            { id: routeId, route_name: route_name.trim() }
+        );
         res.status(201).json({
             message: 'Route created successfully.',
             routeId
@@ -3541,6 +3573,12 @@ router.put('/admin/routes/:id', authenticateToken, requireAdmin, async (req, res
 
         await Route.updateOne({ id: routeId }, updateData);
         invalidateMapCache();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_ROUTE_UPDATED',
+            `Updated route "${updateData.route_name}" with fare ${formatAuditFareRange({ min: parsedMinFare, max: parsedMaxFare })}.`,
+            { id: routeId, route_name: updateData.route_name }
+        );
         res.json({ message: 'Route updated successfully.' });
     } catch (err) {
         console.error('Error updating route:', err);
@@ -3571,6 +3609,12 @@ router.delete('/api/admin/routes/:id', authenticateToken, requireAdmin, async (r
         await AdvisoryRoute.deleteMany({ route_id: routeId });
 
         invalidateMapCache();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_ROUTE_DELETED',
+            `Deleted route "${existing.route_name}".`,
+            { id: existing.id, route_name: existing.route_name }
+        );
         res.json({ message: 'Route deleted successfully.' });
     } catch (err) {
         console.error('Error deleting route:', err);
@@ -3680,6 +3724,13 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
 
         await normalizeRouteStops(parsedRouteId, stopId, parsedStopOrder);
         invalidateMapCache();
+        const route = await Route.findOne({ id: parsedRouteId }).select('id route_name').lean();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_STOP_CREATED',
+            `Added stop "${stop_name.trim()}" to route "${route?.route_name || parsedRouteId}".`,
+            route
+        );
         res.status(201).json({ message: 'Stop added.', stopId });
     } catch (err) {
         res.status(500).json({ error: 'Failed to create stop.' });
@@ -3737,6 +3788,13 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
         }
         await normalizeRouteStops(nextRouteId, stopId, parsedStopOrder);
         invalidateMapCache();
+        const route = await Route.findOne({ id: nextRouteId }).select('id route_name').lean();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_STOP_UPDATED',
+            `Updated stop "${stop_name.trim()}" on route "${route?.route_name || nextRouteId}".`,
+            route
+        );
         res.json({ message: 'Stop updated.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update stop.' });
@@ -3759,6 +3817,13 @@ router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, r
         await Stop.deleteOne({ id: stopId });
         await normalizeRouteStops(existing.route_id);
         invalidateMapCache();
+        const route = await Route.findOne({ id: existing.route_id }).select('id route_name').lean();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_STOP_DELETED',
+            `Removed stop "${existing.stop_name}" from route "${route?.route_name || existing.route_id}".`,
+            route
+        );
         res.json({ message: 'Stop deleted.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete stop.' });
@@ -3916,6 +3981,14 @@ router.put('/admin/fares/:id', authenticateToken, requireAdmin, async (req, res)
             }
         );
 
+        const route = await Route.findOne({ id: existing.route_id }).select('id route_name').lean();
+        invalidateMapCache();
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_UPDATED',
+            `Updated base fare for "${route?.route_name || `Route #${existing.route_id}`}" to ${formatAuditFareRange({ min: base, max: base })} (${disc}% discount).`,
+            route
+        );
         res.json({ message: 'Fare updated successfully.' });
     } catch (err) {
         res.status(500).json({ error: 'Failed to update fare.' });
@@ -3979,6 +4052,11 @@ router.post('/admin/fares/tricycles', authenticateToken, requireAdmin, async (re
             updated_at: new Date()
         });
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_CREATED',
+            `Added tricycle fare for "${newFare.barangay}" (solo ${formatAuditFareRange(newFare.solo_fare)}, 2 passengers ${formatAuditFareRange(newFare.fare_per_2pax)}, shared 3 passengers ${formatAuditFareRange(newFare.fare_per_3pax_shared)}).`
+        );
         res.status(201).json({
             message: 'Tricycle fare created successfully.',
             fare: newFare
@@ -4041,6 +4119,11 @@ router.put('/admin/fares/tricycles/:id', authenticateToken, requireAdmin, async 
         existing.updated_at = new Date();
         await existing.save();
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_UPDATED',
+            `Updated tricycle fare for "${existing.barangay}" (solo ${formatAuditFareRange(existing.solo_fare)}, 2 passengers ${formatAuditFareRange(existing.fare_per_2pax)}, shared 3 passengers ${formatAuditFareRange(existing.fare_per_3pax_shared)}).`
+        );
         res.json({
             message: 'Tricycle fare updated successfully.',
             fare: existing
@@ -4062,6 +4145,7 @@ router.delete('/admin/fares/tricycles/:id', authenticateToken, requireAdmin, asy
         }
 
         await TricycleFare.deleteOne({ _id: existing._id });
+        await recordAdminActivity(req.user, 'ADMIN_FARE_DELETED', `Deleted tricycle fare for "${existing.barangay}".`);
         res.json({ message: 'Tricycle fare deleted successfully.' });
     } catch (err) {
         console.error('Error deleting tricycle fare:', err);
@@ -4122,6 +4206,11 @@ router.post('/admin/fares/routes', authenticateToken, requireAdmin, async (req, 
             updated_at: new Date()
         });
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_CREATED',
+            `Added ${modeKey.replace('_', ' ')} fare for "${newFare.route_name}" (regular ${formatAuditFareRange(newFare.regular_fare)}, discounted ${formatAuditFareRange(newFare.discounted_fare_20pct)}).`
+        );
         res.status(201).json({
             message: 'Route fare created successfully.',
             fare: newFare
@@ -4199,6 +4288,11 @@ router.put('/admin/fares/routes/:id', authenticateToken, requireAdmin, async (re
         existing.updated_at = new Date();
         await existing.save();
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_UPDATED',
+            `Updated ${existing.transport_mode.replace('_', ' ')} fare for "${existing.route_name}" (regular ${formatAuditFareRange(existing.regular_fare)}, discounted ${formatAuditFareRange(existing.discounted_fare_20pct)}).`
+        );
         res.json({
             message: 'Route fare updated successfully.',
             fare: existing
@@ -4220,6 +4314,11 @@ router.delete('/admin/fares/routes/:id', authenticateToken, requireAdmin, async 
         }
 
         await RouteFare.deleteOne({ _id: existing._id });
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_DELETED',
+            `Deleted ${existing.transport_mode.replace('_', ' ')} fare for "${existing.route_name}".`
+        );
         res.json({ message: 'Route fare deleted successfully.' });
     } catch (err) {
         console.error('Error deleting route fare:', err);
@@ -4264,6 +4363,11 @@ router.post('/admin/fares/boats', authenticateToken, requireAdmin, async (req, r
             updated_at: new Date()
         });
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_CREATED',
+            `Added boat fare information for "${newFare.service_type}" at ${newFare.dock_location}.`
+        );
         res.status(201).json({
             message: 'Boat fare created successfully.',
             fare: newFare
@@ -4327,6 +4431,11 @@ router.put('/admin/fares/boats/:id', authenticateToken, requireAdmin, async (req
         existing.updated_at = new Date();
         await existing.save();
 
+        await recordAdminActivity(
+            req.user,
+            'ADMIN_FARE_UPDATED',
+            `Updated boat fare information for "${existing.service_type}" at ${existing.dock_location}: ${existing.fare_rate_note}.`
+        );
         res.json({
             message: 'Boat fare updated successfully.',
             fare: existing
@@ -4348,6 +4457,7 @@ router.delete('/admin/fares/boats/:id', authenticateToken, requireAdmin, async (
         }
 
         await BoatFare.deleteOne({ _id: existing._id });
+        await recordAdminActivity(req.user, 'ADMIN_FARE_DELETED', `Deleted boat fare information for "${existing.service_type}".`);
         res.json({ message: 'Boat fare deleted successfully.' });
     } catch (err) {
         console.error('Error deleting boat fare:', err);
@@ -4788,6 +4898,7 @@ async function buildMapDataset() {
 }
 
 async function handleRouteLayer(req, res, modeKeyword) {
+    res.set('Cache-Control', 'no-store');
     const cacheKey = `layer:${modeKeyword}`;
     const cached = getCache(cacheKey);
     if (cached) return res.json(cached);
@@ -4970,6 +5081,7 @@ router.post('/roads/match', authenticateToken, requireAdmin, async (req, res) =>
 
 // GET /api/map/layers/stops
 router.get('/map/layers/stops', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
     const cacheKey = 'layer:stops';
     const cached = getCache(cacheKey);
     if (cached) return res.json(cached);

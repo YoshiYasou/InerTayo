@@ -58,7 +58,7 @@ export default function FareCalculator() {
     setError('');
 
     if (selectedMode === 'tricycle') {
-      fetch('/api/fares/tricycles')
+      fetch('/api/fares/tricycles', { cache: 'no-store' })
         .then((res) => {
           if (!res.ok) throw new Error('Failed to load tricycle fares');
           return res.json();
@@ -72,7 +72,7 @@ export default function FareCalculator() {
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     } else if (selectedMode === 'water_boat') {
-      fetch('/api/fares/boats')
+      fetch('/api/fares/boats', { cache: 'no-store' })
         .then((res) => {
           if (!res.ok) throw new Error('Failed to load boat fares');
           return res.json();
@@ -87,7 +87,7 @@ export default function FareCalculator() {
         .finally(() => setLoading(false));
     } else {
       // Route fare modes: jeepney, modern_puv, provincial_bus
-      fetch(`/api/fares/routes?mode=${selectedMode}`)
+      fetch(`/api/fares/routes?mode=${selectedMode}`, { cache: 'no-store' })
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to load ${selectedMode} fares`);
           return res.json();

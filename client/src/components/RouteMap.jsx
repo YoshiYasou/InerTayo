@@ -403,7 +403,7 @@ function LayerManager({
     const keys   = ['jeepneys', 'buses', 'tricycles', 'boats', 'stops', 'schools', 'landmarks', 'flood'];
 
     Promise.all(
-      layers.map(l => fetch(`/api/map/layers/${l}`).then(r => r.ok ? r.json() : null).catch(() => null))
+      layers.map(l => fetch(`/api/map/layers/${l}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null))
     ).then(results => {
       keys.forEach((key, i) => { geoDataRef.current[key] = results[i]; });
       setGeoDataLoaded(true);

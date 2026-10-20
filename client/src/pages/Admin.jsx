@@ -417,7 +417,7 @@ export default function Admin() {
     item.name, item.email, item.status, item.message
   ]));
   const searchedActivityLogs = activityLogs.filter(log => matchesAdminSearch([
-    log.username, log.role, log.action, log.route_name, log.route_id
+    log.username, log.role, log.action, log.details, log.route_name, log.route_id
   ]));
   const searchedLocations = locations.filter(location => matchesAdminSearch([
     location.name, location.type, location.barangay, location.address, location.status,
@@ -512,7 +512,7 @@ export default function Admin() {
       if (!Array.isArray(data)) throw new Error('The audit log response was invalid.');
       setActivityLogs(data);
     } catch (err) {
-      console.error('Error loading user activity:', err);
+      console.error('Error loading audit logs:', err);
       setActivityLogsError(err.message || 'Failed to retrieve audit logs.');
     } finally {
       setActivityLogsLoading(false);
@@ -527,7 +527,7 @@ export default function Admin() {
       const [statsRes, savedRouteInsightsRes, routesRes, advRes, feedRes, modesRes, locsRes, schoolsRes, landmarksRes, stopsRes, tricyclesRes, routeFaresRes, boatFaresRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }).then(r => r.json()),
         fetch('/api/admin/saved-routes', { headers }).then(r => r.json()),
-        fetch('/api/routes?include_inactive=true', { headers }).then(r => r.json()),
+        fetch('/api/routes?include_inactive=true', { headers, cache: 'no-store' }).then(r => r.json()),
         fetch('/api/admin/advisories', { headers }).then(r => r.json()),
         fetch('/api/admin/feedback', { headers }).then(r => r.json()),
         fetch('/api/admin/transport-modes', { headers }).then(r => r.json()),
@@ -535,9 +535,9 @@ export default function Admin() {
         fetch('/api/admin/schools', { headers }).then(r => r.json()),
         fetch('/api/landmarks').then(r => r.json()),
         fetch('/api/admin/stops', { headers }).then(r => r.json()),
-        fetch('/api/fares/tricycles').then(r => r.json()).catch(() => []),
-        fetch('/api/fares/routes').then(r => r.json()).catch(() => []),
-        fetch('/api/fares/boats').then(r => r.json()).catch(() => [])
+        fetch('/api/fares/tricycles', { cache: 'no-store' }).then(r => r.json()).catch(() => []),
+        fetch('/api/fares/routes', { cache: 'no-store' }).then(r => r.json()).catch(() => []),
+        fetch('/api/fares/boats', { cache: 'no-store' }).then(r => r.json()).catch(() => [])
       ]);
 
       let stopRecords = stopsRes;
@@ -1042,7 +1042,8 @@ export default function Admin() {
       }).catch(() => {});
 
       setRouteModalOpen(false);
-      loadAdminData();
+      await loadAdminData();
+      await loadAdminActivity();
     } catch (err) {
       await showAdminNotice('Route could not be saved', 'Failed to save route: ' + err.message);
     }
@@ -1052,11 +1053,13 @@ export default function Admin() {
     if (!await confirmAdminAction('Delete route?', 'Are you sure you want to delete this route? This will also delete its stops, steps, and fare schedules.', 'Delete')) return;
 
     try {
-      await fetch(`/api/admin/routes/${routeId}`, {
+      const response = await fetch(`/api/admin/routes/${routeId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      loadAdminData();
+      if (!response.ok) throw new Error('Route deletion was rejected by the server.');
+      await loadAdminData();
+      await loadAdminActivity();
     } catch (err) {
       await showAdminNotice('Route could not be deleted', 'Failed to delete route: ' + err.message);
     }
@@ -1444,6 +1447,7 @@ export default function Admin() {
       }
       setStopModalOpen(false);
       await loadAdminData();
+      await loadAdminActivity();
     } catch (error) {
       await showAdminNotice('Stop could not be saved', `Failed to save stop: ${error.message}`);
     }
@@ -1458,6 +1462,7 @@ export default function Admin() {
       });
       if (!response.ok) throw new Error('Stop deletion was rejected by the server.');
       await loadAdminData();
+      await loadAdminActivity();
     } catch (error) {
       await showAdminNotice('Stop could not be deleted', `Failed to delete stop: ${error.message}`);
     }
@@ -1516,6 +1521,11 @@ export default function Admin() {
   const handleSaveFare = async (e) => {
     e.preventDefault();
     const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    const saveFareRecord = async (url, method, body) => {
+      const response = await fetch(url, { method, headers, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Fare change was rejected by the server.');
+    };
     try {
       if (fareModalCategory === 'tricycle') {
         const body = {
@@ -1527,9 +1537,9 @@ export default function Admin() {
           fare_per_3pax_shared: { min: Number(fareFormData.fare_per_3pax_min), max: Number(fareFormData.fare_per_3pax_max) }
         };
         if (editingFare) {
-          await fetch(`/api/admin/fares/tricycles/${editingFare.id || editingFare._id || editingFare.barangay}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+          await saveFareRecord(`/api/admin/fares/tricycles/${editingFare.id || editingFare._id || editingFare.barangay}`, 'PUT', body);
         } else {
-          await fetch('/api/admin/fares/tricycles', { method: 'POST', headers, body: JSON.stringify(body) });
+          await saveFareRecord('/api/admin/fares/tricycles', 'POST', body);
         }
       } else if (fareModalCategory === 'boat') {
         const body = {
@@ -1539,9 +1549,9 @@ export default function Admin() {
           fare_rate_note: fareFormData.fare_rate_note
         };
         if (editingFare) {
-          await fetch(`/api/admin/fares/boats/${editingFare.id || editingFare._id || editingFare.service_type}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+          await saveFareRecord(`/api/admin/fares/boats/${editingFare.id || editingFare._id || editingFare.service_type}`, 'PUT', body);
         } else {
-          await fetch('/api/admin/fares/boats', { method: 'POST', headers, body: JSON.stringify(body) });
+          await saveFareRecord('/api/admin/fares/boats', 'POST', body);
         }
       } else {
         const body = {
@@ -1554,13 +1564,14 @@ export default function Admin() {
           discounted_fare_20pct: { min: Number(fareFormData.discounted_fare_min), max: Number(fareFormData.discounted_fare_max) }
         };
         if (editingFare) {
-          await fetch(`/api/admin/fares/routes/${editingFare.id || editingFare._id || editingFare.route_name}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+          await saveFareRecord(`/api/admin/fares/routes/${editingFare.id || editingFare._id || editingFare.route_name}`, 'PUT', body);
         } else {
-          await fetch('/api/admin/fares/routes', { method: 'POST', headers, body: JSON.stringify(body) });
+          await saveFareRecord('/api/admin/fares/routes', 'POST', body);
         }
       }
       setFareModalOpen(false);
-      loadAdminData();
+      await loadAdminData();
+      await loadAdminActivity();
     } catch (err) {
       await showAdminNotice('Fare record could not be saved', 'Failed to save fare record: ' + err.message);
     }
@@ -1570,16 +1581,20 @@ export default function Admin() {
     if (!await confirmAdminAction('Delete fare record?', 'Delete this fare record? This cannot be undone.', 'Delete')) return;
     const headers = { 'Authorization': `Bearer ${token}` };
     try {
+      let response;
       if (category === 'tricycle') {
-        await fetch(`/api/admin/fares/tricycles/${fare.id || fare._id || fare.barangay}`, { method: 'DELETE', headers });
+        response = await fetch(`/api/admin/fares/tricycles/${fare.id || fare._id || fare.barangay}`, { method: 'DELETE', headers });
       } else if (category === 'boat') {
-        await fetch(`/api/admin/fares/boats/${fare.id || fare._id || fare.service_type}`, { method: 'DELETE', headers });
+        response = await fetch(`/api/admin/fares/boats/${fare.id || fare._id || fare.service_type}`, { method: 'DELETE', headers });
       } else {
-        await fetch(`/api/admin/fares/routes/${fare.id || fare._id || fare.route_name}`, { method: 'DELETE', headers });
+        response = await fetch(`/api/admin/fares/routes/${fare.id || fare._id || fare.route_name}`, { method: 'DELETE', headers });
       }
-      loadAdminData();
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Fare deletion was rejected by the server.');
+      await loadAdminData();
+      await loadAdminActivity();
     } catch (err) {
-      await showAdminNotice('Fare record could not be deleted', 'Failed to delete fare record.');
+      await showAdminNotice('Fare record could not be deleted', 'Failed to delete fare record: ' + err.message);
     }
   };
   // ── End Fare Matrix Handlers ────────────────────────────────────────────────
@@ -2144,14 +2159,14 @@ export default function Admin() {
               <div>
                 <div className="flex items-center gap-2">
                   <Activity className="h-5 w-5 text-emerald-700" />
-                  <h3 className="text-lg font-bold text-slate-900">User Activity</h3>
+                  <h3 className="text-lg font-bold text-slate-900">Audit Logs</h3>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Latest 200 account creations, sign-ins, sign-outs, and saved-route changes.
+                  Latest 200 commuter and administrator actions, including route, stop, and fare changes.
                 </p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                {renderAdminSearch('Search user activity...')}
+                {renderAdminSearch('Search audit logs...')}
                 <button
                   type="button"
                   onClick={loadAdminActivity}
@@ -2171,13 +2186,13 @@ export default function Admin() {
             )}
 
             <div className="overflow-x-auto">
-              <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
+              <table className="min-w-[760px] w-full text-left text-xs text-slate-600">
                 <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-4 py-3">User</th>
-                    <th className="px-4 py-3">Activity</th>
-                    <th className="px-4 py-3">Route</th>
-                    <th className="px-4 py-3">Time</th>
+                    <th className="px-4 py-3">Action</th>
+                    <th className="px-4 py-3">Details</th>
+                    <th className="px-4 py-3">Timestamp</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2187,21 +2202,32 @@ export default function Admin() {
                         {activityLogsLoading
                           ? 'Loading user activity...'
                           : activityLogs.length
-                            ? 'No activity matches your search.'
-                            : 'No user activity has been recorded yet.'}
+                            ? 'No audit entries match your search.'
+                            : 'No audit events have been recorded yet.'}
                       </td>
                     </tr>
                   ) : searchedActivityLogs.map((log) => {
                     const isAccountCreated = log.action === 'ACCOUNT_CREATED';
                     const isLogin = log.action === 'LOGIN';
                     const isLogout = log.action === 'LOGOUT';
-                    const ActionIcon = isAccountCreated ? UserPlus : isLogin ? LogIn : isLogout ? LogOut : Bookmark;
+                    const isAdminChange = log.action.startsWith('ADMIN_');
+                    const ActionIcon = isAccountCreated ? UserPlus : isLogin ? LogIn : isLogout ? LogOut : isAdminChange ? Activity : Bookmark;
+                    const timestamp = new Date(log.created_at);
                     const actionLabel = {
                       ACCOUNT_CREATED: 'Created account',
                       LOGIN: 'Signed in',
                       LOGOUT: 'Signed out',
                       ROUTE_SAVED: 'Saved route',
-                      ROUTE_UNSAVED: 'Removed saved route'
+                      ROUTE_UNSAVED: 'Removed saved route',
+                      ADMIN_ROUTE_CREATED: 'Created route',
+                      ADMIN_ROUTE_UPDATED: 'Updated route',
+                      ADMIN_ROUTE_DELETED: 'Deleted route',
+                      ADMIN_STOP_CREATED: 'Added stop',
+                      ADMIN_STOP_UPDATED: 'Updated stop',
+                      ADMIN_STOP_DELETED: 'Deleted stop',
+                      ADMIN_FARE_CREATED: 'Added fare',
+                      ADMIN_FARE_UPDATED: 'Updated fare',
+                      ADMIN_FARE_DELETED: 'Deleted fare'
                     }[log.action] || log.action;
                     return (
                       <tr key={log.id} className="transition-colors hover:bg-slate-50/70">
@@ -2216,10 +2242,12 @@ export default function Admin() {
                           </span>
                         </td>
                         <td className="px-4 py-3.5 text-slate-700">
-                          {log.route_name || (log.route_id ? `Route #${log.route_id}` : '—')}
+                          {log.details || log.route_name || (log.route_id ? `Route #${log.route_id}` : '—')}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3.5 text-slate-500">
-                          {new Date(log.created_at).toLocaleString()}
+                          {Number.isNaN(timestamp.getTime()) ? '—' : (
+                            <time dateTime={timestamp.toISOString()}>{timestamp.toLocaleString()}</time>
+                          )}
                         </td>
                       </tr>
                     );

@@ -26,6 +26,7 @@ export default function RoutesDirectory() {
   const [advisories, setAdvisories] = useState([]);
   const [modes, setModes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [routeError, setRouteError] = useState('');
 
   // Resolved location from autocomplete selection (has lat/lng for proximity search)
   const [resolvedLocation, setResolvedLocation] = useState(null);
@@ -52,6 +53,7 @@ export default function RoutesDirectory() {
 
   const fetchFilteredRoutes = async () => {
     setLoading(true);
+    setRouteError('');
     try {
       // If we have a resolved location with coordinates, use proximity search
       const loc = pendingLocation.current || resolvedLocation;
@@ -67,15 +69,13 @@ export default function RoutesDirectory() {
         });
         if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
         if (queryParams.sort) params.append('sort', queryParams.sort);
-
-        const res = await fetch(`/api/routes/nearby?${params.toString()}`);
+        const res = await fetch(`/api/routes/nearby?${params.toString()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Nearby routes request failed: HTTP ${res.status}`);
         const proximityData = await res.json();
 
         if (!Array.isArray(proximityData)) {
-          // outsideDagupan flag or error
           if (proximityData.outsideDagupan) {
             setRoutes([]);
-            setLoading(false);
             return;
           }
           throw new Error('Unexpected proximity response');
@@ -87,9 +87,11 @@ export default function RoutesDirectory() {
         if (queryParams.mode && queryParams.mode !== 'All Modes') textParams.append('mode', queryParams.mode);
         if (queryParams.sort) textParams.append('sort', queryParams.sort);
 
-        const textRes = await fetch(`/api/routes?${textParams.toString()}`);
+        const textRes = await fetch(`/api/routes?${textParams.toString()}`, { cache: 'no-store' });
+        if (!textRes.ok) throw new Error(`Route search request failed: HTTP ${textRes.status}`);
         const textData = await textRes.json();
-        const textRoutes = Array.isArray(textData) ? textData : [];
+        if (!Array.isArray(textData)) throw new Error('Unexpected route search response');
+        const textRoutes = textData;
 
         // Merge and deduplicate by route id; proximity results come first (sorted by walk distance)
         const seenIds = new Set();
@@ -111,12 +113,16 @@ export default function RoutesDirectory() {
         if (queryParams.mode && queryParams.mode !== 'All Modes') params.append('mode', queryParams.mode);
         if (queryParams.sort)   params.append('sort', queryParams.sort);
 
-        const res = await fetch(`/api/routes?${params.toString()}`);
+        const res = await fetch(`/api/routes?${params.toString()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Route request failed: HTTP ${res.status}`);
         const data = await res.json();
-        if (Array.isArray(data)) setRoutes(data);
+        if (!Array.isArray(data)) throw new Error('Unexpected route response');
+        setRoutes(data);
       }
     } catch (err) {
       console.error('Error loading routes:', err);
+      setRoutes([]);
+      setRouteError('We couldn’t load routes right now. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -301,7 +307,7 @@ export default function RoutesDirectory() {
         
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-slate-900">
-            Available Routes ({routes.length})
+            Available Routes{!loading && !routeError ? ` (${routes.length})` : ''}
           </h2>
           {(queryParams.search || queryParams.from || queryParams.to || queryParams.mode || queryParams.sort) && (
             <button
@@ -319,6 +325,20 @@ export default function RoutesDirectory() {
             {[1, 2, 3, 4, 5, 6].map((n) => (
               <div key={n} className="bg-white rounded-2xl p-6 border border-slate-200 animate-pulse h-48"></div>
             ))}
+          </div>
+        ) : routeError ? (
+          <div role="alert" className="bg-white rounded-2xl p-10 text-center border border-rose-200 shadow-sm max-w-lg mx-auto mt-6">
+            <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-slate-800">Unable to load routes</h3>
+            <p className="text-sm text-slate-500 mt-1.5 mb-6">{routeError}</p>
+            <button
+              type="button"
+              onClick={fetchFilteredRoutes}
+              className="inline-flex items-center gap-2 py-2.5 px-5 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-emerald-600 transition-colors shadow-sm"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Try Again
+            </button>
           </div>
         ) : routes.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200/80 shadow-sm max-w-lg mx-auto mt-6">

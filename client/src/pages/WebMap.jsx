@@ -52,7 +52,7 @@ export default function WebMap() {
 
   useEffect(() => {
     // Load routes summary
-    fetch('/api/routes')
+    fetch('/api/routes', { cache: 'no-store' })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -68,7 +68,7 @@ export default function WebMap() {
       });
 
     // Load unified locations
-    fetch('/api/locations')
+    fetch('/api/locations', { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setLocations(data);
@@ -76,7 +76,7 @@ export default function WebMap() {
       .catch(err => console.error('Failed to load locations:', err));
 
     // Load verified Dagupan City schools
-    fetch('/api/schools')
+    fetch('/api/schools', { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setSchools(data);
@@ -98,7 +98,7 @@ export default function WebMap() {
     setFocusedRoute(null);
     setSelectedItem(null);
     setPanelView('route');
-    fetch(`/api/routes/${encodeURIComponent(routeId)}`)
+    fetch(`/api/routes/${encodeURIComponent(routeId)}`, { cache: 'no-store' })
       .then(response => {
         if (!response.ok) throw new Error(`Route request failed: ${response.status}`);
         return response.json();

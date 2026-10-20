@@ -5,6 +5,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { connectDB, disconnectDB } = require('../server/db/connection');
 const app = require('../server/server');
 const { seed } = require('../server/db/seed');
+const { getCache } = require('../server/cache/mapLayerCache');
 const Route = require('../server/models/Route');
 const { auditRoadGeometry } = require('../server/utils/routeGeometryAudit');
 const { isTestOrSampleRoute } = require('../server/scripts/fixRoutes');
@@ -857,6 +858,33 @@ async function runTests() {
             'Admin fare creation rejects UV Express and removes it as an available vehicle form'
         );
 
+        const auditFareName = 'Audit Trail Test Fare';
+        const createdAuditFare = await makeRequest('POST', '/api/admin/fares/routes', {
+            transport_mode: 'jeepney',
+            route_name: auditFareName,
+            terminal: 'Test Terminal',
+            regular_fare: { min: 12, max: 14 },
+            discounted_fare_20pct: { min: 9.6, max: 11.2 }
+        }, adminAuthHeaders);
+        const updatedAuditFare = await makeRequest('PUT', `/api/admin/fares/routes/${encodeURIComponent(auditFareName)}`, {
+            regular_fare: { min: 13, max: 15 },
+            discounted_fare_20pct: { min: 10.4, max: 12 }
+        }, adminAuthHeaders);
+        const publicAuditFareRead = await makeRequest('GET', '/api/fares/routes?mode=jeepney');
+        const publicAuditFare = publicAuditFareRead.data.find(fare => fare.route_name === auditFareName);
+        const deletedAuditFare = await makeRequest('DELETE', `/api/admin/fares/routes/${encodeURIComponent(auditFareName)}`, null, adminAuthHeaders);
+        const fareAuditLogs = await makeRequest('GET', '/api/admin/audit-logs?limit=500', null, adminAuthHeaders);
+        assert(
+            createdAuditFare.status === 201 && updatedAuditFare.status === 200 &&
+                publicAuditFareRead.status === 200 && publicAuditFareRead.headers['cache-control']?.includes('no-store') &&
+                publicAuditFare?.regular_fare?.min === 13 && publicAuditFare?.regular_fare?.max === 15 &&
+                deletedAuditFare.status === 200 &&
+                fareAuditLogs.data.some(log => log.action === 'ADMIN_FARE_CREATED' && log.username === 'admin' && log.details.includes(auditFareName)) &&
+                fareAuditLogs.data.some(log => log.action === 'ADMIN_FARE_UPDATED' && log.username === 'admin' && log.details.includes('₱13.00')) &&
+                fareAuditLogs.data.some(log => log.action === 'ADMIN_FARE_DELETED' && log.username === 'admin' && log.details.includes(auditFareName)),
+            'Fare changes refresh public fare data without caching and record the admin, action, and fare details'
+        );
+
         const adminSavedRoutes = await makeRequest('GET', '/api/admin/saved-routes', null, {
             'Authorization': `Bearer ${adminToken}`
         });
@@ -905,6 +933,7 @@ async function runTests() {
             'Authorization': `Bearer ${adminToken}`
         });
         assert(emptyAdminStops.status === 200 && emptyAdminStops.data.length === 0, 'Admin stop list starts empty after transit stops are cleared');
+        await makeRequest('GET', '/api/map/layers/stops');
 
         const createdStop = await makeRequest('POST', '/api/admin/stops', {
             route_id: 1,
@@ -916,7 +945,10 @@ async function runTests() {
             latitude: 16.0435,
             longitude: 120.334
         }, { 'Authorization': `Bearer ${adminToken}` });
-        assert(createdStop.status === 201 && createdStop.data.stopId, 'Admin creates a route stop');
+        assert(
+            createdStop.status === 201 && createdStop.data.stopId && getCache('layer:stops') === null,
+            'Creating a route stop invalidates the cached client map layer'
+        );
 
         const updatedStop = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
             route_id: 2,
@@ -946,6 +978,14 @@ async function runTests() {
             'Authorization': `Bearer ${adminToken}`
         });
         assert(deletedStop.status === 200 && finalAdminStops.status === 200 && finalAdminStops.data.length === 0, 'Admin deletes route stops and restores the empty list');
+        const stopAuditLogs = await makeRequest('GET', '/api/admin/audit-logs?limit=500', null, adminAuthHeaders);
+        assert(
+            stopAuditLogs.status === 200 &&
+                stopAuditLogs.data.some(log => log.action === 'ADMIN_STOP_CREATED' && log.username === 'admin' && log.details.includes('Admin CRUD Test Stop')) &&
+                stopAuditLogs.data.some(log => log.action === 'ADMIN_STOP_UPDATED' && log.username === 'admin' && log.details.includes('Admin CRUD Test Stop Updated')) &&
+                stopAuditLogs.data.some(log => log.action === 'ADMIN_STOP_DELETED' && log.username === 'admin' && log.details.includes('Admin CRUD Test Stop Updated')),
+            'Admin audit logs identify the administrator and describe stop create, update, and delete actions'
+        );
 
         // Admin creates a new route with GeoJSON geometry
         const sampleGeom = JSON.stringify({
