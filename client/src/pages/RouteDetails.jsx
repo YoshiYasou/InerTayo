@@ -392,11 +392,6 @@ export default function RouteDetails() {
                   <span className="font-bold text-slate-900">₱{route.minimum_fare.toFixed(2)}</span>
                 </div>
 
-                <div className="flex items-center justify-between text-slate-700">
-                  <span className="font-medium">Connecting Transfer (if applicable)</span>
-                  <span className="font-bold text-slate-900">₱8.00</span>
-                </div>
-
                 <div className="flex items-center justify-between text-slate-600">
                   <span>Final Walk to Destination</span>
                   <span className="font-semibold text-slate-400">Free</span>
