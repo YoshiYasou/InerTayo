@@ -84,7 +84,24 @@ PORT=5000
 # Optional — CORS frontend origins (defaults to http://localhost:3000,http://localhost:5173)
 # The local server origin (PORT, default 5000) is also allowed.
 ORIGIN=http://localhost:3000
+
+# Require email verification before commuter accounts can sign in
+EMAIL_VERIFICATION_ENABLED=true
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-address@gmail.com
+SMTP_PASSWORD=your-16-character-google-app-password
+MAIL_FROM="InerTayo <your-address@gmail.com>"
 ```
+
+For Gmail SMTP, enable 2-Step Verification and use a Google App Password.
+`SMTP_PASSWORD` (or `SMTP_PASS`) supplies the SMTP password, and `MAIL_FROM`
+(or `SMTP_FROM`) sets the sender address. Set `EMAIL_PROVIDER=resend` and
+configure `RESEND_API_KEY` plus `RESEND_FROM` to use Resend instead. Render's
+free web services restrict SMTP ports, so use an HTTPS email provider such as
+Resend on that plan.
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
 
@@ -111,8 +128,10 @@ Before deploying:
 The Blueprint uses Render's free instance tier, which may spin down when idle
 and feel slow on the first request after inactivity. Upgrade the instance in
 Render if you need consistently responsive production access. Configure Gmail
-or SMTP environment variables in Render if the password-reset email feature is
-needed.
+or SMTP environment variables on a plan that permits SMTP for email
+verification, administrator sign-in codes, and password resets. The free plan
+does not support direct SMTP delivery, so use an HTTPS email provider such as
+Resend for that deployment.
 
 ---
 

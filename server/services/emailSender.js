@@ -3,10 +3,21 @@
 const nodemailer = require('nodemailer');
 
 async function sendEmail({ to, subject, text }) {
+    const provider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
     const resendApiKey = process.env.RESEND_API_KEY?.trim();
     const resendFrom = process.env.RESEND_FROM?.trim();
+    const smtpHost = process.env.SMTP_HOST?.trim();
+    const smtpUser = process.env.SMTP_USER?.trim();
+    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
+    const smtpFrom = process.env.SMTP_FROM?.trim() || process.env.MAIL_FROM?.trim();
+    const hasSmtp = Boolean(smtpHost && smtpUser && smtpPass);
+    const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
 
-    if (resendApiKey || resendFrom) {
+    if (provider && !['resend', 'smtp', 'gmail'].includes(provider)) {
+        throw new Error(`Unsupported EMAIL_PROVIDER "${provider}". Use "smtp", "gmail", or "resend".`);
+    }
+
+    if (provider === 'resend' || (!provider && (resendApiKey || resendFrom))) {
         if (!resendApiKey || !resendFrom) {
             throw new Error('Resend requires both RESEND_API_KEY and RESEND_FROM.');
         }
@@ -40,13 +51,23 @@ async function sendEmail({ to, subject, text }) {
         return;
     }
 
-    const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
-    const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    if (provider === 'smtp' && !hasSmtp) {
+        throw new Error('SMTP requires SMTP_HOST, SMTP_USER, and SMTP_PASS (or SMTP_PASSWORD).');
+    }
+    if (provider === 'gmail' && !hasGmail) {
+        throw new Error('Gmail requires GMAIL_USER and GMAIL_APP_PASSWORD.');
+    }
     if (!hasGmail && !hasSmtp) {
         throw new Error('Email delivery is not configured.');
     }
 
-    const transporter = hasGmail
+    const useGmail = provider === 'gmail' || (!provider && hasGmail && !hasSmtp);
+    const port = useGmail ? 465 : (Number(process.env.SMTP_PORT) || 587);
+    const secureSetting = process.env.SMTP_SECURE?.trim().toLowerCase();
+    const secure = useGmail || (secureSetting
+        ? secureSetting === 'true'
+        : port === 465);
+    const transporter = useGmail
         ? nodemailer.createTransport({
             host: 'smtp.gmail.com',
             port: 465,
@@ -54,14 +75,14 @@ async function sendEmail({ to, subject, text }) {
             auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
         })
         : nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT) || 587,
-            secure: Number(process.env.SMTP_PORT) === 465,
-            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+            host: smtpHost,
+            port,
+            secure,
+            auth: { user: smtpUser, pass: smtpPass }
         });
-    const from = hasGmail
+    const from = useGmail
         ? `InerTayo <${process.env.GMAIL_USER}>`
-        : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
+        : (smtpFrom || `InerTayo <${smtpUser}>`);
 
     await transporter.sendMail({ from, to, subject, text });
 }

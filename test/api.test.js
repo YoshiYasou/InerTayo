@@ -1,5 +1,6 @@
 process.env.NODE_ENV = 'test';
 require('dotenv').config();
+process.env.EMAIL_VERIFICATION_ENABLED = 'true';
 const http = require('http');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { connectDB, disconnectDB } = require('../server/db/connection');
@@ -363,19 +364,37 @@ async function runTests() {
             password: 'Password123!'
         });
         assert(
-            regRes.status === 201 && regRes.data.token && regRes.data.user?.role === 'COMMUTER' &&
-                !regRes.data.verificationRequired,
-            'New commuter registration creates an immediately usable account without an email code'
+            regRes.status === 201 && regRes.data.verificationRequired === 'email' && !regRes.data.token,
+            'New commuter registration requires email verification before issuing a token'
         );
-        const removedSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
+        const earlyVerificationResend = await makeRequest('POST', '/api/auth/resend-verification', {
             email: 'test@dagupan.ph'
         });
-        const removedSignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
-            email: 'test@dagupan.ph'
+        assert(earlyVerificationResend.status === 429, 'Email verification code resend is rate limited');
+        const pendingCommuterLogin = await makeRequest('POST', '/api/auth/login', {
+            username: 'testcommuter',
+            password: 'Password123!'
         });
         assert(
-            removedSignupVerification.status === 404 && removedSignupResend.status === 404,
-            'Commuter email verification and resend endpoints are removed'
+            pendingCommuterLogin.status === 403 &&
+                pendingCommuterLogin.data.verificationRequired === 'email' &&
+                pendingCommuterLogin.data.error.includes('verify your email'),
+            'Unverified commuter cannot sign in'
+        );
+        const invalidEmailVerification = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'test@dagupan.ph',
+            code: '999999'
+        });
+        assert(invalidEmailVerification.status === 400, 'Incorrect email verification code is rejected');
+        const registrationCode = global.__testMailbox.code;
+        const verifiedCommuter = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'test@dagupan.ph',
+            code: registrationCode
+        });
+        assert(
+            verifiedCommuter.status === 200 && verifiedCommuter.data.token &&
+                verifiedCommuter.data.user.role === 'COMMUTER',
+            'Correct email verification code activates commuter account and returns a token'
         );
         const immediateCommuterLogin = await makeRequest('POST', '/api/auth/login', {
             username: 'testcommuter',
@@ -384,9 +403,9 @@ async function runTests() {
         assert(
             immediateCommuterLogin.status === 200 && immediateCommuterLogin.data.token &&
                 immediateCommuterLogin.data.user.role === 'COMMUTER',
-            'New commuter can sign in without email verification'
+            'New verified commuter can sign in'
         );
-        const commuterToken = regRes.data.token;
+        const commuterToken = verifiedCommuter.data.token;
 
         // Password Constraint Validations
         const shortPw = await makeRequest('POST', '/api/auth/register', {
@@ -660,8 +679,15 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        assert(regB.status === 201 && regB.data.token, 'Commuter B can register without email verification (BOLA test setup)');
-        const userB = regB.data.user;
+        const verifiedRegB = await makeRequest('POST', '/api/auth/verify-email', {
+            email: 'commuterb@dagupan.ph',
+            code: global.__testMailbox.code
+        });
+        assert(
+            regB.status === 201 && verifiedRegB.status === 200 && verifiedRegB.data.token,
+            'Commuter B can register and verify their email (BOLA test setup)'
+        );
+        const userB = verifiedRegB.data.user;
 
         // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
         // by substituting B's ID into the path parameter.
