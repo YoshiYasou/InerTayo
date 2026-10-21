@@ -85,8 +85,7 @@ PORT=5000
 # The local server origin (PORT, default 5000) is also allowed.
 ORIGIN=http://localhost:3000
 
-# Require email verification before commuter accounts can sign in
-EMAIL_VERIFICATION_ENABLED=true
+# Email delivery is used for admin sign-in codes and password resets
 EMAIL_PROVIDER=smtp
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
@@ -128,10 +127,10 @@ Before deploying:
 The Blueprint uses Render's free instance tier, which may spin down when idle
 and feel slow on the first request after inactivity. Upgrade the instance in
 Render if you need consistently responsive production access. Configure Gmail
-or SMTP environment variables on a plan that permits SMTP for email
-verification, administrator sign-in codes, and password resets. The free plan
-does not support direct SMTP delivery, so use an HTTPS email provider such as
-Resend for that deployment.
+or SMTP environment variables on a plan that permits SMTP for administrator
+sign-in codes and password resets. Commuter signup does not send a verification
+email. The free plan does not support direct SMTP delivery, so use an HTTPS
+email provider such as Resend for that deployment.
 
 ---
 

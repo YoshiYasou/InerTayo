@@ -1805,33 +1805,16 @@ router.post('/auth/register', async (req, res) => {
             nextId('User')
         ]);
 
-        const requiresEmailVerification = process.env.EMAIL_VERIFICATION_ENABLED?.trim().toLowerCase() === 'true';
         const user = await User.create({
             id: userId,
             username: trimmedUsername,
             email: trimmedEmail,
             password_hash: passwordHash,
             role: 'COMMUTER',
-            email_verified: !requiresEmailVerification
+            email_verified: true
         });
 
         const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
-        if (requiresEmailVerification) {
-            try {
-                await issueAuthCode(user, 'EMAIL_VERIFICATION');
-            } catch (err) {
-                await AuthVerificationCode.deleteMany({ user_id: user.id, purpose: 'EMAIL_VERIFICATION' });
-                await User.deleteOne({ id: user.id });
-                throw err;
-            }
-            await recordUserActivity(userPayload, 'ACCOUNT_CREATED');
-            return res.status(201).json({
-                message: 'Account created. Enter the verification code sent to your email.',
-                verificationRequired: 'email',
-                email: maskEmail(user.email)
-            });
-        }
-
         await recordUserActivity(userPayload, 'ACCOUNT_CREATED');
         await recordUserActivity(user, 'LOGIN');
         return res.status(201).json({
@@ -1841,72 +1824,7 @@ router.post('/auth/register', async (req, res) => {
         });
     } catch (err) {
         console.error('Registration error:', err);
-        const emailFailure = err.message.includes('could not send');
-        res.status(emailFailure ? 503 : 500).json({
-            error: emailFailure ? err.message : 'Registration failed.'
-        });
-    }
-});
-
-router.post('/auth/verify-email', async (req, res) => {
-    try {
-        const email = String(req.body.email || '').trim().toLowerCase();
-        const code = String(req.body.code || '').trim();
-        if (!email || !/^\d{6}$/.test(code)) {
-            return res.status(400).json({ error: 'Enter your email address and the 6-digit verification code.' });
-        }
-
-        const user = await User.findOne({ email, role: 'COMMUTER' });
-        if (!user || user.email_verified) {
-            return res.status(400).json({ error: 'Invalid or expired verification code.' });
-        }
-        const verification = await AuthVerificationCode.findOne({
-            user_id: user.id,
-            purpose: 'EMAIL_VERIFICATION',
-            used: false,
-            attempts: { $lt: 5 },
-            expires_at: { $gt: new Date() }
-        });
-        if (!verification || !(await verifyAuthCode(verification, code))) {
-            return res.status(400).json({ error: 'Invalid or expired verification code.' });
-        }
-
-        verification.used = true;
-        await verification.save();
-        user.email_verified = true;
-        await user.save();
-        const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
-        await recordUserActivity(userPayload, 'LOGIN');
-        return res.json({
-            message: 'Email verified successfully.',
-            token: createUserToken(userPayload),
-            user: userPayload
-        });
-    } catch (err) {
-        console.error('Email verification error:', err);
-        return res.status(500).json({ error: 'Email verification failed.' });
-    }
-});
-
-router.post('/auth/resend-verification', async (req, res) => {
-    try {
-        const email = String(req.body.email || '').trim().toLowerCase();
-        if (!email) return res.status(400).json({ error: 'Email address is required.' });
-
-        const user = await User.findOne({ email, role: 'COMMUTER', email_verified: false });
-        if (!user) {
-            return res.json({ message: 'If the account needs verification, a code will be sent.' });
-        }
-
-        const result = await issueAuthCode(user, 'EMAIL_VERIFICATION');
-        if (!result.sent) return res.status(429).json({ error: 'Please wait before requesting another code.' });
-        return res.json({ message: 'A new verification code has been sent.' });
-    } catch (err) {
-        console.error('Email verification resend error:', err);
-        const emailFailure = err.message.includes('could not send');
-        return res.status(emailFailure ? 503 : 500).json({
-            error: emailFailure ? err.message : 'Could not resend verification code.'
-        });
+        res.status(500).json({ error: 'Registration failed.' });
     }
 });
 
@@ -1931,15 +1849,6 @@ router.post('/auth/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
             return res.status(401).json({ error: 'Invalid credentials.' });
-        }
-
-        if (user.role === 'COMMUTER' && !user.email_verified) {
-            return res.status(403).json({
-                error: 'Please verify your email before signing in.',
-                verificationRequired: 'email',
-                email: user.email,
-                maskedEmail: maskEmail(user.email)
-            });
         }
 
         if (user.role === 'ADMIN') {

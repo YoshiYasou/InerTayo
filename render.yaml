@@ -12,8 +12,6 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
-      - key: EMAIL_VERIFICATION_ENABLED
-        value: true
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
