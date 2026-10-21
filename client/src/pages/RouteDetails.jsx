@@ -364,7 +364,6 @@ export default function RouteDetails() {
                       interactive={true}
                       showAdvisories={true}
                       showStopClusterCounts={false}
-                      emphasizeFocusedRoute={true}
                       allowUnverifiedPreview={Boolean(selectedRoute.geometry_needs_review)}
                       className="absolute inset-0 w-full h-full"
                     />

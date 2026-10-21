@@ -31,6 +31,17 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
+const PHILIPPINES_ARCHIPELAGO_OUTLINE = [
+  [21.5, 121.3], [21.6, 122.5], [20.9, 123.6], [19.5, 124.5],
+  [18.5, 126.7], [17.2, 127.3], [15.2, 127.3], [13.2, 127.2],
+  [11.0, 127.1], [8.8, 127.0], [6.7, 126.7], [5.2, 126.0],
+  [4.3, 124.7], [4.3, 122.7], [4.7, 121.0], [5.5, 120.0],
+  [6.4, 119.6], [7.4, 118.3], [8.5, 116.7], [9.7, 116.5],
+  [10.8, 117.0], [11.8, 117.8], [12.6, 118.8], [13.4, 119.1],
+  [14.5, 119.2], [15.7, 119.1], [16.8, 118.9], [18.1, 118.9],
+  [19.2, 119.4], [20.2, 120.1], [21.0, 120.8],
+];
+
 // ─── Visual encoding constants (Step 5) ────────────────────────────────────
 const MODE_COLORS = {
   jeepney:      '#ec4899',
@@ -354,7 +365,8 @@ function LayerManager({
   selectedRouteId,
   setSelectedRouteId,
   routeOnly,
-  showRouteLines,
+  showRouteLines = true,
+  clipToPhilippines,
   emphasizeFocusedRoute,
   focusedRouteSource,
   locations = [],
@@ -399,6 +411,45 @@ function LayerManager({
     return () => { clearTimeout(t1); clearTimeout(t2); if (ro) ro.disconnect(); };
   }, [map]);
 
+  useEffect(() => {
+    if (!clipToPhilippines) return undefined;
+
+    const container = map.getContainer();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const maskPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    svg.style.position = 'absolute';
+    svg.style.inset = '0';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.zIndex = '450';
+    svg.style.pointerEvents = 'none';
+    maskPath.setAttribute('fill', '#f1f5f9');
+    maskPath.setAttribute('fill-rule', 'evenodd');
+    svg.appendChild(maskPath);
+    container.appendChild(svg);
+
+    const updateMask = () => {
+      const size = map.getSize();
+      svg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
+      const firstPoint = map.latLngToContainerPoint(PHILIPPINES_ARCHIPELAGO_OUTLINE[0]);
+      const path = [`M${firstPoint.x} ${firstPoint.y}`];
+      PHILIPPINES_ARCHIPELAGO_OUTLINE.slice(1).forEach(([latitude, longitude]) => {
+        const point = map.latLngToContainerPoint([latitude, longitude]);
+        path.push(`L${point.x} ${point.y}`);
+      });
+      path.push('Z');
+      const outside = `M0 0H${size.x}V${size.y}H0Z`;
+      maskPath.setAttribute('d', `${outside}${path.join('')}`);
+    };
+
+    map.on('move zoomend resize viewreset', updateMask);
+    updateMask();
+    return () => {
+      map.off('move zoomend resize viewreset', updateMask);
+      svg.remove();
+    };
+  }, [clipToPhilippines, map]);
+
   // ── Fetch all GeoJSON data once ─────────────────────────────────────────
   useEffect(() => {
     const layers = ['jeepneys', 'buses', 'tricycles', 'boats', 'stops', 'schools', 'landmarks', 'flood-zones'];
@@ -417,7 +468,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, clipToPhilippines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -497,7 +548,8 @@ function LayerManager({
     };
 
     // During an active journey, only show route lines of modes involved
-    for (const key of showRouteLines ? modeKeys : []) {
+    for (const key of modeKeys) {
+      if (!showRouteLines) continue;
       const data = geo[key];
       const focusedMode = String(focusedRouteFeature?.properties.mode_name || focusedRouteFeature?.properties.mode || '').toLowerCase();
       const features = routeOnly
@@ -582,8 +634,8 @@ function LayerManager({
           L.polyline(coordinates, {
             renderer: L.canvas(),
             color: feature.properties.style?.color || modeColor(feature.properties.mode),
-            weight: 0,
-            opacity: 0,
+            weight: 7,
+            opacity: 1,
             lineCap: 'round',
             lineJoin: 'round',
             interactive: false,
@@ -1111,6 +1163,7 @@ export default function RouteMap({
   selectedRouteId: controlledSelectedRouteId = null,
   routeOnly = false,
   showRouteLines = true,
+  clipToPhilippines = false,
   emphasizeFocusedRoute = false,
   locations     = [],
   showAdvisories = true,
@@ -1168,6 +1221,7 @@ export default function RouteMap({
           selectedJourney={selectedJourney}
           routeOnly={routeOnly}
           showRouteLines={showRouteLines}
+          clipToPhilippines={clipToPhilippines}
           emphasizeFocusedRoute={emphasizeFocusedRoute}
           onSelect={onSelect}
           selectedRouteId={selectedRouteId}

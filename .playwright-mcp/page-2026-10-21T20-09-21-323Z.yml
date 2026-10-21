@@ -1,0 +1,20 @@
+- generic [ref=f10e3]:
+  - banner [ref=f10e4]:
+    - generic [ref=f10e6]:
+      - generic [ref=f10e7] [cursor=pointer]:
+        - img "InerTayo logo" [ref=f10e8]
+        - generic [ref=f10e9]:
+          - generic [ref=f10e10]: InerTayo
+          - generic [ref=f10e11]: Dagupan Transit System
+      - navigation [ref=f10e12]:
+        - button "Routes" [ref=f10e13] [cursor=pointer]
+        - button "Fare Calculator" [ref=f10e14] [cursor=pointer]
+        - button "About" [ref=f10e15] [cursor=pointer]
+      - generic [ref=f10e16]:
+        - button "Switch to dark mode" [ref=f10e17] [cursor=pointer]
+        - button "Launch Web Map" [ref=f10e20] [cursor=pointer]
+        - generic [ref=f10e24]:
+          - button "Sign In" [ref=f10e25] [cursor=pointer]
+          - button "Register" [ref=f10e26] [cursor=pointer]
+  - main [ref=f10e27]:
+    - generic "Loading page" [ref=f10e28]
