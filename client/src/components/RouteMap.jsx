@@ -792,10 +792,11 @@ function LayerManager({
       }
 
       const size = (props.is_origin || props.is_terminus) ? 24 : props.is_transfer ? 22 : 20;
-      const bg   = props.is_origin   ? '#059669'
+      const bg   = props.stop_color
+                 || (props.is_origin   ? '#059669'
                  : props.is_terminus ? '#e11d48'
                  : props.is_transfer ? '#0f172a'
-                 : props.color;
+                 : props.color);
 
       const marker = L.marker([lat, lng], {
         icon: stopDivIcon(bg, props.vehicle_type || props.mode, props.label, size),

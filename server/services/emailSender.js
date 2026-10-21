@@ -2,6 +2,30 @@
 
 const nodemailer = require('nodemailer');
 
+let smtpTransporter;
+let smtpTransporterConfig;
+
+function getSmtpTransporter(config) {
+    const configKey = JSON.stringify(config);
+    if (smtpTransporter && smtpTransporterConfig !== configKey) {
+        smtpTransporter.close();
+        smtpTransporter = null;
+    }
+    if (!smtpTransporter) {
+        smtpTransporter = nodemailer.createTransport({
+            ...config,
+            pool: true,
+            maxConnections: 2,
+            maxMessages: 100,
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 20000
+        });
+        smtpTransporterConfig = configKey;
+    }
+    return smtpTransporter;
+}
+
 async function sendEmail({ to, subject, text }) {
     const provider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
     const resendApiKey = process.env.RESEND_API_KEY?.trim();
@@ -67,19 +91,20 @@ async function sendEmail({ to, subject, text }) {
     const secure = useGmail || (secureSetting
         ? secureSetting === 'true'
         : port === 465);
-    const transporter = useGmail
-        ? nodemailer.createTransport({
+    const transportConfig = useGmail
+        ? {
             host: 'smtp.gmail.com',
             port: 465,
             secure: true,
             auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-        })
-        : nodemailer.createTransport({
+        }
+        : {
             host: smtpHost,
             port,
             secure,
             auth: { user: smtpUser, pass: smtpPass }
-        });
+        };
+    const transporter = getSmtpTransporter(transportConfig);
     const from = useGmail
         ? `InerTayo <${process.env.GMAIL_USER}>`
         : (smtpFrom || `InerTayo <${smtpUser}>`);

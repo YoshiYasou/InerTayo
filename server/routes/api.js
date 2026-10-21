@@ -50,6 +50,7 @@ const { sendEmail } = require('../services/emailSender');
 
 const router = express.Router();
 const STOP_VEHICLE_TYPES = new Set(['', 'jeepney', 'modern_puv', 'bus', 'provincial_bus', 'tricycle', 'boat']);
+const STOP_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 function createUserToken(user) {
     return jwt.sign({
@@ -129,11 +130,15 @@ async function issueAuthCode(user, purpose, challengeHash = null) {
 
     await AuthVerificationCode.updateMany(codeQuery, { $set: { used: true } });
     const code = crypto.randomInt(100000, 1000000).toString();
+    const [verificationId, codeHash] = await Promise.all([
+        nextId('AuthVerificationCode'),
+        bcrypt.hash(code, 10)
+    ]);
     const record = await AuthVerificationCode.create({
-        id: await nextId('AuthVerificationCode'),
+        id: verificationId,
         user_id: user.id,
         purpose,
-        code_hash: await bcrypt.hash(code, 10),
+        code_hash: codeHash,
         challenge_hash: challengeHash,
         expires_at: new Date(Date.now() + 10 * 60 * 1000)
     });
@@ -1795,8 +1800,10 @@ router.post('/auth/register', async (req, res) => {
             return res.status(409).json({ error: 'Username or email is already registered.' });
         }
 
-        const passwordHash = await bcrypt.hash(password, 12);
-        const userId = await nextId('User');
+        const [passwordHash, userId] = await Promise.all([
+            bcrypt.hash(password, 12),
+            nextId('User')
+        ]);
 
         const requiresEmailVerification = process.env.EMAIL_VERIFICATION_ENABLED?.trim().toLowerCase() === 'true';
         const user = await User.create({
@@ -3782,13 +3789,17 @@ router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (re
 // POST /api/admin/stops - Create stop
 router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { route_id, stop_name, stop_order, description, vehicle_type = '', is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, stop_name, stop_order, description, vehicle_type = '', stop_color = '', is_transfer_point, latitude, longitude } = req.body;
 
         if (!route_id || !stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'route_id, stop_name, and stop_order are required.' });
         }
         if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
             return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
+        }
+        if (stop_color !== undefined && stop_color !== '' && stop_color !== null &&
+            (typeof stop_color !== 'string' || !STOP_COLOR_PATTERN.test(stop_color))) {
+            return res.status(400).json({ error: 'stop_color must be a 6-digit hex color.' });
         }
 
         const parsedRouteId = parseId(route_id);
@@ -3809,6 +3820,7 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             stop_order: parsedStopOrder,
             description: description || null,
             vehicle_type,
+            stop_color: stop_color || null,
             is_transfer_point: is_transfer_point ? 1 : 0,
             latitude: latitude || null,
             longitude: longitude || null
@@ -3837,12 +3849,16 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
-        const { route_id, stop_name, stop_order, description, vehicle_type = '', is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, stop_name, stop_order, description, vehicle_type = '', stop_color, is_transfer_point, latitude, longitude } = req.body;
         if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
             return res.status(400).json({ error: 'stop_name and stop_order are required.' });
         }
         if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
             return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
+        }
+        if (stop_color !== undefined && stop_color !== '' && stop_color !== null &&
+            (typeof stop_color !== 'string' || !STOP_COLOR_PATTERN.test(stop_color))) {
+            return res.status(400).json({ error: 'stop_color must be a 6-digit hex color.' });
         }
 
         const parsedStopOrder = parseInt(stop_order, 10);
@@ -3869,6 +3885,7 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
                 stop_order: parsedStopOrder,
                 description: description || null,
                 vehicle_type,
+                stop_color: stop_color === undefined ? existing.stop_color || null : stop_color || null,
                 is_transfer_point: is_transfer_point ? 1 : 0,
                 latitude: latitude || null,
                 longitude: longitude || null
@@ -5218,6 +5235,9 @@ router.get('/map/layers/stops', async (req, res) => {
                         route_name:  route.route_name,
                         mode:        modeName,
                         vehicle_type: stop.vehicle_type || '',
+                        stop_color:  typeof stop.stop_color === 'string' && STOP_COLOR_PATTERN.test(stop.stop_color)
+                            ? stop.stop_color
+                            : null,
                         color,
                         label,
                         is_origin:   isOrigin,

@@ -8,6 +8,7 @@ const StopSchema = new mongoose.Schema({
     stop_order: { type: Number, required: true },
     description: { type: String, default: null },
     vehicle_type: { type: String, enum: ['', 'jeepney', 'modern_puv', 'bus', 'provincial_bus', 'tricycle', 'boat'], default: '' },
+    stop_color: { type: String, default: null },
     is_transfer_point: { type: Number, default: 0 },
     latitude: { type: Number, default: null },
     longitude: { type: Number, default: null }

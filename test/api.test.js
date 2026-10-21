@@ -961,19 +961,38 @@ async function runTests() {
         assert(emptyAdminStops.status === 200 && emptyAdminStops.data.length === 0, 'Admin stop list starts empty after transit stops are cleared');
         await makeRequest('GET', '/api/map/layers/stops');
 
+        const invalidStopColor = await makeRequest('POST', '/api/admin/stops', {
+            route_id: 1,
+            stop_name: 'Invalid Color Test Stop',
+            stop_order: 1,
+            vehicle_type: 'tricycle',
+            stop_color: 'red',
+            latitude: 16.0435,
+            longitude: 120.334
+        }, adminAuthHeaders);
+        assert(invalidStopColor.status === 400, 'Stop marker colors must be valid 6-digit hex values');
+
         const createdStop = await makeRequest('POST', '/api/admin/stops', {
             route_id: 1,
             stop_name: 'Admin CRUD Test Stop',
             stop_order: 1,
             description: 'Temporary API test stop.',
             vehicle_type: 'tricycle',
+            stop_color: '#7c3aed',
             is_transfer_point: 0,
             latitude: 16.0435,
             longitude: 120.334
-        }, { 'Authorization': `Bearer ${adminToken}` });
+        }, adminAuthHeaders);
         assert(
             createdStop.status === 201 && createdStop.data.stopId && getCache('layer:stops') === null,
             'Creating a route stop invalidates the cached client map layer'
+        );
+        const createdStopsOnRoute = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
+        const createdStopLayer = await makeRequest('GET', '/api/map/layers/stops');
+        assert(
+            createdStopsOnRoute.data[0]?.stop_color === '#7c3aed' &&
+                createdStopLayer.data.features.find(feature => feature.properties.id === createdStop.data.stopId)?.properties.stop_color === '#7c3aed',
+            'Custom stop marker color persists and is included in map features'
         );
 
         const updatedStop = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
@@ -982,6 +1001,7 @@ async function runTests() {
             stop_order: 1,
             description: 'Updated temporary API test stop.',
             vehicle_type: 'boat',
+            stop_color: '#f59e0b',
             is_transfer_point: 1,
             latitude: 16.044,
             longitude: 120.337
@@ -993,7 +1013,8 @@ async function runTests() {
             updatedStop.status === 200 && movedRouteStops.data.length === 1 &&
                 movedRouteStops.data[0].stop_name === 'Admin CRUD Test Stop Updated' &&
                 movedRouteStops.data[0].stop_order === 1 &&
-                movedRouteStops.data[0].vehicle_type === 'boat',
+                movedRouteStops.data[0].vehicle_type === 'boat' &&
+                movedRouteStops.data[0].stop_color === '#f59e0b',
             'Admin edits and reassigns route stops while preserving sequential order'
         );
 

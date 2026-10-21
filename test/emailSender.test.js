@@ -69,24 +69,35 @@ async function run() {
 
         let smtpTransportOptions;
         let sentMessage;
+        let smtpTransportCount = 0;
+        let closedTransportCount = 0;
         nodemailer.createTransport = options => {
             smtpTransportOptions = options;
-            return { sendMail: async message => { sentMessage = message; } };
+            smtpTransportCount += 1;
+            return {
+                sendMail: async message => { sentMessage = message; },
+                close: () => { closedTransportCount += 1; }
+            };
         };
         await sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' });
-        assert.deepEqual(smtpTransportOptions, {
-            host: 'smtp.example.com',
-            port: 587,
-            secure: false,
-            auth: { user: 'sender@example.com', pass: 'smtp-test-password' }
-        });
+        assert.equal(smtpTransportOptions.host, 'smtp.example.com');
+        assert.equal(smtpTransportOptions.port, 587);
+        assert.equal(smtpTransportOptions.secure, false);
+        assert.deepEqual(smtpTransportOptions.auth, { user: 'sender@example.com', pass: 'smtp-test-password' });
+        assert.equal(smtpTransportOptions.pool, true);
+        assert.equal(smtpTransportOptions.maxConnections, 2);
         assert.equal(sentMessage.from, 'InerTayo <sender@example.com>');
         assert.equal(sentMessage.to, 'commuter@example.com');
+
+        await sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' });
+        assert.equal(smtpTransportCount, 1, 'SMTP transporter is reused while configuration is unchanged');
 
         process.env.SMTP_PORT = '465';
         delete process.env.SMTP_SECURE;
         await sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' });
         assert.equal(smtpTransportOptions.secure, true);
+        assert.equal(smtpTransportCount, 2, 'SMTP transporter is recreated when configuration changes');
+        assert.equal(closedTransportCount, 1, 'Previous SMTP connection pool is closed when configuration changes');
 
         console.log('Email sender tests passed.');
     } finally {

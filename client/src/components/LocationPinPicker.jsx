@@ -23,11 +23,11 @@ const LOCATION_TYPE_MARKERS = {
   TERMINAL: { icon: Bus, color: '#ea580c' },
 };
 
-function pinIcon(mode, locationType) {
+function pinIcon(mode, locationType, customColor) {
   const normalizedMode = String(mode || '').toLowerCase();
   const modeMarker = MODE_MARKERS.find(({ match }) => normalizedMode.includes(match));
   const marker = modeMarker || LOCATION_TYPE_MARKERS[locationType];
-  const color = marker?.color || '#dc2626';
+  const color = customColor || marker?.color || '#dc2626';
   const icon = marker
     ? `<span style="position:absolute;left:4px;top:4px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center">${renderToStaticMarkup(
       React.createElement(marker.icon, { size: 13, strokeWidth: 2.5, color: '#fff' })
@@ -53,12 +53,12 @@ function MapClickHandler({ onPin }) {
   return null;
 }
 
-export default function LocationPinPicker({ latitude, longitude, onPin, mode, locationType }) {
+export default function LocationPinPicker({ latitude, longitude, onPin, mode, locationType, markerColor }) {
   const lat = Number(latitude);
   const lng = Number(longitude);
   const hasPin = latitude !== '' && longitude !== '' && Number.isFinite(lat) && Number.isFinite(lng);
   const position = hasPin ? [lat, lng] : null;
-  const markerIcon = React.useMemo(() => pinIcon(mode, locationType), [mode, locationType]);
+  const markerIcon = React.useMemo(() => pinIcon(mode, locationType, markerColor), [mode, locationType, markerColor]);
 
   return (
     <div className="space-y-1.5">

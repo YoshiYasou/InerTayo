@@ -390,6 +390,7 @@ export default function Admin() {
     stop_order: 1,
     description: '',
     vehicle_type: '',
+    stop_color: '',
     is_transfer_point: false,
     latitude: '',
     longitude: '',
@@ -1402,6 +1403,7 @@ export default function Admin() {
       stop_order: 1,
       description: '',
       vehicle_type: '',
+      stop_color: '',
       is_transfer_point: false,
       latitude: '',
       longitude: '',
@@ -1417,6 +1419,7 @@ export default function Admin() {
       stop_order: stop.stop_order,
       description: stop.description || '',
       vehicle_type: stop.vehicle_type || '',
+      stop_color: stop.stop_color || '',
       is_transfer_point: Boolean(stop.is_transfer_point),
       latitude: stop.latitude ?? '',
       longitude: stop.longitude ?? '',
@@ -3088,6 +3091,29 @@ export default function Admin() {
                 <p className="mt-1 text-[11px] text-slate-500">The map icon updates to match the selected vehicle.</p>
               </div>
               <div>
+                <label className="block font-bold text-slate-700 mb-1">Stop Marker Color</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={stopFormData.stop_color || getRouteModeColor(stopFormData.vehicle_type || selectedStopRoute?.mode_name)}
+                    onChange={(event) => setStopFormData({ ...stopFormData, stop_color: event.target.value })}
+                    aria-label="Choose stop marker color"
+                    className="h-10 w-14 cursor-pointer rounded border border-slate-200 bg-white p-1"
+                  />
+                  <span className="font-mono text-slate-600">{stopFormData.stop_color || 'Vehicle default'}</span>
+                  {stopFormData.stop_color && (
+                    <button
+                      type="button"
+                      onClick={() => setStopFormData({ ...stopFormData, stop_color: '' })}
+                      className="font-semibold text-emerald-700 hover:underline"
+                    >
+                      Use vehicle color
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">Choose a custom marker color or use the route vehicle color. Custom colors also override the start, end, and transfer marker colors.</p>
+              </div>
+              <div>
                 <label className="block font-bold text-slate-700 mb-1">Description</label>
                 <textarea rows="2" value={stopFormData.description}
                   onChange={(event) => setStopFormData({ ...stopFormData, description: event.target.value })}
@@ -3104,6 +3130,7 @@ export default function Admin() {
                 latitude={stopFormData.latitude}
                 longitude={stopFormData.longitude}
                 mode={stopFormData.vehicle_type || selectedStopRoute?.mode_name}
+                markerColor={stopFormData.stop_color || undefined}
                 onPin={(latitude, longitude) => setStopFormData(previous => ({
                   ...previous,
                   latitude: latitude.toFixed(6),
