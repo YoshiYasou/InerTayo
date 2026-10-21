@@ -401,6 +401,7 @@ export default function WebMap() {
                 : selectedJourney}
               selectedRouteId={queryParams?.route || (selectedItem?.type === 'route' ? selectedItem.data.id : null)}
               routeOnly={Boolean(queryParams?.route)}
+              showRouteLines={Boolean(queryParams?.route)}
               allowUnverifiedPreview={queryParams?.route ? Boolean(focusedRoute?.geometry_needs_review) : selectedItem?.type === 'route' && Boolean(selectedItem.data.geometry_needs_review)}
               locations={locations}
               showAdvisories={true}

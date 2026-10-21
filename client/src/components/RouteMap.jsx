@@ -354,6 +354,8 @@ function LayerManager({
   selectedRouteId,
   setSelectedRouteId,
   routeOnly,
+  showRouteLines,
+  emphasizeFocusedRoute,
   focusedRouteSource,
   locations = [],
   focusedRouteFeature = null,
@@ -415,7 +417,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, focusedRouteSource, geoDataLoaded]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -495,7 +497,7 @@ function LayerManager({
     };
 
     // During an active journey, only show route lines of modes involved
-    for (const key of modeKeys) {
+    for (const key of showRouteLines ? modeKeys : []) {
       const data = geo[key];
       const focusedMode = String(focusedRouteFeature?.properties.mode_name || focusedRouteFeature?.properties.mode || '').toLowerCase();
       const features = routeOnly
@@ -562,6 +564,32 @@ function LayerManager({
       }).addTo(map);
 
       features.forEach((feature) => {
+        if (
+          emphasizeFocusedRoute &&
+          focusedRouteFeature &&
+          String(feature.properties.id) === String(focusedRouteFeature.properties.id)
+        ) {
+          const coordinates = feature.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]);
+          L.polyline(coordinates, {
+            renderer: L.canvas(),
+            color: '#ffffff',
+            weight: 12,
+            opacity: 0.95,
+            lineCap: 'round',
+            lineJoin: 'round',
+            interactive: false,
+          }).addTo(layerGroup);
+          L.polyline(coordinates, {
+            renderer: L.canvas(),
+            color: feature.properties.style?.color || modeColor(feature.properties.mode),
+            weight: 0,
+            opacity: 0,
+            lineCap: 'round',
+            lineJoin: 'round',
+            interactive: false,
+          }).addTo(layerGroup);
+        }
+
         (feature.properties.route_path_segments || []).forEach((segment) => {
           let segmentGeometry = segment.geometry;
           if (typeof segmentGeometry === 'string') {
@@ -729,6 +757,7 @@ function LayerManager({
       refs.routeEndpointGroup.remove();
       refs.routeEndpointGroup = null;
     }
+    if (!showRouteLines) return;
 
     let feature = focusedRouteFeature;
     if (!feature && selectedRouteId !== null) {
@@ -1081,6 +1110,8 @@ export default function RouteMap({
   selectedJourney = null,
   selectedRouteId: controlledSelectedRouteId = null,
   routeOnly = false,
+  showRouteLines = true,
+  emphasizeFocusedRoute = false,
   locations     = [],
   showAdvisories = true,
   interactive   = true,
@@ -1136,6 +1167,8 @@ export default function RouteMap({
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
           routeOnly={routeOnly}
+          showRouteLines={showRouteLines}
+          emphasizeFocusedRoute={emphasizeFocusedRoute}
           onSelect={onSelect}
           selectedRouteId={selectedRouteId}
           setSelectedRouteId={setSelectedRouteId}
