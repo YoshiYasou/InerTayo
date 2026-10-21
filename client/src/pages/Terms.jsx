@@ -202,7 +202,7 @@ export default function Terms() {
                 <h2 className="text-lg font-bold text-slate-900">Intellectual Property</h2>
               </div>
               <p>
-                The InerTayo brand, website design, route compilation schema, custom algorithms, and UI components are the property of InerTayo and its creators. Map data is provided by OpenStreetMap contributors and rendered using CARTO basemaps; Leaflet libraries and Lucide icons remain the property of their respective rights holders under open-source licenses.
+                The InerTayo brand, website design, route compilation schema, custom algorithms, and UI components are the property of InerTayo and its creators. OpenStreetMap map tiles, Leaflet libraries, and Lucide icons remain the property of their respective rights holders under open-source licenses.
               </p>
             </section>
 
@@ -272,3 +272,4 @@ export default function Terms() {
     </div>
   );
 }
+

@@ -13,7 +13,7 @@ InerTayo is a dedicated public transportation route information system built spe
 - **Backend:** Node.js, Express.js (REST API, 67 endpoints)
 - **Database:** MongoDB with Mongoose ODM (16 models, auto-increment integer IDs for seamless client compatibility)
 - **Authentication & Security:** JWT tokens with bcrypt password hashing (cost factor 12), rate limiting, and role-based access control (`COMMUTER`, `ADMIN`)
-- **Testing:** Comprehensive test suite with `mongodb-memory-server` (250+ automated checks; test data uses an in-memory MongoDB instance)
+- **Testing:** Comprehensive test suite with `mongodb-memory-server` (118 automated assertions, 0 external database dependencies required to run tests)
 
 ---
 
@@ -34,7 +34,7 @@ data.
 ## Prerequisites
 
 Before running the application, ensure you have:
-1. **Node.js** (v20 or higher)
+1. **Node.js** (v18 or higher recommended)
 2. **npm** (comes with Node.js)
 3. **MongoDB Connection** (either a free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) cloud cluster or a local MongoDB service)
 
@@ -88,84 +88,10 @@ ORIGIN=http://localhost:3000
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
 
-### Configure email delivery
-
-Commuter email verification is mandatory. Local development works without a
-paid email service or custom domain using a mock inbox:
-
-```env
-EMAIL_VERIFICATION_ENABLED=true
-EMAIL_PROVIDER=mock
-FRONTEND_URL=http://localhost:3000
-```
-
-Start the server with `npm run dev`, register a test account, and open
-`http://localhost:5000/api/dev/email-preview` to inspect the latest mock
-verification email. This endpoint exists only in development, only with the
-mock provider, and only for loopback requests; it is unavailable in production.
-The mock message is held in process memory and is not delivered to an inbox.
-The local Vite frontend runs on port 3000; if testing the built single-server
-mode with `npm start`, set `FRONTEND_URL=http://localhost:5000` instead.
-
-For low-volume delivery without a custom domain, the app can send through Gmail
-SMTP using a Google App Password. Enable 2-Step Verification on the Google
-account, create an App Password, and use it as `SMTP_PASSWORD` (not your
-regular account password). Set `SMTP_USER` and `MAIL_FROM` to that same Gmail
-address. OAuth credentials, the Gmail API, and Google Cloud API setup are not
-used.
-
-```env
-EMAIL_VERIFICATION_ENABLED=true
-EMAIL_PROVIDER=smtp
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-account@gmail.com
-SMTP_PASSWORD=your-google-app-password
-MAIL_FROM=InerTayo <your-account@gmail.com>
-FRONTEND_URL=https://your-render-service.onrender.com
-```
-
-Port 587 uses STARTTLS with `SMTP_SECURE=false`; for implicit TLS, port 465
-uses `SMTP_SECURE=true`. Gmail sending limits and policies apply, so this is
-intended for low-volume verification, not bulk mail. Keep the App Password
-private and store it only in your hosting provider's secret environment
-settings.
-
-Resend is an alternative if you have a sender identity it permits: set
-`EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `EMAIL_FROM`. Its shared/test
-sender can be recipient restricted, and unrestricted sending may require a
-verified domain. Never commit or share the API key.
-
-`npm run email:check` validates the selected provider, sender configuration,
-verification limits, and frontend URL without sending. To send one real test
-message to an address you control, configure Gmail or Resend and run
-`npm run email:test -- recipient@example.com`. An accepted provider response
-confirms provider acceptance only, not inbox delivery. Render's free web service
-has idle spin-down and usage limits ([details](https://render.com/docs/free)).
-
-Verification links contain random, one-time tokens whose SHA-256 hashes alone
-are stored in MongoDB. They expire after 24 hours by default; set
-`EMAIL_VERIFICATION_TOKEN_TTL_HOURS` to an integer from 1 to 168 to change that.
-Opening a link only displays a confirmation page; the user must select
-**Verify My Email** to activate the account. Resends have a 60-second
-per-account cooldown, a five-attempt daily account limit, and a shared MongoDB
-IP limit of 10 attempts per hour by default. These limits also count failed
-provider requests. Configure them with `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS`,
-`EMAIL_VERIFICATION_DAILY_LIMIT`, `EMAIL_VERIFICATION_IP_LIMIT`, and
-`EMAIL_VERIFICATION_IP_WINDOW_MINUTES`.
-
-The User schema adds verification status/timestamp and hashed-token fields
-without requiring a collection migration. Existing records explicitly marked
-`email_verified: true` continue to work; older records with no recorded status
-are treated as unverified and can request a verification link. The development
-seed explicitly marks its sample accounts verified.
-
 ### Deploy to Render
 
 The repository includes a Render Blueprint in `render.yaml`. In Render, create a
-Blueprint Instance from this repository and provide `MONGODB_URI`, `SMTP_USER`,
-`SMTP_PASSWORD`, `MAIL_FROM`, and `FRONTEND_URL` when prompted.
+Blueprint Instance from this repository and provide `MONGODB_URI` when prompted.
 The Blueprint builds the Vite client and starts the Express server, which serves
 both the frontend and `/api` from the same origin. Render generates `JWT_SECRET`
 and supplies the service URL for CORS automatically.
@@ -177,20 +103,16 @@ Before deploying:
 2. Set `MONGODB_URI` to the Atlas connection string, including the `inertayo`
    database name.
 3. Change the seeded admin and commuter passwords in the database before
-   making the app publicly accessible. Set the Gmail SMTP credentials privately,
-   `EMAIL_PROVIDER=smtp`, `EMAIL_VERIFICATION_ENABLED=true`, `MAIL_FROM` to the
-   same address as `SMTP_USER`, and the service's HTTPS `FRONTEND_URL`. If you
-   add a custom domain, update `ORIGIN` and `FRONTEND_URL`.
+   making the app publicly accessible. If you add a custom domain, set `ORIGIN`
+   in Render to include that full HTTPS origin.
 4. Run `npm run seed` only against a new, empty database. It deletes existing
    collections before inserting the sample transit data and accounts.
 
 The Blueprint uses Render's free instance tier, which may spin down when idle
 and feel slow on the first request after inactivity. Upgrade the instance in
-Render if you need consistently responsive production access. Production
-startup fails safely if email verification is disabled, the selected provider
-credentials are missing, or the HTTPS frontend URL is not configured. Gmail
-App Passwords can be revoked from the Google Account at any time; SMTP delivery
-will need a replacement if the password is revoked.
+Render if you need consistently responsive production access. Configure Gmail
+or SMTP environment variables in Render if the password-reset email feature is
+needed.
 
 ---
 

@@ -2,7 +2,6 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const dns = require('node:dns');
-const EmailVerificationAttempt = require('../models/EmailVerificationAttempt');
 
 let _conn = null;
 
@@ -48,8 +47,6 @@ async function connectDB(uri, maxRetries = 4, delayMs = 1000) {
     if (!mongoose.connection || mongoose.connection.readyState !== 1) {
         throw lastError || new Error('[FATAL] Failed to connect to MongoDB after multiple attempts.');
     }
-
-    await EmailVerificationAttempt.createIndexes();
 
     mongoose.connection.on('error', (err) => {
         console.error('MongoDB connection error:', err);

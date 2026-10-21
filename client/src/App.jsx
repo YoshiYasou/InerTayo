@@ -14,7 +14,6 @@ import WebMap from './pages/WebMap';
 import Admin from './pages/Admin';
 import SavedRoutes from './pages/SavedRoutes';
 import Terms from './pages/Terms';
-import VerifyEmail from './pages/VerifyEmail';
 
 export default function App() {
   const { currentPath, queryParams } = useRouter();
@@ -47,9 +46,6 @@ export default function App() {
     }
     if (currentPath === '/saved-routes') {
       return <SavedRoutes />;
-    }
-    if (currentPath === '/verify-email') {
-      return <VerifyEmail />;
     }
     // Fallback to Home
     return <Home />;

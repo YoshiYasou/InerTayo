@@ -27,7 +27,6 @@ export default function AuthModal() {
     setAuthModalMode, 
     login, 
     register,
-    resendEmailVerification,
     verifyAdminLogin,
     resendAdminLoginCode,
     forgotPassword,
@@ -185,12 +184,8 @@ export default function AuthModal() {
     setResetNoticeMsg('');
     setCodeRequestLoading(true);
     try {
-      const result = authModalMode === 'verify_email'
-        ? await resendEmailVerification(verificationEmail)
-        : await resendAdminLoginCode(adminChallengeId);
-      setResetNoticeMsg(result.message || (authModalMode === 'verify_email'
-        ? 'If your account is eligible, a verification email will be sent.'
-        : 'A new verification code has been sent.'));
+    const result = await resendAdminLoginCode(adminChallengeId);
+      setResetNoticeMsg(result.message || 'A new verification code has been sent.');
       setCodeCooldown(60);
     } catch (err) {
       setError(err.message || 'Could not resend verification code.');
@@ -271,34 +266,13 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        const result = await register(cleanUsername, regEmail.trim(), password);
-        if (result.verificationRequired === 'email') {
-          setVerificationEmail(regEmail.trim());
-          setVerificationCode('');
-          setPassword('');
-          setConfirmPassword('');
-          setResetNoticeMsg(result.message);
-          setCodeCooldown(60);
-          setAuthModalMode('verify_email');
-        } else {
-          resetFormState();
-        }
+        await register(cleanUsername, regEmail.trim(), password);
+        resetFormState();
       } catch (err) {
-        if (err.verificationRequired === 'email') {
-          setVerificationEmail(regEmail.trim());
-          setResetNoticeMsg(err.message || 'Your account was created, but the verification email could not be sent.');
-          setCodeCooldown(0);
-          setAuthModalMode('verify_email');
-        } else {
-          setError(err.message || 'Registration failed.');
-        }
+        setError(err.message || 'Registration failed.');
       } finally {
         setLoading(false);
       }
-      return;
-    }
-
-    if (authModalMode === 'verify_email') {
       return;
     }
 
@@ -403,15 +377,6 @@ export default function AuthModal() {
     } catch (err) {
       const errMsg = err.message || 'Authentication error.';
       setError(errMsg);
-      if (err.verificationRequired === 'email') {
-        setError('');
-        setVerificationEmail(username.trim());
-        setVerificationCode('');
-        setResetNoticeMsg('Enter the code sent to your registered email address.');
-        setAuthModalMode('verify_email');
-        setCodeCooldown(0);
-        return;
-      }
 
       // Brute-force protection: increment failed attempts on login failure
       const nextAttempts = failedAttempts + 1;
@@ -441,8 +406,8 @@ export default function AuthModal() {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Back Button (For auth sub-views) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_admin_login' || authModalMode === 'verify_email') && (
+        {/* Back Button (For Forgot Password sub-views) */}
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_admin_login') && (
           <button
             onClick={() => handleSwitchMode('login')}
             className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors flex items-center gap-1 text-xs font-semibold"
@@ -467,7 +432,6 @@ export default function AuthModal() {
           <h3 className="text-2xl font-bold text-slate-900">
             {authModalMode === 'login' && 'Sign In to InerTayo'}
             {authModalMode === 'register' && 'Create Commuter Account'}
-            {authModalMode === 'verify_email' && 'Verify Your Email'}
             {authModalMode === 'verify_admin_login' && 'Verify Admin Sign-In'}
             {authModalMode === 'forgot_request' && 'Reset Your Password'}
             {authModalMode === 'forgot_reset' && 'Set New Password'}
@@ -477,7 +441,6 @@ export default function AuthModal() {
           <p className="text-sm text-slate-500 mt-1">
             {authModalMode === 'login' && 'Access saved routes and submit verified commuter feedback.'}
             {authModalMode === 'register' && 'Join fellow Dagupan commuters to save daily routes.'}
-            {authModalMode === 'verify_email' && 'Check your inbox for a secure verification link.'}
             {authModalMode === 'verify_admin_login' && 'Enter the 6-digit code sent to the administrator email address.'}
             {authModalMode === 'forgot_request' && 'Enter your registered email to receive a 6-digit verification code.'}
             {authModalMode === 'forgot_reset' && 'Enter the 6-digit code sent to your email and choose a new secure password.'}
@@ -502,7 +465,7 @@ export default function AuthModal() {
         )}
 
         {/* Verification Code Notice (Reset / Change Password Only) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_admin_login' || authModalMode === 'verify_email') && resetNoticeMsg && (
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_admin_login') && resetNoticeMsg && (
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span>{resetNoticeMsg}</span>
@@ -638,20 +601,6 @@ export default function AuthModal() {
                 </button>
               </div>
             </>
-          )}
-
-          {authModalMode === 'verify_email' && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600" role="status" aria-live="polite">
-              Check the inbox for <span className="font-semibold text-slate-800">{verificationEmail}</span> and open the verification link. Then return here to sign in.
-              <button
-                type="button"
-                onClick={handleResendAuthCode}
-                disabled={codeRequestLoading || codeCooldown > 0}
-                className="mt-3 block text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:text-slate-400 disabled:cursor-not-allowed"
-              >
-                {codeRequestLoading ? 'Requesting...' : codeCooldown > 0 ? `Request another email in ${codeCooldown}s` : 'Resend verification email'}
-              </button>
-            </div>
           )}
 
           {/* REGISTERED EMAIL OR USERNAME (FORGOT REQUEST ONLY) */}
@@ -878,7 +827,7 @@ export default function AuthModal() {
           )}
 
           {/* SUBMIT BUTTON */}
-          {authModalMode !== 'verify_email' && <button
+          <button
             type="submit"
             disabled={loading || (authModalMode === 'login' && lockoutTimer > 0)}
             className="w-full py-3 px-4 bg-slate-900 hover:bg-emerald-600 text-white font-semibold rounded-xl text-sm transition-all shadow-md active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
@@ -896,8 +845,6 @@ export default function AuthModal() {
               'Create Account'
             ) : authModalMode === 'verify_admin_login' ? (
               'Verify and Sign In'
-            ) : authModalMode === 'verify_email' ? (
-              'Verify Email'
             ) : authModalMode === 'forgot_request' ? (
               'Send Reset Code'
             ) : authModalMode === 'change_password' ? (
@@ -905,7 +852,7 @@ export default function AuthModal() {
             ) : (
               'Reset Password & Sign In'
             )}
-          </button>}
+          </button>
 
           {authModalMode === 'login' && (
             <div className="flex justify-end">

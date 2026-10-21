@@ -7,13 +7,9 @@ const path = require('path');
 const mongoose = require('mongoose');
 const { connectDB } = require('./db/connection');
 const apiRoutes = require('./routes/api');
-const { getEmailConfig } = require('./services/emailSender');
-const { getApplicationUrl, getTokenLifetimeHours } = require('./services/emailVerification');
-const { getVerificationLimits } = require('./services/emailVerificationLimits');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.set('trust proxy', 1);
 
 // ── Secure HTTP headers
 const isProduction = process.env.NODE_ENV === 'production';
@@ -99,14 +95,6 @@ app.use('/api/auth', authRateLimiter);
 // ── Mount API endpoints
 app.use('/api', apiRoutes);
 
-app.use('/verify-email', (req, res, next) => {
-    res.set({
-        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
-        'Referrer-Policy': 'no-referrer'
-    });
-    next();
-});
-
 // ── Serve static frontend in production
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 app.use(express.static(clientDistPath));
@@ -141,16 +129,6 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-    try {
-        getEmailConfig();
-        getApplicationUrl();
-        getTokenLifetimeHours();
-        getVerificationLimits();
-    } catch (error) {
-        console.error(`[FATAL] Invalid email verification configuration: ${error.message}`);
-        process.exit(1);
-    }
-
     connectDB()
         .then(() => {
             app.listen(PORT, () => {

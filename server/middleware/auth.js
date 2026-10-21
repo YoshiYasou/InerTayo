@@ -1,5 +1,4 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 
 // Refuse to start without a proper JWT secret in the environment.
 // Never fall back to a hardcoded string — that would make tokens forgeable
@@ -14,7 +13,7 @@ if (!process.env.JWT_SECRET) {
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-async function authenticateToken(req, res, next) {
+function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -22,33 +21,13 @@ async function authenticateToken(req, res, next) {
         return res.status(401).json({ error: 'Authentication required. Please log in.' });
     }
 
-    let payload;
-    try {
-        payload = jwt.verify(token, JWT_SECRET);
-    } catch {
-        return res.status(403).json({ error: 'Invalid or expired session. Please log in again.' });
-    }
-
-    const user = await User.findOne({ id: payload.id })
-        .select('id username email role email_verified')
-        .lean();
-    if (!user) {
-        return res.status(403).json({ error: 'Invalid or expired session. Please log in again.' });
-    }
-    if (user.role === 'COMMUTER' && !user.email_verified) {
-        return res.status(403).json({
-            error: 'Please verify your email address before accessing this feature.',
-            verificationRequired: 'email'
-        });
-    }
-
-    req.user = {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role
-    };
-    next();
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired session. Please log in again.' });
+        }
+        req.user = user;
+        next();
+    });
 }
 
 function optionalAuth(req, res, next) {
