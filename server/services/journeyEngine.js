@@ -12,6 +12,7 @@ const Landmark = require('../models/Landmark');
 const Route = require('../models/Route');
 const TransportMode = require('../models/TransportMode');
 const Stop = require('../models/Stop');
+const { expandStopAssignments } = require('../utils/stopAssignments');
 const Advisory = require('../models/Advisory');
 const AdvisoryRoute = require('../models/AdvisoryRoute');
 const BoatRouteDetail = require('../models/BoatRouteDetail');
@@ -257,7 +258,9 @@ async function planJourney({ origin, destination, preferredModes = 'ALL', leaveN
     const boatDetails = await BoatRouteDetail.find().lean();
     const boatMap = new Map(boatDetails.map(b => [b.route_id, b]));
 
-    const allStops = await Stop.find().sort({ stop_order: 1 }).lean();
+    const allStops = expandStopAssignments(await Stop.find().lean())
+        .filter(stop => stop.route_id !== null)
+        .sort((first, second) => first.stop_order - second.stop_order);
     const stopsByRoute = new Map();
     for (const stop of allStops) {
         if (!stopsByRoute.has(stop.route_id)) stopsByRoute.set(stop.route_id, []);

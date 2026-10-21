@@ -15,8 +15,6 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { Bike, Bus, CarFront, Ship } from 'lucide-react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -154,37 +152,18 @@ const ZOOM_TIER3_MIN      = 16; // ≥16: stops unclustered + landmarks
 const CLUSTER_MAX_ZOOM    = 15; // clustering disabled above this zoom
 
 // ─── DivIcon factories ─────────────────────────────────────────────────────
-const STOP_MODE_ICONS = {
-  tricycle: renderToStaticMarkup(React.createElement(Bike, { size: 13, strokeWidth: 2.5, color: '#fff' })),
-  jeepney: renderToStaticMarkup(React.createElement(CarFront, { size: 13, strokeWidth: 2.5, color: '#fff' })),
-  bus: renderToStaticMarkup(React.createElement(Bus, { size: 13, strokeWidth: 2.5, color: '#fff' })),
-  boat: renderToStaticMarkup(React.createElement(Ship, { size: 13, strokeWidth: 2.5, color: '#fff' })),
-};
-
-function stopDivIcon(color, mode, label, size = 24) {
-  const normalizedMode = String(mode || '').toLowerCase();
-  const modeKey = normalizedMode.includes('tricycle') ? 'tricycle'
-    : normalizedMode.includes('boat') ? 'boat'
-      : normalizedMode.includes('bus') || normalizedMode.includes('provincial') || normalizedMode.includes('modern') ? 'bus'
-        : 'jeepney';
-  const labelText = String(label ?? '').replace(/[&<>"']/g, character => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[character]);
-
+function stopDivIcon() {
   return L.divIcon({
     className: '',
-    html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;
-      background:${color};border:2.5px solid #fff;
-      box-shadow:0 1px 4px rgba(0,0,0,.45);
-      display:flex;align-items:center;justify-content:center;">${STOP_MODE_ICONS[modeKey]}
-      <span style="position:absolute;right:-5px;bottom:-4px;min-width:10px;height:10px;
-        padding:0 2px;border:1px solid #fff;border-radius:6px;background:#0f172a;
-        color:#fff;font:700 7px/10px system-ui,sans-serif;text-align:center;">${labelText}</span></div>`,
-    iconSize: [size + 4, size + 4], iconAnchor: [(size + 4) / 2, (size + 4) / 2], popupAnchor: [0, -size / 2],
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">
+      <circle cx="18" cy="18" r="16" fill="#fff" stroke="#d1d5db" stroke-width="1"/>
+      <g transform="translate(6 4) scale(.67)">
+        <path d="M5 5h26v5H5zM8 12h20v14h4v3h-2v3a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2H12v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-3H4v-3h4z"
+          fill="#6b6b6b" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>
+        <circle cx="12" cy="20" r="3" fill="#fff"/><circle cx="24" cy="20" r="3" fill="#fff"/>
+      </g>
+    </svg>`,
+    iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -17],
   });
 }
 
@@ -329,12 +308,31 @@ function routePopupHtml(props) {
 }
 
 function stopPopupHtml(props) {
-  const tag = props.is_origin ? '(Start)' : props.is_terminus ? '(Terminus)' : props.is_transfer ? '(Transfer)' : `#${props.stop_order}`;
+  const routes = (props.jeepneyRoutes || [])
+    .map(route => `<div style="font-size:11px;color:#334155">${escapeHtml(route.name)}</div>`)
+    .join('');
   return `<div style="font-family:sans-serif;min-width:160px">
-    <div style="font-size:10px;font-weight:bold;color:${props.color}">${props.mode} STOP ${tag}</div>
-    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${props.stop_name}</div>
-    <div style="font-size:11px;color:#64748b">${props.route_name}</div>
+    <div style="font-size:10px;font-weight:bold;color:#64748b">JEEPNEY STOP</div>
+    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${escapeHtml(props.stop_name)}</div>
+    ${routes}
   </div>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+}
+
+function stopIdentity(feature) {
+  const id = feature.properties?.id;
+  if (id != null) return `id:${id}`;
+  const [lng, lat] = feature.geometry.coordinates;
+  return `location:${feature.properties?.stop_name || ''}:${lat}:${lng}`;
 }
 
 function schoolPopupHtml(props, onSelect) {
@@ -860,31 +858,50 @@ function LayerManager({
     if (!showAll) return; // don't even build below LOD threshold
     if (!geo.stops?.features?.length) return;
 
+    const visibleStops = new Map();
     geo.stops.features.forEach(f => {
       const props = f.properties;
       const [lng, lat] = f.geometry.coordinates;
 
-        if (forceRouteId && props.route_id !== forceRouteId) return;
+      if (forceRouteId && String(props.route_id) !== String(forceRouteId)) return;
 
       // Filter by active mode
       if (activeFilter !== 'ALL' && activeFilter !== 'FLOOD') {
         const keyword = activeFilter.toLowerCase().replace('jeepney', 'jeep').replace('bus', 'bus').replace('tricycle', 'tricycle').replace('boat', 'boat');
-        if (!props.mode.toLowerCase().includes(keyword)) return;
+        if (!String(props.mode || '').toLowerCase().includes(keyword)) return;
       }
 
-      const size = (props.is_origin || props.is_terminus) ? 24 : props.is_transfer ? 22 : 20;
-      const bg   = props.stop_color
-                 || (props.is_origin   ? '#059669'
-                 : props.is_terminus ? '#e11d48'
-                 : props.is_transfer ? '#0f172a'
-                 : props.color);
+      const key = stopIdentity(f);
+      if (!visibleStops.has(key)) visibleStops.set(key, f);
+    });
+
+    visibleStops.forEach(f => {
+      const props = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+      const jeepneyRoutes = [...new Map(
+        geo.stops.features
+          .filter(feature =>
+            stopIdentity(feature) === stopIdentity(f) &&
+            /jeepney/i.test(feature.properties.mode || '')
+          )
+          .map(feature => [String(feature.properties.route_id), {
+            id: feature.properties.route_id,
+            name: feature.properties.route_name,
+          }])
+      ).values()];
 
       const marker = L.marker([lat, lng], {
-        icon: stopDivIcon(bg, props.vehicle_type || props.mode, props.label, size),
+        icon: stopDivIcon(),
         zIndexOffset: 100,
       });
-      marker.bindPopup(stopPopupHtml(props));
-      marker.on('click', () => onSelect?.('stop', { ...props, routeName: props.route_name }));
+      marker.bindPopup(stopPopupHtml({ ...props, jeepneyRoutes }));
+      marker.on('click', () => {
+        onSelect?.('stop', {
+          ...props,
+          routeName: props.route_name,
+          jeepneyRoutes,
+        });
+      });
       cluster.addLayer(marker);
     });
 

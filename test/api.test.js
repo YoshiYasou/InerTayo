@@ -953,9 +953,8 @@ async function runTests() {
         assert(invalidStopColor.status === 400, 'Stop marker colors must be valid 6-digit hex values');
 
         const createdStop = await makeRequest('POST', '/api/admin/stops', {
-            route_id: 1,
+            route_ids: [1],
             stop_name: 'Admin CRUD Test Stop',
-            stop_order: 1,
             description: 'Temporary API test stop.',
             vehicle_type: 'tricycle',
             stop_color: '#7c3aed',
@@ -996,6 +995,33 @@ async function runTests() {
                 movedRouteStops.data[0].vehicle_type === 'boat' &&
                 movedRouteStops.data[0].stop_color === '#f59e0b',
             'Admin edits and reassigns route stops while preserving sequential order'
+        );
+
+        const sharedStopAssignment = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
+            route_ids: [1, 2],
+            stop_name: 'Admin CRUD Test Stop Updated',
+            description: 'Updated temporary API test stop.',
+            vehicle_type: 'boat',
+            stop_color: '#f59e0b',
+            is_transfer_point: 1,
+            latitude: 16.044,
+            longitude: 120.337
+        }, adminAuthHeaders);
+        const sharedRouteOneStops = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
+        const sharedRouteTwoStops = await makeRequest('GET', '/api/admin/routes/2/stops', null, adminAuthHeaders);
+        assert(
+            sharedStopAssignment.status === 200 &&
+                sharedRouteOneStops.data.some(stop => stop.id === createdStop.data.stopId) &&
+                sharedRouteTwoStops.data.some(stop => stop.id === createdStop.data.stopId),
+            'A shared stop can be assigned to multiple routes without duplicating its catalog record'
+        );
+
+        const removedStopAssignment = await makeRequest('DELETE', `/api/admin/stops/${createdStop.data.stopId}?route_id=2`, null, adminAuthHeaders);
+        const remainingSharedRouteStops = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
+        assert(
+            removedStopAssignment.status === 200 &&
+                remainingSharedRouteStops.data.some(stop => stop.id === createdStop.data.stopId),
+            'Removing a shared stop from one route preserves its other route assignments'
         );
 
         const deletedStop = await makeRequest('DELETE', `/api/admin/stops/${createdStop.data.stopId}`, null, {

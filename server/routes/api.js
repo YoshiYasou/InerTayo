@@ -30,6 +30,7 @@ const BoatFare = require('../models/BoatFare');
 const ChangePasswordCode = require('../models/ChangePasswordCode');
 const { nextId } = require('../db/counter');
 const { getCache, setCache, invalidateMapCache } = require('../cache/mapLayerCache');
+const { getStopAssignments, expandStopAssignments, stopAssignmentFilter } = require('../utils/stopAssignments');
 const { isDetailedRoadGeometry } = require('../utils/routeGeometryQuality');
 const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECRET } = require('../middleware/auth');
 const ROUTING_CONFIG = require('../config/routingConfig');
@@ -576,8 +577,8 @@ router.get('/locations/:id', async (req, res) => {
 
         // Find stops with name matching location
         const locRegex = new RegExp(location.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        const stops = await Stop.find({ stop_name: locRegex }).lean();
-        const stopRouteIds = stops.map(s => s.route_id);
+        const stops = expandStopAssignments(await Stop.find({ stop_name: locRegex }).lean());
+        const stopRouteIds = stops.map(s => s.route_id).filter(routeId => routeId !== null);
 
         const routeFilter = {
             $or: [
@@ -924,7 +925,7 @@ router.get('/routes', optionalAuth, async (req, res) => {
         const allRoutes = await Route.find().lean();
         const allModes = await TransportMode.find().lean();
         const modeMap = new Map(allModes.map(m => [m.id, m]));
-        const allStops = await Stop.find().lean();
+        const allStops = expandStopAssignments(await Stop.find().lean());
         const stopsByRoute = new Map();
         for (const s of allStops) {
             if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
@@ -1163,10 +1164,11 @@ router.get('/routes/nearby', async (req, res) => {
             });
         }
 
-        const allStops = await Stop.find({
+        const allStops = expandStopAssignments(await Stop.find({
             latitude: { $ne: null },
             longitude: { $ne: null }
-        }).sort({ route_id: 1, stop_order: 1 }).lean();
+        }).lean()).filter(stop => stop.route_id !== null)
+            .sort((first, second) => first.route_id - second.route_id || first.stop_order - second.stop_order);
 
         const stopsByRoute = {};
         for (const stop of allStops) {
@@ -1319,9 +1321,10 @@ router.get('/routes/:id', optionalAuth, async (req, res) => {
 
         const normalGeometry = (useCorrected && route.use_corrected_geometry === 1 && route.geometry_corrected) ? route.geometry_corrected : route.geometry;
 
-        const stops = await Stop.find({ route_id: routeId }, {
-            id: 1, stop_name: 1, stop_order: 1, description: 1, is_transfer_point: 1, latitude: 1, longitude: 1, _id: 0
-        }).sort({ stop_order: 1 }).lean();
+        const stops = expandStopAssignments(await Stop.find(stopAssignmentFilter(routeId), {
+            id: 1, stop_name: 1, stop_order: 1, routes: 1, route_id: 1, description: 1, is_transfer_point: 1, latitude: 1, longitude: 1, _id: 0
+        }).lean()).filter(stop => stop.route_id === routeId)
+            .sort((first, second) => first.stop_order - second.stop_order);
 
         const steps = await RouteStep.find({ route_id: routeId }, {
             id: 1, step_number: 1, mode: 1, instruction: 1, location_info: 1, _id: 0
@@ -1448,7 +1451,9 @@ router.get('/routes/:id/geojson', async (req, res) => {
         if (mode?.status !== 'ACTIVE') {
             return res.status(404).json({ error: 'Route not found.' });
         }
-        const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
+        const stops = expandStopAssignments(await Stop.find(stopAssignmentFilter(routeId)).lean())
+            .filter(stop => stop.route_id === routeId)
+            .sort((first, second) => first.stop_order - second.stop_order);
         const boatDetail = /boat/i.test(mode?.name || '')
             ? await BoatRouteDetail.findOne({ route_id: routeId }).lean()
             : null;
@@ -1623,7 +1628,7 @@ router.post('/fare-calculator', async (req, res) => {
             const toTerm = to.trim().toLowerCase();
 
             const allRoutes = await Route.find().lean();
-            const allStops = await Stop.find().lean();
+            const allStops = expandStopAssignments(await Stop.find().lean());
             const stopsByRoute = new Map();
             for (const s of allStops) {
                 if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
@@ -3608,7 +3613,7 @@ router.delete('/api/admin/routes/:id', authenticateToken, requireAdmin, async (r
         }
 
         await Route.deleteOne({ id: routeId });
-        await Stop.deleteMany({ route_id: routeId });
+        await detachStopsFromRoute(routeId);
         await RouteStep.deleteMany({ route_id: routeId });
         await Fare.deleteMany({ route_id: routeId });
         await RouteSegment.deleteMany({ route_id: routeId });
@@ -3644,7 +3649,7 @@ router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, 
         }
 
         await Route.deleteOne({ id: routeId });
-        await Stop.deleteMany({ route_id: routeId });
+        await detachStopsFromRoute(routeId);
         await RouteStep.deleteMany({ route_id: routeId });
         await Fare.deleteMany({ route_id: routeId });
         await RouteSegment.deleteMany({ route_id: routeId });
@@ -3661,7 +3666,10 @@ router.delete('/admin/routes/:id', authenticateToken, requireAdmin, async (req, 
 });
 
 async function normalizeRouteStops(routeId, selectedStopId = null, requestedOrder = null) {
-    const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1, id: 1 }).lean();
+    const records = await Stop.find(stopAssignmentFilter(routeId)).sort({ stop_order: 1, id: 1 }).lean();
+    const stops = expandStopAssignments(records)
+        .filter(stop => stop.route_id === routeId)
+        .sort((first, second) => first.stop_order - second.stop_order || first.id - second.id);
     const selectedIndex = stops.findIndex(stop => stop.id === selectedStopId);
     if (selectedIndex >= 0) {
         const [selectedStop] = stops.splice(selectedIndex, 1);
@@ -3669,15 +3677,35 @@ async function normalizeRouteStops(routeId, selectedStopId = null, requestedOrde
         stops.splice(targetIndex, 0, selectedStop);
     }
 
-    await Promise.all(stops.map((stop, index) =>
-        Stop.updateOne({ id: stop.id }, { stop_order: index + 1 })
-    ));
+    await Promise.all(stops.map((stop, index) => {
+        const assignments = getStopAssignments(stop).map(assignment => ({
+            route_id: assignment.route_id,
+            stop_order: assignment.route_id === routeId ? index + 1 : assignment.stop_order
+        }));
+        return Stop.updateOne(
+            { id: stop.id },
+            { $set: { routes: assignments }, $unset: { route_id: '', stop_order: '' } }
+        );
+    }));
+}
+
+async function detachStopsFromRoute(routeId) {
+    const records = await Stop.find(stopAssignmentFilter(routeId)).lean();
+    await Promise.all(records.map((stop) => {
+        const assignments = getStopAssignments(stop).filter(assignment => assignment.route_id !== routeId);
+        return Stop.updateOne(
+            { id: stop.id },
+            { $set: { routes: assignments }, $unset: { route_id: '', stop_order: '' } }
+        );
+    }));
 }
 
 // GET /api/admin/stops - All route stops for admin management
 router.get('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const stops = await Stop.find().sort({ route_id: 1, stop_order: 1 }).lean();
+        const stops = expandStopAssignments(await Stop.find().lean())
+            .sort((first, second) => (first.route_id ?? Number.MAX_SAFE_INTEGER) - (second.route_id ?? Number.MAX_SAFE_INTEGER) ||
+                (first.stop_order ?? Number.MAX_SAFE_INTEGER) - (second.stop_order ?? Number.MAX_SAFE_INTEGER));
         res.json(stops);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch route stops.' });
@@ -3688,7 +3716,10 @@ router.get('/admin/stops', authenticateToken, requireAdmin, async (req, res) => 
 router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const routeId = parseId(req.params.id);
-        const stops = await Stop.find({ route_id: routeId }).sort({ stop_order: 1 }).lean();
+        if (routeId === null) return res.status(400).json({ error: 'Invalid route ID format.' });
+        const stops = expandStopAssignments(await Stop.find(stopAssignmentFilter(routeId)).lean())
+            .filter(stop => stop.route_id === routeId)
+            .sort((first, second) => first.stop_order - second.stop_order);
         res.json(stops);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch stops.' });
@@ -3698,10 +3729,10 @@ router.get('/admin/routes/:id/stops', authenticateToken, requireAdmin, async (re
 // POST /api/admin/stops - Create stop
 router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { route_id, stop_name, stop_order, description, vehicle_type = '', stop_color = '', is_transfer_point, latitude, longitude } = req.body;
+        const { route_id, route_ids, stop_name, stop_order, description, vehicle_type = '', stop_color = '', is_transfer_point, latitude, longitude } = req.body;
 
-        if (!route_id || !stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
-            return res.status(400).json({ error: 'route_id, stop_name, and stop_order are required.' });
+        if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '') {
+            return res.status(400).json({ error: 'stop_name is required.' });
         }
         if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
             return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
@@ -3711,12 +3742,22 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             return res.status(400).json({ error: 'stop_color must be a 6-digit hex color.' });
         }
 
-        const parsedRouteId = parseId(route_id);
-        const parsedStopOrder = parseInt(stop_order, 10);
-        if (parsedRouteId === null || !await Route.findOne({ id: parsedRouteId })) {
-            return res.status(400).json({ error: 'route_id must refer to an existing route.' });
+        const requestedRouteIds = route_ids === undefined
+            ? (route_id === undefined || route_id === '' ? [] : [route_id])
+            : route_ids;
+        if (!Array.isArray(requestedRouteIds)) {
+            return res.status(400).json({ error: 'route_ids must be an array of route IDs.' });
         }
-        if (isNaN(parsedStopOrder) || parsedStopOrder < 1) {
+        const parsedRouteIds = [...new Set(requestedRouteIds.map(parseId))];
+        if (parsedRouteIds.some(id => id === null)) {
+            return res.status(400).json({ error: 'Each route ID must refer to an existing route.' });
+        }
+        const assignedRoutes = await Route.find({ id: { $in: parsedRouteIds } }).select('id route_name').lean();
+        if (assignedRoutes.length !== parsedRouteIds.length) {
+            return res.status(400).json({ error: 'Each route ID must refer to an existing route.' });
+        }
+        const parsedStopOrder = stop_order === undefined || stop_order === '' ? null : Number(stop_order);
+        if (parsedRouteIds.length && parsedStopOrder !== null && (!Number.isInteger(parsedStopOrder) || parsedStopOrder < 1)) {
             return res.status(400).json({ error: 'stop_order must be a positive integer.' });
         }
 
@@ -3724,9 +3765,8 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
 
         await Stop.create({
             id: stopId,
-            route_id: parsedRouteId,
             stop_name: stop_name.trim(),
-            stop_order: parsedStopOrder,
+            routes: [],
             description: description || null,
             vehicle_type,
             stop_color: stop_color || null,
@@ -3735,14 +3775,19 @@ router.post('/admin/stops', authenticateToken, requireAdmin, async (req, res) =>
             longitude: longitude || null
         });
 
-        await normalizeRouteStops(parsedRouteId, stopId, parsedStopOrder);
+        for (const assignedRoute of assignedRoutes) {
+            const routeOrder = parsedStopOrder || (await Stop.countDocuments(stopAssignmentFilter(assignedRoute.id))) + 1;
+            await Stop.updateOne({ id: stopId }, { $push: { routes: { route_id: assignedRoute.id, stop_order: routeOrder } } });
+            await normalizeRouteStops(assignedRoute.id, stopId, routeOrder);
+        }
         invalidateMapCache();
-        const route = await Route.findOne({ id: parsedRouteId }).select('id route_name').lean();
         await recordAdminActivity(
             req.user,
             'ADMIN_STOP_CREATED',
-            `Added stop "${stop_name.trim()}" to route "${route?.route_name || parsedRouteId}".`,
-            route
+            parsedRouteIds.length
+                ? `Added stop "${stop_name.trim()}" and assigned it to ${assignedRoutes.map(route => `"${route.route_name}"`).join(', ')}.`
+                : `Added stop "${stop_name.trim()}" to the stop catalog.`,
+            { stop_id: stopId, route_ids: parsedRouteIds }
         );
         res.status(201).json({ message: 'Stop added.', stopId });
     } catch (err) {
@@ -3758,9 +3803,9 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'Invalid stop ID format.' });
         }
 
-        const { route_id, stop_name, stop_order, description, vehicle_type = '', stop_color, is_transfer_point, latitude, longitude } = req.body;
-        if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '' || stop_order === undefined || stop_order === null) {
-            return res.status(400).json({ error: 'stop_name and stop_order are required.' });
+        const { route_id, route_ids, source_route_id, add_route, stop_name, stop_order, description, vehicle_type = '', stop_color, is_transfer_point, latitude, longitude } = req.body;
+        if (!stop_name || typeof stop_name !== 'string' || stop_name.trim() === '') {
+            return res.status(400).json({ error: 'stop_name is required.' });
         }
         if (typeof vehicle_type !== 'string' || !STOP_VEHICLE_TYPES.has(vehicle_type)) {
             return res.status(400).json({ error: 'vehicle_type must be a supported vehicle type.' });
@@ -3770,10 +3815,21 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(400).json({ error: 'stop_color must be a 6-digit hex color.' });
         }
 
-        const parsedStopOrder = parseInt(stop_order, 10);
-        const parsedRouteId = route_id === undefined ? null : parseId(route_id);
-        if (isNaN(parsedStopOrder) || parsedStopOrder < 1) {
+        const parsedStopOrder = stop_order === undefined || stop_order === '' ? null : Number(stop_order);
+        const parsedRouteId = route_id === undefined || route_id === '' ? null : parseId(route_id);
+        if (parsedStopOrder !== null && (!Number.isInteger(parsedStopOrder) || parsedStopOrder < 1)) {
             return res.status(400).json({ error: 'stop_order must be a positive integer.' });
+        }
+        if (route_ids === undefined &&
+            ((route_id !== undefined && route_id !== '' && parsedRouteId === null) ||
+                (parsedRouteId !== null && !await Route.findOne({ id: parsedRouteId })))) {
+            return res.status(400).json({ error: 'route_id must refer to an existing route.' });
+        }
+        if (route_ids === undefined && parsedRouteId !== null && parsedStopOrder === null) {
+            return res.status(400).json({ error: 'stop_order is required when assigning a route.' });
+        }
+        if (route_ids === undefined && add_route && parsedRouteId === null) {
+            return res.status(400).json({ error: 'route_id is required when adding a stop to a route.' });
         }
 
         const existing = await Stop.findOne({ id: stopId });
@@ -3781,37 +3837,107 @@ router.put('/admin/stops/:id', authenticateToken, requireAdmin, async (req, res)
             return res.status(404).json({ error: 'Stop not found.' });
         }
 
-        const nextRouteId = parsedRouteId === null ? existing.route_id : parsedRouteId;
-        if (route_id !== undefined && (parsedRouteId === null || !await Route.findOne({ id: nextRouteId }))) {
-            return res.status(400).json({ error: 'route_id must refer to an existing route.' });
+        const assignments = getStopAssignments(existing).map(assignment => ({ ...assignment }));
+        if (route_ids !== undefined) {
+            if (!Array.isArray(route_ids)) {
+                return res.status(400).json({ error: 'route_ids must be an array of route IDs.' });
+            }
+            const selectedRouteIds = [...new Set(route_ids.map(parseId))];
+            if (selectedRouteIds.some(id => id === null)) {
+                return res.status(400).json({ error: 'Each route ID must refer to an existing route.' });
+            }
+            const selectedRoutes = await Route.find({ id: { $in: selectedRouteIds } }).select('id route_name').lean();
+            if (selectedRoutes.length !== selectedRouteIds.length) {
+                return res.status(400).json({ error: 'Each route ID must refer to an existing route.' });
+            }
+
+            const assignmentsByRoute = new Map(assignments.map(assignment => [assignment.route_id, assignment]));
+            const nextAssignments = [];
+            for (const selectedRouteId of selectedRouteIds) {
+                const existingAssignment = assignmentsByRoute.get(selectedRouteId);
+                const stopOrder = existingAssignment
+                    ? existingAssignment.stop_order
+                    : await Stop.countDocuments(stopAssignmentFilter(selectedRouteId)) + 1;
+                nextAssignments.push({ route_id: selectedRouteId, stop_order: stopOrder });
+            }
+            const affectedRouteIds = new Set([
+                ...assignments.map(assignment => assignment.route_id),
+                ...selectedRouteIds
+            ]);
+            await Stop.updateOne({ id: stopId }, {
+                $set: {
+                    routes: nextAssignments,
+                    stop_name: stop_name.trim(),
+                    description: description || null,
+                    vehicle_type,
+                    stop_color: stop_color === undefined ? existing.stop_color || null : stop_color || null,
+                    is_transfer_point: is_transfer_point ? 1 : 0,
+                    latitude: latitude == null || latitude === '' ? null : Number(latitude),
+                    longitude: longitude == null || longitude === '' ? null : Number(longitude)
+                },
+                $unset: { route_id: '', stop_order: '' }
+            });
+            for (const affectedRouteId of affectedRouteIds) {
+                await normalizeRouteStops(affectedRouteId);
+            }
+            invalidateMapCache();
+            await recordAdminActivity(
+                req.user,
+                'ADMIN_STOP_UPDATED',
+                `Updated stop "${stop_name.trim()}" and assigned it to ${selectedRoutes.length ? selectedRoutes.map(route => `"${route.route_name}"`).join(', ') : 'no routes'}.`,
+                { stop_id: stopId, route_ids: selectedRouteIds }
+            );
+            return res.json({ message: 'Stop and route assignments updated.' });
         }
 
-        await Stop.updateOne(
-            { id: stopId },
-            {
-                route_id: nextRouteId,
+        let removedSourceRouteId = null;
+        if (parsedRouteId !== null) {
+            const assignment = assignments.find(item => item.route_id === parsedRouteId);
+            if (add_route && assignment) {
+                return res.status(409).json({ error: 'This stop is already assigned to that route.' });
+            }
+            if (source_route_id !== undefined && parseId(source_route_id) === null) {
+                return res.status(400).json({ error: 'source_route_id must refer to an existing route.' });
+            }
+            const parsedSourceRouteId = source_route_id === undefined
+                ? (assignment ? null : assignments[0]?.route_id ?? null)
+                : parseId(source_route_id);
+            if (!add_route && parsedSourceRouteId !== null && parsedSourceRouteId !== parsedRouteId) {
+                const sourceIndex = assignments.findIndex(item => item.route_id === parsedSourceRouteId);
+                if (sourceIndex >= 0) {
+                    assignments.splice(sourceIndex, 1);
+                    removedSourceRouteId = parsedSourceRouteId;
+                }
+            }
+            if (assignment) assignment.stop_order = parsedStopOrder;
+            else assignments.push({ route_id: parsedRouteId, stop_order: parsedStopOrder });
+        }
+
+        await Stop.updateOne({ id: stopId }, {
+            $set: {
+                routes: assignments,
                 stop_name: stop_name.trim(),
-                stop_order: parsedStopOrder,
                 description: description || null,
                 vehicle_type,
                 stop_color: stop_color === undefined ? existing.stop_color || null : stop_color || null,
                 is_transfer_point: is_transfer_point ? 1 : 0,
-                latitude: latitude || null,
-                longitude: longitude || null
-            }
-        );
+                latitude: latitude == null || latitude === '' ? null : Number(latitude),
+                longitude: longitude == null || longitude === '' ? null : Number(longitude)
+            },
+            $unset: { route_id: '', stop_order: '' }
+        });
 
-        if (existing.route_id !== nextRouteId) {
-            await normalizeRouteStops(existing.route_id);
-        }
-        await normalizeRouteStops(nextRouteId, stopId, parsedStopOrder);
+        if (removedSourceRouteId !== null) await normalizeRouteStops(removedSourceRouteId);
+        if (parsedRouteId !== null) await normalizeRouteStops(parsedRouteId, stopId, parsedStopOrder);
         invalidateMapCache();
-        const route = await Route.findOne({ id: nextRouteId }).select('id route_name').lean();
+        const route = parsedRouteId === null ? null : await Route.findOne({ id: parsedRouteId }).select('id route_name').lean();
         await recordAdminActivity(
             req.user,
             'ADMIN_STOP_UPDATED',
-            `Updated stop "${stop_name.trim()}" on route "${route?.route_name || nextRouteId}".`,
-            route
+            parsedRouteId === null
+                ? `Updated shared stop "${stop_name.trim()}".`
+                : `Updated shared stop "${stop_name.trim()}" and its assignment on route "${route?.route_name || parsedRouteId}".`,
+            route || { stop_id: stopId }
         );
         res.json({ message: 'Stop updated.' });
     } catch (err) {
@@ -3832,15 +3958,33 @@ router.delete('/admin/stops/:id', authenticateToken, requireAdmin, async (req, r
             return res.status(404).json({ error: 'Stop not found.' });
         }
 
-        await Stop.deleteOne({ id: stopId });
-        await normalizeRouteStops(existing.route_id);
+        const routeId = req.query.route_id === undefined ? null : parseId(req.query.route_id);
+        if (req.query.route_id !== undefined && routeId === null) {
+            return res.status(400).json({ error: 'Invalid route ID format.' });
+        }
+        const assignments = getStopAssignments(existing);
+        if (routeId !== null && !assignments.some(assignment => assignment.route_id === routeId)) {
+            return res.status(404).json({ error: 'Stop is not assigned to this route.' });
+        }
+        if (routeId === null) {
+            await Stop.deleteOne({ id: stopId });
+        } else {
+            const remainingAssignments = assignments.filter(assignment => assignment.route_id !== routeId);
+            await Stop.updateOne({ id: stopId }, {
+                $set: { routes: remainingAssignments },
+                $unset: { route_id: '', stop_order: '' }
+            });
+            await normalizeRouteStops(routeId);
+        }
         invalidateMapCache();
-        const route = await Route.findOne({ id: existing.route_id }).select('id route_name').lean();
+        const route = routeId === null ? null : await Route.findOne({ id: routeId }).select('id route_name').lean();
         await recordAdminActivity(
             req.user,
             'ADMIN_STOP_DELETED',
-            `Removed stop "${existing.stop_name}" from route "${route?.route_name || existing.route_id}".`,
-            route
+            routeId === null
+                ? `Deleted shared stop "${existing.stop_name}" from the stop catalog.`
+                : `Removed stop "${existing.stop_name}" from route "${route?.route_name || routeId}".`,
+            route || { stop_id: stopId }
         );
         res.json({ message: 'Stop deleted.' });
     } catch (err) {
@@ -4906,7 +5050,9 @@ async function buildMapDataset() {
     const modeMap   = new Map(allModes.map(m => [m.id, m]));
     const boatDetails = await BoatRouteDetail.find().lean();
     const boatDetailsByRoute = new Map(boatDetails.map(detail => [detail.route_id, detail]));
-    const allStops  = await Stop.find().sort({ route_id: 1, stop_order: 1 }).lean();
+    const allStops  = expandStopAssignments(await Stop.find().lean())
+        .filter(stop => stop.route_id !== null)
+        .sort((first, second) => first.route_id - second.route_id || first.stop_order - second.stop_order);
     const stopsByRoute = new Map();
     for (const s of allStops) {
         if (!stopsByRoute.has(s.route_id)) stopsByRoute.set(s.route_id, []);
