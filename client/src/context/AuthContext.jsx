@@ -55,7 +55,9 @@ export function AuthProvider({ children }) {
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Login failed.');
+      const error = new Error(data.error || 'Login failed.');
+      error.verificationRequired = data.verificationRequired;
+      throw error;
     }
     if (data.verificationRequired === 'admin') return data;
     localStorage.setItem('inertayo_token', data.token);
@@ -75,13 +77,43 @@ export function AuthProvider({ children }) {
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Registration failed.');
+      const error = new Error(data.error || 'Registration failed.');
+      error.verificationRequired = data.verificationRequired;
+      throw error;
     }
-    localStorage.setItem('inertayo_token', data.token);
-    setToken(data.token);
-    setUser(data.user);
-    setAuthModalOpen(false);
-    navigate('/');
+    if (data.token) {
+      localStorage.setItem('inertayo_token', data.token);
+      setToken(data.token);
+      setUser(data.user);
+      setAuthModalOpen(false);
+      navigate('/');
+    }
+    return data;
+  };
+
+  const verifyEmail = async (verificationToken) => {
+    const res = await fetch('/api/auth/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: verificationToken })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const error = new Error(data.error || 'Email verification failed.');
+      error.status = res.status;
+      throw error;
+    }
+    return data;
+  };
+
+  const resendEmailVerification = async (identifier) => {
+    const res = await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not resend verification code.');
     return data;
   };
 
@@ -243,6 +275,8 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        verifyEmail,
+        resendEmailVerification,
         verifyAdminLogin,
         resendAdminLoginCode,
         forgotPassword,

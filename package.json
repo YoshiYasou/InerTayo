@@ -4,6 +4,8 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
+    "email:check": "node server/scripts/checkEmailConfig.js",
+    "email:test": "node server/scripts/testEmailDelivery.js",
     "dev": "concurrently -k -n API,WEB -c cyan,green \"npm run server\" \"npm run client\"",
     "server": "node server/server.js",
     "seed": "node server/db/seed.js",
@@ -11,7 +13,7 @@
     "map:fix-routes": "node server/scripts/fixRoutes.js",
     "build": "npm --prefix client run build",
     "client": "npm --prefix client run dev",
-    "test": "node test/emailSender.test.js && node test/api.test.js"
+    "test": "node test/emailSender.test.js && node test/emailVerification.test.js && node test/api.test.js"
   },
   "keywords": [
     "dagupan",
@@ -37,7 +39,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.2",
-    "nodemailer": "^10.0.10"
+    "nodemailer": "^10.1.7"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

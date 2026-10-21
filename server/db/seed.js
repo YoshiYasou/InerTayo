@@ -54,7 +54,11 @@ async function seed() {
 
     // Insert all seed collections
     if (seedData.users && seedData.users.length > 0) {
-        await User.insertMany(seedData.users);
+        await User.insertMany(seedData.users.map(user => ({
+            ...user,
+            email_verified: true,
+            email_verified_at: user.email_verified_at || new Date()
+        })));
         await Counter.findByIdAndUpdate('User', { seq: Math.max(...seedData.users.map(u => u.id)) }, { upsert: true });
     }
 

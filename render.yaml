@@ -12,7 +12,31 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
-      - key: RESEND_API_KEY
+      - key: EMAIL_VERIFICATION_ENABLED
+        value: "true"
+      - key: EMAIL_PROVIDER
+        value: smtp
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
         sync: false
-      - key: RESEND_FROM
+      - key: SMTP_PASSWORD
         sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: EMAIL_VERIFICATION_TOKEN_TTL_HOURS
+        value: "24"
+      - key: EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS
+        value: "60"
+      - key: EMAIL_VERIFICATION_DAILY_LIMIT
+        value: "5"
+      - key: EMAIL_VERIFICATION_IP_LIMIT
+        value: "10"
+      - key: EMAIL_VERIFICATION_IP_WINDOW_MINUTES
+        value: "60"

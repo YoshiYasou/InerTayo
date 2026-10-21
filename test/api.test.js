@@ -1,4 +1,5 @@
 process.env.NODE_ENV = 'test';
+process.env.EMAIL_VERIFICATION_IP_LIMIT = '1000';
 require('dotenv').config();
 const http = require('http');
 const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -7,6 +8,17 @@ const app = require('../server/server');
 const { seed } = require('../server/db/seed');
 const { getCache } = require('../server/cache/mapLayerCache');
 const Route = require('../server/models/Route');
+const User = require('../server/models/User');
+const EmailVerificationAttempt = require('../server/models/EmailVerificationAttempt');
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../server/middleware/auth');
+const { hashVerificationToken } = require('../server/services/emailVerification');
+const {
+    hashRateLimitKey,
+    reserveAccountAttempt,
+    reserveIpAttempt
+} = require('../server/services/emailVerificationLimits');
+const { clearLatestMockEmail, sendEmail } = require('../server/services/emailSender');
 const { auditRoadGeometry } = require('../server/utils/routeGeometryAudit');
 const { isTestOrSampleRoute } = require('../server/scripts/fixRoutes');
 
@@ -83,6 +95,80 @@ async function runTests() {
     }
 
     try {
+        const originalNodeEnv = process.env.NODE_ENV;
+        const originalEmailProvider = process.env.EMAIL_PROVIDER;
+        process.env.NODE_ENV = 'development';
+        process.env.EMAIL_PROVIDER = 'mock';
+        clearLatestMockEmail();
+        await sendEmail({
+            to: 'local@example.test',
+            subject: 'Local verification',
+            text: 'Mock preview body',
+            html: '<p>Mock preview body</p>'
+        });
+        const localEmailPreview = await makeRequest('GET', '/api/dev/email-preview');
+        assert(
+            localEmailPreview.status === 200 &&
+                localEmailPreview.data.to === 'local@example.test' &&
+                localEmailPreview.data.text === 'Mock preview body' &&
+                localEmailPreview.headers['cache-control'] === 'no-store',
+            'Development mock email preview exposes the latest test message only to loopback requests'
+        );
+        process.env.NODE_ENV = 'production';
+        const productionMockPreview = await makeRequest('GET', '/api/dev/email-preview');
+        assert(productionMockPreview.status === 404, 'Mock email preview is unavailable in production');
+        process.env.NODE_ENV = originalNodeEnv;
+        if (originalEmailProvider === undefined) delete process.env.EMAIL_PROVIDER;
+        else process.env.EMAIL_PROVIDER = originalEmailProvider;
+
+        const originalIpLimit = process.env.EMAIL_VERIFICATION_IP_LIMIT;
+        const originalIpWindow = process.env.EMAIL_VERIFICATION_IP_WINDOW_MINUTES;
+        process.env.EMAIL_VERIFICATION_IP_LIMIT = '2';
+        process.env.EMAIL_VERIFICATION_IP_WINDOW_MINUTES = '60';
+        const rateLimitIp = 'test-concurrent-ip';
+        const ipReservations = await Promise.all([
+            reserveIpAttempt(rateLimitIp),
+            reserveIpAttempt(rateLimitIp),
+            reserveIpAttempt(rateLimitIp)
+        ]);
+        const ipCounter = await EmailVerificationAttempt.findOne({
+            key: `ip:${hashRateLimitKey(rateLimitIp)}`
+        });
+        assert(
+            ipReservations.filter(Boolean).length === 2 && ipCounter.count === 2,
+            'Shared MongoDB IP throttling atomically enforces its configured attempt limit'
+        );
+        await EmailVerificationAttempt.updateOne(
+            { key: `ip:${hashRateLimitKey(rateLimitIp)}` },
+            { $set: { window_started_at: new Date(Date.now() - 61 * 60 * 1000) } }
+        );
+        assert(await reserveIpAttempt(rateLimitIp), 'The shared IP attempt counter resets after its configured window');
+        if (originalIpLimit === undefined) delete process.env.EMAIL_VERIFICATION_IP_LIMIT;
+        else process.env.EMAIL_VERIFICATION_IP_LIMIT = originalIpLimit;
+        if (originalIpWindow === undefined) delete process.env.EMAIL_VERIFICATION_IP_WINDOW_MINUTES;
+        else process.env.EMAIL_VERIFICATION_IP_WINDOW_MINUTES = originalIpWindow;
+
+        const originalDailyLimit = process.env.EMAIL_VERIFICATION_DAILY_LIMIT;
+        const originalCooldown = process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS;
+        process.env.EMAIL_VERIFICATION_DAILY_LIMIT = '2';
+        process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = '1';
+        const accountRateKey = 'limit-test-account';
+        assert((await reserveAccountAttempt(accountRateKey)).allowed, 'An account is allowed its first verification email attempt');
+        await EmailVerificationAttempt.updateOne(
+            { key: `account:${accountRateKey}` },
+            { $set: { last_attempt_at: new Date(Date.now() - 1100) } }
+        );
+        assert((await reserveAccountAttempt(accountRateKey)).allowed, 'Account resends are allowed after the configured cooldown');
+        await EmailVerificationAttempt.updateOne(
+            { key: `account:${accountRateKey}` },
+            { $set: { last_attempt_at: new Date(Date.now() - 1100) } }
+        );
+        assert(!(await reserveAccountAttempt(accountRateKey)).allowed, 'The configured daily account attempt cap is enforced');
+        if (originalDailyLimit === undefined) delete process.env.EMAIL_VERIFICATION_DAILY_LIMIT;
+        else process.env.EMAIL_VERIFICATION_DAILY_LIMIT = originalDailyLimit;
+        if (originalCooldown === undefined) delete process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS;
+        else process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = originalCooldown;
+
         assert(
             isTestOrSampleRoute({ route_name: 'Dagupan Loop (TEST)' }) &&
                 isTestOrSampleRoute({ route_name: 'Sample River Crossing' }) &&
@@ -356,6 +442,20 @@ async function runTests() {
         // -------------------------------------------------------------
         console.log('\n[3. Commuter Authentication & Saved Routes]');
 
+        await User.collection.insertOne({
+            id: 90001,
+            username: 'legacyunverified',
+            email: 'legacy-unverified@dagupan.ph',
+            password_hash: 'unused-test-hash',
+            role: 'COMMUTER'
+        });
+        const legacyWithoutVerificationField = await User.findOne({ id: 90001 });
+        assert(
+            legacyWithoutVerificationField.email_verified === false,
+            'Legacy accounts without a recorded verified status are not implicitly trusted'
+        );
+        await User.deleteOne({ id: 90001 });
+
         // Register new commuter
         const regRes = await makeRequest('POST', '/api/auth/register', {
             username: 'testcommuter',
@@ -363,20 +463,189 @@ async function runTests() {
             password: 'Password123!'
         });
         assert(
-            regRes.status === 201 && regRes.data.token && regRes.data.user?.role === 'COMMUTER' &&
-                !regRes.data.verificationRequired,
-            'New commuter registration creates an immediately usable account without an email code'
+            regRes.status === 201 && regRes.data.verificationRequired === 'email' && !regRes.data.token,
+            'New commuter registration requires email verification before issuing a token'
         );
-        const removedSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'test@dagupan.ph'
+        assert(
+            global.__testMailbox?.to === 'test@dagupan.ph' &&
+                global.__testMailbox?.purpose === 'EMAIL_VERIFICATION' &&
+                /^[A-Za-z0-9_-]{43}$/.test(global.__testMailbox?.verificationToken || ''),
+            'Registration generates a high-entropy email verification link'
+        );
+        const initialVerificationToken = global.__testMailbox.verificationToken;
+        const pendingUser = await User.findOne({ email: 'test@dagupan.ph' })
+            .select('+email_verification_token_hash +email_verification_expires_at +email_verification_sent_at');
+        assert(
+            pendingUser.email_verification_token_hash === hashVerificationToken(initialVerificationToken) &&
+                pendingUser.email_verification_token_hash !== initialVerificationToken &&
+                pendingUser.email_verification_expires_at > new Date() &&
+                pendingUser.email_verification_expires_at <= new Date(Date.now() + 24 * 60 * 60 * 1000) &&
+                pendingUser.email_verification_sent_at instanceof Date,
+            'Only the SHA-256 token hash is persisted, the link expires in 24 hours, and send time records provider acceptance'
+        );
+        const scannerPreview = await makeRequest('GET', `/verify-email?token=${initialVerificationToken}`);
+        const stillPendingAfterPreview = await User.findOne({ email: 'test@dagupan.ph' });
+        assert(
+            scannerPreview.status === 200 &&
+                scannerPreview.headers['cache-control']?.includes('no-store') &&
+                scannerPreview.headers['referrer-policy'] === 'no-referrer' &&
+                !stillPendingAfterPreview.email_verified,
+            'Opening a verification URL preview does not consume its token or activate the account'
+        );
+        const duplicateRegistration = await makeRequest('POST', '/api/auth/register', {
+            username: 'testcommuter',
+            email: 'test@dagupan.ph',
+            password: 'Password123!'
         });
-        const removedSignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
+        assert(duplicateRegistration.status === 409, 'Duplicate email registration is rejected');
+        const unverifiedLogin = await makeRequest('POST', '/api/auth/login', {
+            username: 'testcommuter',
+            password: 'Password123!'
+        });
+        assert(
+            unverifiedLogin.status === 403 && unverifiedLogin.data.verificationRequired === 'email',
+            'Unverified commuter cannot sign in and receives a verification prompt'
+        );
+        const pendingSession = jwt.sign({
+            id: pendingUser.id,
+            username: pendingUser.username,
+            email: pendingUser.email,
+            role: pendingUser.role
+        }, JWT_SECRET, { expiresIn: '1h' });
+        const blockedPendingSession = await makeRequest('GET', '/api/auth/me', null, {
+            Authorization: `Bearer ${pendingSession}`
+        });
+        assert(
+            blockedPendingSession.status === 403,
+            'A manually supplied valid session cannot bypass the server-side verification check'
+        );
+        const invalidEmailVerification = await makeRequest('POST', '/api/auth/verify-email', {
+            token: 'invalid-token'
+        });
+        assert(
+            invalidEmailVerification.status === 400,
+            'Malformed email verification tokens are rejected'
+        );
+        const resendVerification = await makeRequest('POST', '/api/auth/resend-verification', {
             email: 'test@dagupan.ph'
         });
         assert(
-            removedSignupVerification.status === 404 && removedSignupResend.status === 404,
-            'Commuter email verification and resend endpoints are removed'
+            resendVerification.status === 200 &&
+                global.__testMailbox.verificationToken === initialVerificationToken,
+            'A resend within 60 seconds is generic and does not issue another valid token'
         );
+        await User.updateOne(
+            { id: pendingUser.id },
+            { $set: { email_verification_sent_at: new Date(Date.now() - 61 * 1000) } }
+        );
+        await EmailVerificationAttempt.updateOne(
+            { key: `account:${pendingUser.id}` },
+            { $set: { last_attempt_at: new Date(Date.now() - 61 * 1000) } }
+        );
+        await Promise.all([
+            makeRequest('POST', '/api/auth/resend-verification', { email: 'test@dagupan.ph' }),
+            makeRequest('POST', '/api/auth/resend-verification', { email: 'test@dagupan.ph' })
+        ]);
+        const replacementToken = global.__testMailbox.verificationToken;
+
+        const oldNodeEnv = process.env.NODE_ENV;
+        const oldProvider = process.env.EMAIL_PROVIDER;
+        const oldApiKey = process.env.RESEND_API_KEY;
+        const oldSender = process.env.EMAIL_FROM;
+        const oldFrontendUrl = process.env.FRONTEND_URL;
+        const oldVerificationEnabled = process.env.EMAIL_VERIFICATION_ENABLED;
+        const oldFetch = global.fetch;
+        const acceptedAtBeforeFailure = (await User.findOne({ id: pendingUser.id })
+            .select('+email_verification_sent_at')).email_verification_sent_at;
+        process.env.NODE_ENV = 'development';
+        process.env.EMAIL_PROVIDER = 'resend';
+        process.env.RESEND_API_KEY = 'test-only-key';
+        process.env.EMAIL_FROM = 'InerTayo <verified@example.test>';
+        process.env.FRONTEND_URL = 'http://localhost:5000';
+        process.env.EMAIL_VERIFICATION_ENABLED = 'true';
+        global.fetch = async () => ({ ok: false, status: 503 });
+        await EmailVerificationAttempt.updateOne(
+            { key: `account:${pendingUser.id}` },
+            { $set: { last_attempt_at: new Date(Date.now() - 61 * 1000) } }
+        );
+        const failedProviderResend = await makeRequest('POST', '/api/auth/resend-verification', {
+            email: 'test@dagupan.ph'
+        });
+        const unchangedUserAfterFailure = await User.findOne({ id: pendingUser.id })
+            .select('+email_verification_token_hash +email_verification_sent_at');
+        const attemptsAfterProviderFailure = await EmailVerificationAttempt.findOne({
+            key: `account:${pendingUser.id}`
+        });
+        global.fetch = oldFetch;
+        process.env.NODE_ENV = oldNodeEnv;
+        for (const [name, value] of [
+            ['EMAIL_PROVIDER', oldProvider],
+            ['RESEND_API_KEY', oldApiKey],
+            ['EMAIL_FROM', oldSender],
+            ['FRONTEND_URL', oldFrontendUrl],
+            ['EMAIL_VERIFICATION_ENABLED', oldVerificationEnabled]
+        ]) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+        }
+        assert(
+            failedProviderResend.status === 200 &&
+                unchangedUserAfterFailure.email_verification_token_hash === hashVerificationToken(replacementToken) &&
+                unchangedUserAfterFailure.email_verification_sent_at.getTime() === acceptedAtBeforeFailure.getTime() &&
+                attemptsAfterProviderFailure.count === 3,
+            'Provider failure counts as an attempt while preserving the previous valid token and accepted-send timestamp'
+        );
+
+        const invalidatedToken = await makeRequest('POST', '/api/auth/verify-email', {
+            token: initialVerificationToken
+        });
+        assert(
+            replacementToken !== initialVerificationToken && invalidatedToken.status === 400,
+            'Concurrent resend requests produce one replacement and invalidate the previous token'
+        );
+        const tokenToVerify = replacementToken;
+        const concurrentVerification = await Promise.all([
+            makeRequest('POST', '/api/auth/verify-email', { token: tokenToVerify }),
+            makeRequest('POST', '/api/auth/verify-email', { token: tokenToVerify })
+        ]);
+        assert(
+            concurrentVerification.filter(result => result.status === 200).length === 1 &&
+                concurrentVerification.filter(result => result.status === 400).length === 1,
+            'Concurrent verification attempts atomically consume the token only once'
+        );
+        const mailboxAfterVerification = global.__testMailbox.verificationToken;
+        await makeRequest('POST', '/api/auth/resend-verification', { email: 'test@dagupan.ph' });
+        assert(
+            global.__testMailbox.verificationToken === mailboxAfterVerification,
+            'Verified accounts do not receive additional verification emails'
+        );
+        const replayedEmailVerification = await makeRequest('POST', '/api/auth/verify-email', {
+            token: tokenToVerify
+        });
+        assert(replayedEmailVerification.status === 400, 'Email verification tokens cannot be reused');
+        assert(
+            !concurrentVerification.find(result => result.status === 200).data.token,
+            'Email verification does not automatically sign in the user'
+        );
+
+        await makeRequest('POST', '/api/auth/register', {
+            username: 'expiredcommuter',
+            email: 'expired@dagupan.ph',
+            password: 'Expired123!'
+        });
+        const expiredToken = global.__testMailbox.verificationToken;
+        await User.updateOne(
+            { email: 'expired@dagupan.ph' },
+            { $set: { email_verification_expires_at: new Date(Date.now() - 1000) } }
+        );
+        const expiredVerification = await makeRequest('POST', '/api/auth/verify-email', { token: expiredToken });
+        const cleanedExpiredToken = await User.findOne({ email: 'expired@dagupan.ph' })
+            .select('+email_verification_token_hash +email_verification_expires_at');
+        assert(
+            expiredVerification.status === 400 && !cleanedExpiredToken.email_verification_token_hash,
+            'Expired links are rejected and their stored hashes are lazily cleared'
+        );
+
         const immediateCommuterLogin = await makeRequest('POST', '/api/auth/login', {
             username: 'testcommuter',
             password: 'Password123!'
@@ -384,9 +653,9 @@ async function runTests() {
         assert(
             immediateCommuterLogin.status === 200 && immediateCommuterLogin.data.token &&
                 immediateCommuterLogin.data.user.role === 'COMMUTER',
-            'New commuter can sign in without email verification'
+            'Verified commuter can sign in'
         );
-        const commuterToken = regRes.data.token;
+        const commuterToken = immediateCommuterLogin.data.token;
 
         // Password Constraint Validations
         const shortPw = await makeRequest('POST', '/api/auth/register', {
@@ -660,8 +929,15 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        assert(regB.status === 201 && regB.data.token, 'Commuter B can register without email verification (BOLA test setup)');
-        const userB = regB.data.user;
+        assert(
+            regB.status === 201 && regB.data.verificationRequired === 'email',
+            'Commuter B registration requires email verification (BOLA test setup)'
+        );
+        const verifyB = await makeRequest('POST', '/api/auth/verify-email', {
+            token: global.__testMailbox.verificationToken
+        });
+        assert(verifyB.status === 200, 'Commuter B can verify email before BOLA test');
+        const userB = await User.findOne({ email: 'commuterb@dagupan.ph' }).lean();
 
         // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
         // by substituting B's ID into the path parameter.

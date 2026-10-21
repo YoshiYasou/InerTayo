@@ -35,6 +35,14 @@ const { authenticateToken, optionalAuth, requireAdmin, requireCommuter, JWT_SECR
 const ROUTING_CONFIG = require('../config/routingConfig');
 const { getWalkingRoute } = require('../services/walkingRouter');
 const { isInsideDagupanCity } = require('../utils/dagupanBoundary');
+const {
+    createVerificationToken,
+    getTokenLifetimeHours,
+    hashVerificationToken,
+    sendVerificationEmail
+} = require('../services/emailVerification');
+const { reserveIpAttempt, reserveAccountAttempt } = require('../services/emailVerificationLimits');
+const { getEmailProvider, getLatestMockEmail } = require('../services/emailSender');
 const { validateGeometry } = require('../utils/geometryValidator');
 const {
     DETOUR_CONDITIONS,
@@ -155,6 +163,27 @@ async function verifyAuthCode(record, code) {
     if (record.attempts >= 5) record.used = true;
     await record.save();
     return false;
+}
+
+async function issueEmailVerification(user) {
+    const attempt = await reserveAccountAttempt(user.id);
+    if (!attempt.allowed) return { sent: false, reason: attempt.reason };
+
+    const { token, tokenHash } = createVerificationToken();
+    await sendVerificationEmail(user, token);
+    const now = new Date();
+    const updatedUser = await User.findOneAndUpdate(
+        { id: user.id, email_verified: { $ne: true } },
+        {
+            $set: {
+                email_verification_token_hash: tokenHash,
+                email_verification_expires_at: new Date(now.getTime() + getTokenLifetimeHours() * 60 * 60 * 1000),
+                email_verification_sent_at: now
+            }
+        },
+        { returnDocument: 'after' }
+    );
+    return updatedUser ? { accepted: true } : { sent: false };
 }
 
 // Helper: parse ID from request parameter
@@ -1747,12 +1776,25 @@ router.post('/feedback', optionalAuth, async (req, res) => {
 // 2. AUTHENTICATION & COMMUTER ACCOUNTS
 // ============================================================================
 
+router.get('/dev/email-preview', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const remoteAddress = req.socket.remoteAddress;
+    const isLoopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress);
+    if (process.env.NODE_ENV !== 'development' || getEmailProvider() !== 'mock' || !isLoopback) {
+        return res.status(404).json({ error: 'Not found.' });
+    }
+    const email = getLatestMockEmail();
+    if (!email) return res.status(404).json({ error: 'No mock verification email has been sent yet.' });
+    return res.json(email);
+});
+
 // POST /api/auth/register - Register commuter
 router.post('/auth/register', async (req, res) => {
     try {
-        const { username, email, password } = req.body;
+        const { username, email, password } = req.body || {};
 
-        if (!username || !email || !password) {
+        if (typeof username !== 'string' || typeof email !== 'string' || typeof password !== 'string' ||
+            !username || !email || !password) {
             return res.status(400).json({ error: 'Username, email, and password are required.' });
         }
 
@@ -1787,6 +1829,10 @@ router.post('/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Password must contain at least one special character (e.g. !@#$%).' });
         }
 
+        if (!await reserveIpAttempt(req.ip)) {
+            return res.status(429).json({ error: 'Too many email verification attempts. Please try again later.' });
+        }
+
         const existing = await User.findOne({
             $or: [{ username: trimmedUsername }, { email: trimmedEmail }]
         });
@@ -1797,26 +1843,124 @@ router.post('/auth/register', async (req, res) => {
         const passwordHash = await bcrypt.hash(password, 12);
         const userId = await nextId('User');
 
-        await User.create({
+        const user = await User.create({
             id: userId,
             username: trimmedUsername,
             email: trimmedEmail,
             password_hash: passwordHash,
             role: 'COMMUTER',
-            email_verified: true
+            email_verified: false
         });
 
-        const user = { id: userId, username: trimmedUsername, email: trimmedEmail, role: 'COMMUTER' };
         await recordUserActivity(user, 'ACCOUNT_CREATED');
-        await recordUserActivity(user, 'LOGIN');
+        try {
+            const result = await issueEmailVerification(user);
+            if (!result.accepted) throw new Error('Email verification attempt limit reached.');
+        } catch {
+            console.error('[AUTH] Registration verification email failed.');
+            return res.status(503).json({
+                error: 'Your account was created, but we could not send the verification email. Please try again later.',
+                verificationRequired: 'email',
+                email: maskEmail(trimmedEmail)
+            });
+        }
         return res.status(201).json({
-            message: 'Account created successfully.',
-            token: createUserToken(user),
-            user
+            message: 'Account created. We submitted a verification email for delivery; open its link to activate your account.',
+            verificationRequired: 'email',
+            email: maskEmail(trimmedEmail),
+            emailAccepted: true
         });
     } catch (err) {
+        if (err.code === 11000) {
+            return res.status(409).json({ error: 'Username or email is already registered.' });
+        }
         console.error('Registration error:', err);
-        res.status(500).json({ error: 'Registration failed.' });
+        return res.status(500).json({ error: 'Registration failed.' });
+    }
+});
+
+// POST /api/auth/verify-email - Consume a verification link after explicit user confirmation
+router.post('/auth/verify-email', async (req, res) => {
+    res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+        'Referrer-Policy': 'no-referrer'
+    });
+    try {
+        const token = req.body?.token;
+        if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
+            return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+        }
+
+        const now = new Date();
+        const tokenHash = hashVerificationToken(token);
+        const user = await User.findOneAndUpdate(
+            {
+                email_verification_token_hash: tokenHash,
+                email_verification_expires_at: { $gt: now },
+                email_verified: false,
+                role: 'COMMUTER'
+            },
+            {
+                $set: { email_verified: true, email_verified_at: now },
+                $unset: {
+                    email_verification_token_hash: 1,
+                    email_verification_expires_at: 1
+                }
+            },
+            { returnDocument: 'after' }
+        ).select('id username email role');
+        if (!user) {
+            await User.updateOne(
+                {
+                    email_verification_token_hash: tokenHash,
+                    email_verification_expires_at: { $lte: now },
+                    email_verified: false
+                },
+                {
+                    $unset: {
+                        email_verification_token_hash: 1,
+                        email_verification_expires_at: 1
+                    }
+                }
+            );
+            return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+        }
+        return res.json({ message: 'Your email address has been verified. You can now sign in.' });
+    } catch (err) {
+        console.error('[AUTH] Email verification request failed.');
+        return res.status(500).json({ error: 'Email verification failed.' });
+    }
+});
+
+// POST /api/auth/resend-verification - Issue a replacement verification link
+router.post('/auth/resend-verification', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const genericMessage = 'If an unverified account matches those details and is eligible, we attempted to send a verification email. Please try again later if needed.';
+    try {
+        if (!await reserveIpAttempt(req.ip)) {
+            return res.status(429).json({ error: 'Too many email verification attempts. Please try again later.' });
+        }
+        const identifier = String(req.body?.identifier || req.body?.email || '').trim();
+        if (!identifier || identifier.length > 254) {
+            return res.json({ message: genericMessage });
+        }
+
+        const user = await User.findOne({
+            $or: [{ username: identifier }, { email: identifier.toLowerCase() }],
+            role: 'COMMUTER',
+            email_verified: { $ne: true }
+        });
+        if (user) {
+            try {
+                await issueEmailVerification(user);
+            } catch {
+                console.error('[AUTH] Resend verification email failed.');
+            }
+        }
+        return res.json({ message: genericMessage });
+    } catch (err) {
+        console.error('Email verification resend error:', err);
+        return res.status(500).json({ error: 'Could not process the verification request.' });
     }
 });
 
@@ -1841,6 +1985,14 @@ router.post('/auth/login', async (req, res) => {
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
             return res.status(401).json({ error: 'Invalid credentials.' });
+        }
+
+        if (user.role === 'COMMUTER' && !user.email_verified) {
+            return res.status(403).json({
+                error: 'Please verify your email address before signing in.',
+                verificationRequired: 'email',
+                email: maskEmail(user.email)
+            });
         }
 
         if (user.role === 'ADMIN') {
@@ -2114,7 +2266,7 @@ router.post('/auth/change-password/request-code', authenticateToken, async (req,
             used: 0
         });
 
-        // Email dispatch — support Resend HTTPS, SMTP fallback, or test environment
+        // Email dispatch uses the configured Resend transport or test mailbox.
         if (process.env.NODE_ENV === 'test') {
             global.__testMailbox = { to: user.email, code: verificationCode };
         } else {
