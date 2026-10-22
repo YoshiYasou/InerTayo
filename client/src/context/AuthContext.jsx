@@ -57,7 +57,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Login failed.');
     }
-    if (data.verificationRequired === 'admin') return data;
+    if (data.verificationRequired) return data;
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -77,11 +77,40 @@ export function AuthProvider({ children }) {
     if (!res.ok) {
       throw new Error(data.error || 'Registration failed.');
     }
+    if (data.verificationRequired) return data;
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);
     setUser(data.user);
     setAuthModalOpen(false);
     navigate('/');
+    return data;
+  };
+
+  const verifyEmail = async (challengeId, code) => {
+    const res = await fetch('/api/auth/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeId, code })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Email verification failed.');
+
+    localStorage.setItem('inertayo_token', data.token);
+    setToken(data.token);
+    setUser(data.user);
+    setAuthModalOpen(false);
+    navigate('/');
+    return data.user;
+  };
+
+  const resendVerificationCode = async (challengeId) => {
+    const res = await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not resend verification code.');
     return data;
   };
 
@@ -243,6 +272,8 @@ export function AuthProvider({ children }) {
         loading,
         login,
         register,
+        verifyEmail,
+        resendVerificationCode,
         verifyAdminLogin,
         resendAdminLoginCode,
         forgotPassword,

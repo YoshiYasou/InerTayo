@@ -1797,22 +1797,25 @@ router.post('/auth/register', async (req, res) => {
         const passwordHash = await bcrypt.hash(password, 12);
         const userId = await nextId('User');
 
-        await User.create({
+        const user = await User.create({
             id: userId,
             username: trimmedUsername,
             email: trimmedEmail,
             password_hash: passwordHash,
             role: 'COMMUTER',
-            email_verified: true
+            email_verified: false
         });
 
-        const user = { id: userId, username: trimmedUsername, email: trimmedEmail, role: 'COMMUTER' };
-        await recordUserActivity(user, 'ACCOUNT_CREATED');
-        await recordUserActivity(user, 'LOGIN');
+        const challengeId = crypto.randomBytes(32).toString('hex');
+        const challengeHash = crypto.createHash('sha256').update(challengeId).digest('hex');
+        await issueAuthCode(user, 'EMAIL_VERIFICATION', challengeHash);
+
+        await recordUserActivity({ id: user.id, username: trimmedUsername, email: trimmedEmail, role: 'COMMUTER' }, 'ACCOUNT_CREATED');
         return res.status(201).json({
-            message: 'Account created successfully.',
-            token: createUserToken(user),
-            user
+            message: 'Account created successfully. Please verify your email address to continue.',
+            verificationRequired: 'email',
+            challengeId,
+            email: maskEmail(trimmedEmail)
         });
     } catch (err) {
         console.error('Registration error:', err);
@@ -1854,6 +1857,17 @@ router.post('/auth/login', async (req, res) => {
             });
         }
 
+        if (!user.email_verified) {
+            const challengeId = crypto.randomBytes(32).toString('hex');
+            const challengeHash = crypto.createHash('sha256').update(challengeId).digest('hex');
+            await issueAuthCode(user, 'EMAIL_VERIFICATION', challengeHash);
+            return res.json({
+                verificationRequired: 'email',
+                challengeId,
+                email: maskEmail(user.email)
+            });
+        }
+
         const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
 
         await recordUserActivity(userPayload, 'LOGIN');
@@ -1865,6 +1879,74 @@ router.post('/auth/login', async (req, res) => {
     } catch (err) {
         console.error('Login error:', err);
         res.status(err.message.includes('could not send') ? 503 : 500).json({ error: err.message.includes('could not send') ? err.message : 'Authentication failed.' });
+    }
+});
+
+router.post('/auth/verify-email', async (req, res) => {
+    try {
+        const challengeId = String(req.body.challengeId || '').trim();
+        const code = String(req.body.code || '').trim();
+
+        if (!challengeId || !/^\d{6}$/.test(code)) {
+            return res.status(400).json({ error: 'Enter the 6-digit verification code.' });
+        }
+
+        const challengeHash = crypto.createHash('sha256').update(challengeId).digest('hex');
+        const verification = await AuthVerificationCode.findOne({
+            purpose: 'EMAIL_VERIFICATION',
+            challenge_hash: challengeHash,
+            used: false,
+            attempts: { $lt: 5 },
+            expires_at: { $gt: new Date() }
+        });
+
+        if (!verification || !(await verifyAuthCode(verification, code))) {
+            return res.status(400).json({ error: 'Invalid or expired verification code.' });
+        }
+
+        verification.used = true;
+        await verification.save();
+
+        const user = await User.findOne({ id: verification.user_id });
+        if (!user) {
+            return res.status(404).json({ error: 'User account not found.' });
+        }
+
+        user.email_verified = true;
+        await user.save();
+
+        const userPayload = { id: user.id, username: user.username, email: user.email, role: user.role };
+        await recordUserActivity(userPayload, 'LOGIN');
+        return res.json({ message: 'Email verified successfully!', token: createUserToken(user), user: userPayload });
+    } catch (err) {
+        console.error('Commuter verification error:', err);
+        return res.status(500).json({ error: 'Email verification failed.' });
+    }
+});
+
+router.post('/auth/resend-verification', async (req, res) => {
+    try {
+        const challengeId = String(req.body.challengeId || '').trim();
+        if (!challengeId) return res.status(400).json({ error: 'Verification challenge is required.' });
+
+        const challengeHash = crypto.createHash('sha256').update(challengeId).digest('hex');
+        const current = await AuthVerificationCode.findOne({
+            purpose: 'EMAIL_VERIFICATION',
+            challenge_hash: challengeHash,
+            used: false,
+            expires_at: { $gt: new Date() }
+        });
+        if (!current) return res.status(400).json({ error: 'Verification challenge is invalid or expired.' });
+
+        const user = await User.findOne({ id: current.user_id });
+        if (!user) return res.status(400).json({ error: 'Verification challenge is invalid or expired.' });
+
+        const result = await issueAuthCode(user, 'EMAIL_VERIFICATION', challengeHash);
+        if (!result.sent) return res.status(429).json({ error: 'Please wait before requesting another code.' });
+        return res.json({ message: 'A new verification code has been sent.' });
+    } catch (err) {
+        console.error('Commuter verification resend error:', err);
+        return res.status(err.message.includes('could not send') ? 503 : 500).json({ error: err.message.includes('could not send') ? err.message : 'Could not resend verification code.' });
     }
 });
 

@@ -7,6 +7,7 @@ const app = require('../server/server');
 const { seed } = require('../server/db/seed');
 const { getCache } = require('../server/cache/mapLayerCache');
 const Route = require('../server/models/Route');
+const User = require('../server/models/User');
 const { auditRoadGeometry } = require('../server/utils/routeGeometryAudit');
 const { isTestOrSampleRoute } = require('../server/scripts/fixRoutes');
 
@@ -363,30 +364,22 @@ async function runTests() {
             password: 'Password123!'
         });
         assert(
-            regRes.status === 201 && regRes.data.token && regRes.data.user?.role === 'COMMUTER' &&
-                !regRes.data.verificationRequired,
-            'New commuter registration creates an immediately usable account without an email code'
+            regRes.status === 201 && regRes.data.verificationRequired === 'email' &&
+                !regRes.data.token && regRes.data.challengeId,
+            'New commuter registration creates an unverified account and sends a verification code'
         );
-        const removedSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'test@dagupan.ph'
-        });
-        const removedSignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
-            email: 'test@dagupan.ph'
-        });
-        assert(
-            removedSignupVerification.status === 404 && removedSignupResend.status === 404,
-            'Commuter email verification and resend endpoints are removed'
-        );
-        const immediateCommuterLogin = await makeRequest('POST', '/api/auth/login', {
-            username: 'testcommuter',
-            password: 'Password123!'
+        assert(global.__testMailbox && global.__testMailbox.code, 'Verification code was dispatched to email mailbox');
+        const verificationChallengeId = regRes.data.challengeId;
+        const verificationCode = global.__testMailbox.code;
+        const verifyEmailRes = await makeRequest('POST', '/api/auth/verify-email', {
+            challengeId: verificationChallengeId,
+            code: verificationCode
         });
         assert(
-            immediateCommuterLogin.status === 200 && immediateCommuterLogin.data.token &&
-                immediateCommuterLogin.data.user.role === 'COMMUTER',
-            'New commuter can sign in without email verification'
+            verifyEmailRes.status === 200 && verifyEmailRes.data.token && verifyEmailRes.data.user?.role === 'COMMUTER',
+            'Commuter email verification completes sign-up and issues a token'
         );
-        const commuterToken = regRes.data.token;
+        const commuterToken = verifyEmailRes.data.token;
 
         // Password Constraint Validations
         const shortPw = await makeRequest('POST', '/api/auth/register', {
@@ -660,17 +653,20 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        assert(regB.status === 201 && regB.data.token, 'Commuter B can register without email verification (BOLA test setup)');
-        const userB = regB.data.user;
+        assert(
+            regB.status === 201 && regB.data.verificationRequired === 'email' && !regB.data.token,
+            'Commuter B must verify email before they can complete registration (BOLA test setup)'
+        );
+        const userBId = 9999;
 
-        // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
-        // by substituting B's ID into the path parameter.
-        const bolaAttack = await makeRequest('GET', `/api/users/${userB.id}/saved-routes`, null, {
+        // Attack: Commuter A (defaultCommuterToken) requests another commuter's saved routes
+        // by substituting a non-matching user ID into the path parameter.
+        const bolaAttack = await makeRequest('GET', `/api/users/${userBId}/saved-routes`, null, {
             'Authorization': `Bearer ${defaultCommuterToken}`
         });
         assert(
             bolaAttack.status === 403,
-            `BOLA/IDOR: Commuter A's JWT requesting Commuter B's saved routes (id=${userB.id}) returns 403 Forbidden`
+            `BOLA/IDOR: Commuter A's JWT requesting Commuter B's saved routes (id=${userBId}) returns 403 Forbidden`
         );
 
         // ── Test 4.5: BOLA/IDOR — self-access is permitted

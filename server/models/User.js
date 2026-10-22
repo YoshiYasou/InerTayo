@@ -7,7 +7,7 @@ const UserSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, trim: true, lowercase: true },
     password_hash: { type: String, required: true, select: false },
     role: { type: String, required: true, enum: ['COMMUTER', 'ADMIN'], default: 'COMMUTER' },
-    email_verified: { type: Boolean, default: true },
+    email_verified: { type: Boolean, default: false },
     created_at: { type: Date, default: Date.now }
 }, { versionKey: false });
 
