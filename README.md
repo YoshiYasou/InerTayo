@@ -100,31 +100,24 @@ which can prevent verification and password emails from being sent.
 
 ### Deploy to Vercel
 
-The Vercel configuration builds the Vite client as static files and runs the
-Express API through a serverless function. The frontend and `/api` stay on the
-same origin, so no separate frontend API URL is needed. Vercel deployments reuse
-the configured MongoDB database; they do not copy or migrate its data.
+The Vercel configuration builds the Vite client as static files. A Vercel
+serverless function proxies `/api` requests to the existing Render API, which
+continues to connect to MongoDB. This keeps the frontend and API on the same
+browser origin without requiring public MongoDB network access or a separate
+frontend API URL. Keep the Render service running while using this setup.
 
 1. Import this repository into Vercel and keep the repository root as the
    project root. The included `vercel.json` supplies the build command and
    static output directory.
 2. Add the required environment variables in the Vercel project settings for
    each environment you intend to deploy:
-   - `MONGODB_URI` — the existing MongoDB connection string.
-   - `JWT_SECRET` — use the same value as Render if you want existing JWTs to
-     remain valid during the transition; otherwise set a new random secret,
-     which invalidates existing tokens.
-   - `GMAIL_USER` and `GMAIL_APP_PASSWORD` — optional; needed for admin
-     sign-in codes and password reset email.
-   - `ORS_API_KEY` — optional; enables external road/walking route services.
-   - `ORIGIN` — optional comma-separated list of additional allowed browser
-     origins, such as a custom domain. Vercel deployment URLs are allowed
-     automatically.
-3. In MongoDB Atlas, verify that its network-access rules allow connections
-   from Vercel. Vercel's outbound IPs can vary; prefer a supported static
-   egress/private networking option where available. If you must use a broad
-   Atlas IP rule, use a least-privilege database user and strong credentials.
-4. Deploy a preview and verify the frontend, API, database-backed pages, and
+   - App environment variables such as `JWT_SECRET`, `GMAIL_USER`,
+     `GMAIL_APP_PASSWORD`, and `ORS_API_KEY` must be set on Render, where the
+     API runs. Vercel does not need the MongoDB credentials for this proxy
+     setup.
+3. Keep Render's `MONGODB_URI` configured and ensure Render can reach MongoDB.
+   No broad MongoDB Atlas IP allowlist is needed for Vercel.
+4. Deploy a preview and verify the frontend, proxied API, database-backed pages, and
    email flows before assigning a production domain or moving traffic. Keep the
    Render service running until the Vercel deployment is validated.
 
