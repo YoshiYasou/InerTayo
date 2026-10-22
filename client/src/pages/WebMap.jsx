@@ -399,6 +399,7 @@ export default function WebMap() {
                   }] }
                   : null
                 : selectedJourney}
+              showJourneyPaths={panelView !== 'planner'}
               selectedRouteId={queryParams?.route || (selectedItem?.type === 'route' ? selectedItem.data.id : null)}
               routeOnly={Boolean(queryParams?.route)}
               showRouteLines={Boolean(queryParams?.route)}

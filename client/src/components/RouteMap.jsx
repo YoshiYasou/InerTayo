@@ -359,6 +359,7 @@ function LayerManager({
   showSchools,
   showAdvisories,
   selectedJourney,
+  showJourneyPaths = true,
   onSelect,
   selectedRouteId,
   setSelectedRouteId,
@@ -466,7 +467,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, clipToPhilippines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, showJourneyPaths, clipToPhilippines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -1105,7 +1106,7 @@ function LayerManager({
       }
 
       const coords = (leg.coordinates || leg.geometry?.coordinates || []).map(c => [c[1], c[0]]);
-      if (coords.length < 2) return;
+      if (!showJourneyPaths || coords.length < 2) return;
 
       const isWalk = leg.type === 'WALK';
       const color  = modeColor(leg.mode || '');
@@ -1177,6 +1178,7 @@ export default function RouteMap({
   showSchools   = false,
   schools       = [],
   selectedJourney = null,
+  showJourneyPaths = true,
   selectedRouteId: controlledSelectedRouteId = null,
   routeOnly = false,
   showRouteLines = true,
@@ -1236,6 +1238,7 @@ export default function RouteMap({
           showSchools={showSchools}
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
+          showJourneyPaths={showJourneyPaths}
           routeOnly={routeOnly}
           showRouteLines={showRouteLines}
           clipToPhilippines={clipToPhilippines}
