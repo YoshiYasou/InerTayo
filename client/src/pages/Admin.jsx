@@ -37,7 +37,6 @@ import {
   Search,
   GraduationCap,
   Landmark,
-  ChevronDown,
   Building2,
   Signpost,
   Bus
@@ -385,16 +384,16 @@ export default function Admin() {
   const [stopModalOpen, setStopModalOpen] = useState(false);
   const [editingStop, setEditingStop] = useState(null);
   const [stopFormData, setStopFormData] = useState({
-    route_id: '',
+    route_ids: [],
     stop_name: '',
-    stop_order: 1,
     description: '',
     vehicle_type: '',
+    stop_color: '',
     is_transfer_point: false,
     latitude: '',
     longitude: '',
   });
-  const selectedStopRoute = routes.find((route) => String(route.id) === String(stopFormData.route_id));
+  const selectedStopRoute = routes.find((route) => stopFormData.route_ids.includes(Number(route.id)));
   const LOCATION_TYPES = ['LANDMARK', 'ESTABLISHMENT', 'INTERSECTION', 'TERMINAL'];
 
   const searchTerm = adminSearch.trim().toLowerCase();
@@ -430,33 +429,34 @@ export default function Admin() {
   const searchedLandmarks = landmarks.filter(landmark => matchesAdminSearch([
     landmark.name, landmark.type, landmark.latitude, landmark.longitude
   ]));
-  const searchedRouteStops = routeStops.filter(stop => matchesAdminSearch([
-    stop.stop_name,
-    stop.description,
-    routes.find(route => String(route.id) === String(stop.route_id))?.route_name,
-  ]));
-  const routeStopGroupsById = searchedRouteStops.reduce((groups, stop) => {
-    const routeKey = String(stop.route_id ?? 'unassigned');
-    const route = routes.find(candidate => String(candidate.id) === routeKey);
-    if (!groups.has(routeKey)) {
-      groups.set(routeKey, {
-        route,
-        routeId: stop.route_id,
-        stops: [],
+  const stopsById = routeStops.reduce((stops, stop) => {
+    const key = String(stop.id);
+    if (!stops.has(key)) {
+      stops.set(key, { ...stop, assignedRoutes: [] });
+    }
+    const sharedStop = stops.get(key);
+    if (stop.route_id != null && !sharedStop.assignedRoutes.some(route => String(route.id) === String(stop.route_id))) {
+      const route = routes.find(candidate => String(candidate.id) === String(stop.route_id));
+      sharedStop.assignedRoutes.push({
+        id: stop.route_id,
+        name: route?.route_name || `Route ${stop.route_id}`,
+        mode: route?.mode_name || '',
       });
     }
-    groups.get(routeKey).stops.push(stop);
-    return groups;
+    return stops;
   }, new Map());
-  const searchedRouteStopGroups = [
-    ...routes.map(route => routeStopGroupsById.get(String(route.id))).filter(Boolean),
-    ...[...routeStopGroupsById.entries()]
-      .filter(([routeId]) => !routes.some(route => String(route.id) === routeId))
-      .map(([, group]) => group),
-  ];
-  searchedRouteStopGroups.forEach(group => {
-    group.stops.sort((first, second) => Number(first.stop_order) - Number(second.stop_order));
-  });
+  const allRouteStops = [...stopsById.values()].map(stop => ({
+    ...stop,
+    jeepneyRoutes: stop.assignedRoutes.filter(route => /jeepney/i.test(route.mode)),
+  })).sort((first, second) =>
+    first.stop_name.localeCompare(second.stop_name, undefined, { sensitivity: 'base' })
+  );
+  const searchedRouteStops = allRouteStops.filter(stop => matchesAdminSearch([
+    stop.stop_name,
+    stop.description,
+    ...stop.jeepneyRoutes
+      .flatMap(route => [route.name, route.mode]),
+  ]));
   const linkedRouteAdvisories = editingRoute ? advisories.flatMap((advisory) => {
     if (!['FLOODED', 'HIGH_TIDE', 'DETOUR'].includes(advisory.condition)) return [];
     const routeConfig = advisory.routes?.find((route) => route.id === editingRoute.id);
@@ -1397,11 +1397,11 @@ export default function Admin() {
   const openNewStopModal = () => {
     setEditingStop(null);
     setStopFormData({
-      route_id: routes[0]?.id || '',
+      route_ids: [],
       stop_name: '',
-      stop_order: 1,
       description: '',
       vehicle_type: '',
+      stop_color: '',
       is_transfer_point: false,
       latitude: '',
       longitude: '',
@@ -1411,12 +1411,15 @@ export default function Admin() {
 
   const openEditStopModal = (stop) => {
     setEditingStop(stop);
+    const routeIds = [...new Set(routeStops
+      .filter(assignment => String(assignment.id) === String(stop.id) && assignment.route_id != null)
+      .map(assignment => Number(assignment.route_id)))];
     setStopFormData({
-      route_id: stop.route_id,
+      route_ids: routeIds,
       stop_name: stop.stop_name,
-      stop_order: stop.stop_order,
       description: stop.description || '',
       vehicle_type: stop.vehicle_type || '',
+      stop_color: stop.stop_color || '',
       is_transfer_point: Boolean(stop.is_transfer_point),
       latitude: stop.latitude ?? '',
       longitude: stop.longitude ?? '',
@@ -1429,10 +1432,9 @@ export default function Admin() {
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
     const body = {
       ...stopFormData,
-      route_id: Number(stopFormData.route_id),
-      stop_order: Number(stopFormData.stop_order),
-      latitude: Number(stopFormData.latitude),
-      longitude: Number(stopFormData.longitude),
+      route_ids: stopFormData.route_ids,
+      latitude: stopFormData.latitude === '' ? null : Number(stopFormData.latitude),
+      longitude: stopFormData.longitude === '' ? null : Number(stopFormData.longitude),
     };
 
     try {
@@ -1454,7 +1456,8 @@ export default function Admin() {
   };
 
   const handleDeleteStop = async (stop) => {
-    if (!await confirmAdminAction('Delete route stop?', `Delete ${stop.stop_name} from ${routes.find(route => route.id === stop.route_id)?.route_name || 'this route'}?`, 'Delete')) return;
+    const prompt = `Delete ${stop.stop_name} from the stop list? It will be removed from all routes using it.`;
+    if (!await confirmAdminAction('Delete shared stop?', prompt, 'Delete')) return;
     try {
       const response = await fetch(`/api/admin/stops/${stop.id}`, {
         method: 'DELETE',
@@ -2361,7 +2364,7 @@ export default function Admin() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
               <h3 className="text-lg font-bold text-slate-900">Route Stops</h3>
-              <p className="text-xs text-slate-500">Stops are grouped by route and shown in travel order. Add, edit, or remove stops for each route.</p>
+              <p className="text-xs text-slate-500">Each stop is listed once, with the jeepney routes that use it shown below.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
               {renderAdminSearch('Search route stops...')}
@@ -2377,73 +2380,54 @@ export default function Admin() {
             </div>
           </div>
 
-          {searchedRouteStopGroups.length === 0 ? (
+          {searchedRouteStops.length === 0 ? (
             <p className="py-8 text-center text-xs text-slate-400">
               {routeStops.length ? 'No route stops match your search.' : 'No route stops configured yet. Add them when you are ready.'}
             </p>
           ) : (
-            <div className="space-y-4">
-              {searchedRouteStopGroups.map(({ route, routeId, stops }) => (
-                <details
-                  key={String(route?.id ?? routeId ?? 'unassigned')}
-                  open={searchTerm ? true : undefined}
-                  className="group overflow-hidden rounded-2xl border border-slate-200"
-                >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-slate-50 px-4 py-3 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Route className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
-                      <span className="truncate text-sm font-bold text-slate-900">
-                        {route?.route_name || (routeId == null ? 'Unassigned route' : `Route ${routeId}`)}
-                      </span>
-                      {route?.mode_name && <span className="hidden rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 sm:inline">{route.mode_name}</span>}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="text-xs font-medium text-slate-500">
-                        {stops.length} {stops.length === 1 ? 'stop' : 'stops'}
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180" aria-hidden="true" />
-                    </span>
-                  </summary>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
-                      <thead className="border-b border-slate-200 bg-white text-slate-500">
-                        <tr>
-                          <th className="w-16 px-4 py-3 font-bold uppercase tracking-wider">Order</th>
-                          <th className="px-4 py-3 font-bold uppercase tracking-wider">Stop</th>
-                          <th className="px-4 py-3 font-bold uppercase tracking-wider">Coordinates</th>
-                          <th className="px-4 py-3 text-right font-bold uppercase tracking-wider">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {stops.map((stop) => (
-                          <tr key={stop.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="px-4 py-3 tabular-nums text-slate-500">{stop.stop_order}</td>
-                            <td className="px-4 py-3">
-                              <span className="font-semibold text-slate-900">{stop.stop_name}</span>
-                              {stop.is_transfer_point ? <span className="ml-2 text-[10px] font-bold uppercase text-sky-700">Transfer</span> : null}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-slate-400">
-                              {Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)
-                                ? `${stop.latitude.toFixed(5)}, ${stop.longitude.toFixed(5)}`
-                                : 'Not pinned'}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button type="button" onClick={() => openEditStopModal(stop)} className="p-2 text-slate-400 hover:text-emerald-700 rounded-lg hover:bg-slate-100" title="Edit stop" aria-label={`Edit ${stop.stop_name}`}>
-                                  <Edit className="w-4 h-4" />
-                                </button>
-                                <button type="button" onClick={() => handleDeleteStop(stop)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete stop" aria-label={`Delete ${stop.stop_name}`}>
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-[640px] w-full text-left text-xs text-slate-600">
+                <thead className="border-b border-slate-200 bg-white text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-bold uppercase tracking-wider">Stop</th>
+                    <th className="px-4 py-3 font-bold uppercase tracking-wider">Coordinates</th>
+                    <th className="px-4 py-3 text-right font-bold uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {searchedRouteStops.map((stop) => (
+                    <tr key={stop.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-slate-900">{stop.stop_name}</span>
+                        {stop.is_transfer_point ? <span className="ml-2 text-[10px] font-bold uppercase text-sky-700">Transfer</span> : null}
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {stop.jeepneyRoutes.length
+                            ? stop.jeepneyRoutes.map(route => (
+                            <span key={route.id} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                              {route.name}
+                            </span>
+                          )) : <span className="text-[10px] text-slate-400">No jeepney routes assigned</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-slate-400">
+                        {Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)
+                          ? `${stop.latitude.toFixed(5)}, ${stop.longitude.toFixed(5)}`
+                          : 'Not pinned'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button type="button" onClick={() => openEditStopModal(stop)} className="p-2 text-slate-400 hover:text-emerald-700 rounded-lg hover:bg-slate-100" title="Edit stop and assigned routes" aria-label={`Edit ${stop.stop_name}`}>
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => handleDeleteStop(stop)} className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete stop from all assigned routes" aria-label={`Delete ${stop.stop_name}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -3048,23 +3032,32 @@ export default function Admin() {
               {editingStop ? 'Edit Route Stop' : 'Add Route Stop'}
             </h3>
             <form onSubmit={handleSaveStop} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Route *</label>
-                  <select required value={stopFormData.route_id}
-                    onChange={(event) => setStopFormData({ ...stopFormData, route_id: event.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
-                    <option value="" disabled>Select a route</option>
-                    {routes.map(route => <option key={route.id} value={route.id}>{route.route_name}</option>)}
-                  </select>
+              <fieldset className="rounded-xl border border-slate-200 p-3">
+                <legend className="px-1 font-bold text-slate-700">Routes using this stop</legend>
+                <p className="mb-2 text-[11px] text-slate-500">Check every route that serves this stop. No sequence number is needed.</p>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {routes.map(route => {
+                    const checked = stopFormData.route_ids.includes(Number(route.id));
+                    return (
+                      <label key={route.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setStopFormData(previous => ({
+                            ...previous,
+                            route_ids: checked
+                              ? previous.route_ids.filter(id => id !== Number(route.id))
+                              : [...previous.route_ids, Number(route.id)],
+                          }))}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                        />
+                        <span className="text-slate-700">{route.route_name}</span>
+                        {route.mode_name && <span className="ml-auto text-[10px] text-slate-400">{route.mode_name}</span>}
+                      </label>
+                    );
+                  })}
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Stop Order *</label>
-                  <input type="number" min="1" required value={stopFormData.stop_order}
-                    onChange={(event) => setStopFormData({ ...stopFormData, stop_order: event.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
-                </div>
-              </div>
+              </fieldset>
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Stop Name *</label>
                 <input type="text" required value={stopFormData.stop_name}
@@ -3088,6 +3081,29 @@ export default function Admin() {
                 <p className="mt-1 text-[11px] text-slate-500">The map icon updates to match the selected vehicle.</p>
               </div>
               <div>
+                <label className="block font-bold text-slate-700 mb-1">Stop Marker Color</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={stopFormData.stop_color || getRouteModeColor(stopFormData.vehicle_type || selectedStopRoute?.mode_name)}
+                    onChange={(event) => setStopFormData({ ...stopFormData, stop_color: event.target.value })}
+                    aria-label="Choose stop marker color"
+                    className="h-10 w-14 cursor-pointer rounded border border-slate-200 bg-white p-1"
+                  />
+                  <span className="font-mono text-slate-600">{stopFormData.stop_color || 'Vehicle default'}</span>
+                  {stopFormData.stop_color && (
+                    <button
+                      type="button"
+                      onClick={() => setStopFormData({ ...stopFormData, stop_color: '' })}
+                      className="font-semibold text-emerald-700 hover:underline"
+                    >
+                      Use vehicle color
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">Choose a custom marker color or use the route vehicle color. Custom colors also override the start, end, and transfer marker colors.</p>
+              </div>
+              <div>
                 <label className="block font-bold text-slate-700 mb-1">Description</label>
                 <textarea rows="2" value={stopFormData.description}
                   onChange={(event) => setStopFormData({ ...stopFormData, description: event.target.value })}
@@ -3104,6 +3120,7 @@ export default function Admin() {
                 latitude={stopFormData.latitude}
                 longitude={stopFormData.longitude}
                 mode={stopFormData.vehicle_type || selectedStopRoute?.mode_name}
+                markerColor={stopFormData.stop_color || undefined}
                 onPin={(latitude, longitude) => setStopFormData(previous => ({
                   ...previous,
                   latitude: latitude.toFixed(6),

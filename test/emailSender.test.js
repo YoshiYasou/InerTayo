@@ -1,71 +1,66 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const nodemailer = require('nodemailer');
 const { sendEmail } = require('../server/services/emailSender');
 
 async function run() {
-    const originalFetch = global.fetch;
-    const originalApiKey = process.env.RESEND_API_KEY;
-    const originalFrom = process.env.RESEND_FROM;
-    const originalSmtpHost = process.env.SMTP_HOST;
-    const originalSmtpUser = process.env.SMTP_USER;
-    const originalSmtpPass = process.env.SMTP_PASS;
+    const originalCreateTransport = nodemailer.createTransport;
+    const envKeys = ['EMAIL_PROVIDER', 'GMAIL_USER', 'GMAIL_APP_PASSWORD'];
+    const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
 
     try {
-        process.env.RESEND_API_KEY = 'test-api-key';
-        process.env.RESEND_FROM = 'InerTayo <verify@example.com>';
-        delete process.env.SMTP_HOST;
-        delete process.env.SMTP_USER;
-        delete process.env.SMTP_PASS;
+        process.env.EMAIL_PROVIDER = 'smtp';
+        process.env.GMAIL_USER = 'sender@example.com';
+        process.env.GMAIL_APP_PASSWORD = 'test-app-password';
 
-        let request;
-        global.fetch = async (url, options) => {
-            request = { url, options };
-            return { ok: true, status: 200 };
+        let transportOptions;
+        let sentMessage;
+        let transportCount = 0;
+        let closedTransportCount = 0;
+        nodemailer.createTransport = options => {
+            transportOptions = options;
+            transportCount += 1;
+            return {
+                sendMail: async message => { sentMessage = message; },
+                close: () => { closedTransportCount += 1; }
+            };
         };
 
-        await sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' });
-        assert.equal(request.url, 'https://api.resend.com/emails');
-        assert.equal(request.options.headers.Authorization, 'Bearer test-api-key');
-        assert.deepEqual(JSON.parse(request.options.body), {
-            from: 'InerTayo <verify@example.com>',
-            to: ['commuter@example.com'],
-            subject: 'Code',
-            text: '123456'
+        await sendEmail({ to: 'admin@example.com', subject: 'Code', text: '123456' });
+        assert.equal(transportOptions.host, 'smtp.gmail.com');
+        assert.equal(transportOptions.port, 465);
+        assert.equal(transportOptions.secure, true);
+        assert.deepEqual(transportOptions.auth, {
+            user: 'sender@example.com',
+            pass: 'test-app-password'
         });
+        assert.equal(transportOptions.pool, true);
+        assert.equal(transportOptions.maxConnections, 2);
+        assert.equal(sentMessage.from, 'InerTayo <sender@example.com>');
+        assert.equal(sentMessage.to, 'admin@example.com');
 
-        global.fetch = async () => ({
-            ok: false,
-            status: 403,
-            json: async () => ({
-                name: 'validation_error',
-                message: 'The sender domain is not verified.'
-            })
-        });
-        await assert.rejects(
-            sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' }),
-            /sender domain is not verified/i
-        );
+        await sendEmail({ to: 'admin@example.com', subject: 'Code', text: '654321' });
+        assert.equal(transportCount, 1, 'Gmail transporter is reused');
 
-        delete process.env.RESEND_FROM;
+        process.env.GMAIL_USER = 'another-sender@example.com';
+        await sendEmail({ to: 'admin@example.com', subject: 'Code', text: '987654' });
+        assert.equal(transportCount, 2, 'Transporter is recreated when Gmail credentials change');
+        assert.equal(closedTransportCount, 1, 'Previous transporter is closed on credential change');
+
+        delete process.env.GMAIL_USER;
         await assert.rejects(
-            sendEmail({ to: 'commuter@example.com', subject: 'Code', text: '123456' }),
-            /requires both RESEND_API_KEY and RESEND_FROM/
+            sendEmail({ to: 'admin@example.com', subject: 'Code', text: '123456' }),
+            /requires GMAIL_USER and GMAIL_APP_PASSWORD/
         );
 
         console.log('Email sender tests passed.');
     } finally {
-        global.fetch = originalFetch;
-        if (originalApiKey === undefined) delete process.env.RESEND_API_KEY;
-        else process.env.RESEND_API_KEY = originalApiKey;
-        if (originalFrom === undefined) delete process.env.RESEND_FROM;
-        else process.env.RESEND_FROM = originalFrom;
-        if (originalSmtpHost === undefined) delete process.env.SMTP_HOST;
-        else process.env.SMTP_HOST = originalSmtpHost;
-        if (originalSmtpUser === undefined) delete process.env.SMTP_USER;
-        else process.env.SMTP_USER = originalSmtpUser;
-        if (originalSmtpPass === undefined) delete process.env.SMTP_PASS;
-        else process.env.SMTP_PASS = originalSmtpPass;
+        nodemailer.createTransport = originalCreateTransport;
+        for (const key of envKeys) {
+            if (originalEnv[key] === undefined) delete process.env[key];
+            else process.env[key] = originalEnv[key];
+        }
     }
 }
 

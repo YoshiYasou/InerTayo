@@ -27,8 +27,6 @@ export default function AuthModal() {
     setAuthModalMode, 
     login, 
     register,
-    verifyEmail,
-    resendVerificationCode,
     verifyAdminLogin,
     resendAdminLoginCode,
     forgotPassword,
@@ -186,9 +184,7 @@ export default function AuthModal() {
     setResetNoticeMsg('');
     setCodeRequestLoading(true);
     try {
-      const result = authModalMode === 'verify_email'
-        ? await resendVerificationCode(adminChallengeId)
-        : await resendAdminLoginCode(adminChallengeId);
+    const result = await resendAdminLoginCode(adminChallengeId);
       setResetNoticeMsg(result.message || 'A new verification code has been sent.');
       setCodeCooldown(60);
     } catch (err) {
@@ -270,35 +266,10 @@ export default function AuthModal() {
 
       setLoading(true);
       try {
-        const result = await register(cleanUsername, regEmail.trim(), password);
-        if (result.verificationRequired === 'email') {
-          setAdminChallengeId(result.challengeId);
-          setVerificationEmail(result.email);
-          setVerificationCode('');
-          setAuthModalMode('verify_email');
-          return;
-        }
+        await register(cleanUsername, regEmail.trim(), password);
         resetFormState();
       } catch (err) {
         setError(err.message || 'Registration failed.');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    if (authModalMode === 'verify_email') {
-      if (!/^\d{6}$/.test(verificationCode)) {
-        setError('Please enter the 6-digit verification code.');
-        return;
-      }
-
-      setLoading(true);
-      try {
-        await verifyEmail(adminChallengeId, verificationCode);
-        resetFormState();
-      } catch (err) {
-        setError(err.message || 'Verification failed.');
       } finally {
         setLoading(false);
       }
@@ -400,11 +371,6 @@ export default function AuthModal() {
         setVerificationEmail(result.email);
         setVerificationCode('');
         setAuthModalMode('verify_admin_login');
-      } else if (result.verificationRequired === 'email') {
-        setAdminChallengeId(result.challengeId);
-        setVerificationEmail(result.email);
-        setVerificationCode('');
-        setAuthModalMode('verify_email');
       } else {
         resetFormState();
       }
@@ -441,7 +407,7 @@ export default function AuthModal() {
         </button>
 
         {/* Back Button (For Forgot Password sub-views) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'verify_admin_login') && (
           <button
             onClick={() => handleSwitchMode('login')}
             className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors flex items-center gap-1 text-xs font-semibold"
@@ -466,7 +432,6 @@ export default function AuthModal() {
           <h3 className="text-2xl font-bold text-slate-900">
             {authModalMode === 'login' && 'Sign In to InerTayo'}
             {authModalMode === 'register' && 'Create Commuter Account'}
-            {authModalMode === 'verify_email' && 'Verify Your Email'}
             {authModalMode === 'verify_admin_login' && 'Verify Admin Sign-In'}
             {authModalMode === 'forgot_request' && 'Reset Your Password'}
             {authModalMode === 'forgot_reset' && 'Set New Password'}
@@ -476,7 +441,6 @@ export default function AuthModal() {
           <p className="text-sm text-slate-500 mt-1">
             {authModalMode === 'login' && 'Access saved routes and submit verified commuter feedback.'}
             {authModalMode === 'register' && 'Join fellow Dagupan commuters to save daily routes.'}
-            {authModalMode === 'verify_email' && `Enter the 6-digit code sent to ${verificationEmail || 'your email address'}.`}
             {authModalMode === 'verify_admin_login' && 'Enter the 6-digit code sent to the administrator email address.'}
             {authModalMode === 'forgot_request' && 'Enter your registered email to receive a 6-digit verification code.'}
             {authModalMode === 'forgot_reset' && 'Enter the 6-digit code sent to your email and choose a new secure password.'}
@@ -501,7 +465,7 @@ export default function AuthModal() {
         )}
 
         {/* Verification Code Notice (Reset / Change Password Only) */}
-        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && resetNoticeMsg && (
+        {(authModalMode === 'forgot_request' || authModalMode === 'forgot_reset' || authModalMode === 'change_password' || authModalMode === 'verify_admin_login') && resetNoticeMsg && (
           <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span>{resetNoticeMsg}</span>
@@ -564,38 +528,6 @@ export default function AuthModal() {
             </div>
           )}
 
-          {/* EMAIL VERIFICATION CODE (COMMUTER OR ADMIN) */}
-          {(authModalMode === 'verify_email' || authModalMode === 'verify_admin_login') && (
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Verification code
-              </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={verificationCode}
-                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Enter 6-digit code"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
-                />
-              </div>
-              <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
-                <span>{verificationEmail || 'Code sent to your email'}</span>
-                <button
-                  type="button"
-                  onClick={handleResendAuthCode}
-                  disabled={codeCooldown > 0 || codeRequestLoading}
-                  className="font-semibold text-emerald-600 hover:text-emerald-500 disabled:text-slate-400 disabled:cursor-not-allowed"
-                >
-                  {codeRequestLoading ? 'Sending...' : codeCooldown > 0 ? `Resend in ${codeCooldown}s` : 'Resend code'}
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* USERNAME & EMAIL (REGISTER ONLY) */}
           {authModalMode === 'register' && (
             <>
@@ -632,6 +564,41 @@ export default function AuthModal() {
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
                   />
                 </div>
+              </div>
+            </>
+          )}
+
+          {authModalMode === 'verify_admin_login' && (
+            <>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                Code sent to <span className="font-semibold text-slate-800">{verificationEmail}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  6-Digit Verification Code
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    maxLength={6}
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResendAuthCode}
+                  disabled={codeRequestLoading || codeCooldown > 0}
+                  className="mt-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:text-slate-400 disabled:cursor-not-allowed"
+                >
+                  {codeRequestLoading ? 'Sending...' : codeCooldown > 0 ? `Resend in ${codeCooldown}s` : 'Resend code'}
+                </button>
               </div>
             </>
           )}

@@ -3,6 +3,7 @@
 const { connectDB, disconnectDB } = require('../db/connection');
 const Route = require('../models/Route');
 const Stop = require('../models/Stop');
+const { expandStopAssignments, stopAssignmentFilter } = require('../utils/stopAssignments');
 const TransportMode = require('../models/TransportMode');
 const { fetchRoadRoute } = require('../services/osrmRouter');
 const {
@@ -71,7 +72,9 @@ async function repairRoadGeometry({ apply = false } = {}) {
                 continue;
             }
 
-            const stops = await Stop.find({ route_id: route.id }).sort({ stop_order: 1 }).lean();
+            const stops = expandStopAssignments(await Stop.find(stopAssignmentFilter(route.id)).lean())
+                .filter(stop => stop.route_id === route.id)
+                .sort((first, second) => first.stop_order - second.stop_order);
             try {
                 let routeCoordinates = null;
                 if (stops.length >= 2) {

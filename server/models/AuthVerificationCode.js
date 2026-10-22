@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const AuthVerificationCodeSchema = new mongoose.Schema({
     id: { type: Number, unique: true, index: true },
     user_id: { type: Number, required: true, index: true },
-    purpose: { type: String, required: true, enum: ['EMAIL_VERIFICATION', 'ADMIN_LOGIN'], index: true },
+    purpose: { type: String, required: true, enum: ['ADMIN_LOGIN'], index: true },
     code_hash: { type: String, required: true },
     challenge_hash: { type: String },
     expires_at: { type: Date, required: true },
