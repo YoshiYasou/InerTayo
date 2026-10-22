@@ -13,7 +13,8 @@ async function connectDB(uri, options = {}) {
     const {
         maxRetries = 4,
         delayMs = 1000,
-        serverSelectionTimeoutMS = 10000
+        serverSelectionTimeoutMS = 10000,
+        maxPoolSize = 5
     } = options;
 
     _connectionPromise = (async () => {
@@ -40,7 +41,10 @@ async function connectDB(uri, options = {}) {
         let lastError = null;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                _conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS });
+                _conn = await mongoose.connect(mongoUri, {
+                    serverSelectionTimeoutMS,
+                    maxPoolSize
+                });
                 break;
             } catch (err) {
                 lastError = err;

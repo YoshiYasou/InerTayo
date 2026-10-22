@@ -11,6 +11,10 @@ const apiRoutes = require('./routes/api');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+if (process.env.VERCEL) {
+    app.set('trust proxy', 1);
+}
+
 // ── Secure HTTP headers
 const isProduction = process.env.NODE_ENV === 'production';
 const cspDirectives = {
