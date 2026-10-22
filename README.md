@@ -85,71 +85,56 @@ PORT=5000
 # The local server origin (PORT, default 5000) is also allowed.
 ORIGIN=http://localhost:3000
 
-# Email delivery is used for admin sign-in codes and password resets
-GMAIL_USER=your-address@gmail.com
-GMAIL_APP_PASSWORD=your-16-character-google-app-password
+# Generic SMTP settings (used for account verification, admin sign-in, and password reset email)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+SMTP_FROM=InerTayo <no-reply@example.com>
 ```
 
-For Gmail delivery, enable 2-Step Verification and create a Google App Password.
-The sender uses `GMAIL_USER` and `GMAIL_APP_PASSWORD` directly; no provider
-selector or separate SMTP settings are required. The host must allow outbound
-connections to Gmail SMTP on port 465. Render free services may restrict SMTP,
-which can prevent verification and password emails from being sent.
+The API and email sender run in Vercel Functions. Configure `MONGODB_URI` and
+`JWT_SECRET` in the Vercel project environment, along with either the generic
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and
+`SMTP_FROM` settings or the Gmail fallback `GMAIL_USER` and
+`GMAIL_APP_PASSWORD`. Use the credentials supplied by your email provider.
+Port 465 uses TLS by default; for port 587, set `SMTP_SECURE=false` to use
+STARTTLS. For local development, set these variables in the local environment.
 
-> **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
+New commuter signups receive a six-digit verification code by email. Codes
+expire after 10 minutes, are rate-limited, and are stored as hashes. The
+account cannot sign in until the code is verified. Administrator sign-in and
+password recovery also use the configured email sender.
+
+> **Atlas network access:** Vercel's free tier uses changing outbound IP addresses. To connect the Vercel Function to the existing Atlas cluster without paid static egress, Atlas Network Access must allow `0.0.0.0/0`. This lets any internet host attempt a database connection, so use a unique, strong database password, keep TLS enabled, and grant the database user only the permissions the app needs. Never expose `MONGODB_URI` in client-side code. Replace `<username>` and `<password>` with the database user's credentials and use `/inertayo` in the connection path.
 
 ### Deploy to Vercel
 
-The Vercel configuration builds the Vite client as static files. A Vercel
-serverless function proxies `/api` requests to the existing Render API, which
-continues to connect to MongoDB. This keeps the frontend and API on the same
-browser origin without requiring public MongoDB network access or a separate
-frontend API URL. Keep the Render service running while using this setup.
+The Vercel configuration builds the Vite client as static files and routes
+`/api/*` requests to a Vercel Function that runs the Express API and connects
+directly to the existing MongoDB Atlas database. The frontend and API share one
+origin; no separate API URL or Render service is used.
 
 1. Import this repository into Vercel and keep the repository root as the
    project root. The included `vercel.json` supplies the build command and
    static output directory.
-2. Add the required environment variables in the Vercel project settings for
-   each environment you intend to deploy:
-   - App environment variables such as `JWT_SECRET`, `GMAIL_USER`,
-     `GMAIL_APP_PASSWORD`, and `ORS_API_KEY` must be set on Render, where the
-     API runs. Vercel does not need the MongoDB credentials for this proxy
-     setup.
-3. Keep Render's `MONGODB_URI` configured and ensure Render can reach MongoDB.
-   No broad MongoDB Atlas IP allowlist is needed for Vercel.
-4. Deploy a preview and verify the frontend, proxied API, database-backed pages, and
-   email flows before assigning a production domain or moving traffic. Keep the
-   Render service running until the Vercel deployment is validated.
+2. Select Vercel's Hobby plan and add `MONGODB_URI`, `JWT_SECRET`, and either
+   the SMTP variables or Gmail fallback listed above to the Production
+   environment. Add them to Preview too if preview deployments should use the
+   live database and email provider.
+3. In MongoDB Atlas, allow `0.0.0.0/0` in Network Access for this free setup.
+   Review the security warning above; the alternative is paid static egress or
+   a database provider that supports Vercel's dynamic addresses.
+4. Deploy and verify the frontend, database-backed API, registration
+   verification, and email delivery before directing production traffic. Do not
+   run `npm run seed` against the existing production database; it replaces
+   application data.
 
-Vercel's serverless functions can scale independently and may go idle between
-requests. MongoDB connections are reused within a warm function instance.
-
-### Deploy to Render
-
-The repository includes a Render Blueprint in `render.yaml`. In Render, create a
-Blueprint Instance from this repository and provide `MONGODB_URI` when prompted.
-The Blueprint builds the Vite client and starts the Express server, which serves
-both the frontend and `/api` from the same origin. Render generates `JWT_SECRET`
-and supplies the service URL for CORS automatically.
-
-Before deploying:
-
-1. Create a MongoDB Atlas database and configure Network Access to allow the
-   outbound IP addresses listed for your Render service.
-2. Set `MONGODB_URI` to the Atlas connection string, including the `inertayo`
-   database name.
-3. Change the seeded admin and commuter passwords in the database before
-   making the app publicly accessible. If you add a custom domain, set `ORIGIN`
-   in Render to include that full HTTPS origin.
-4. Run `npm run seed` only against a new, empty database. It deletes existing
-   collections before inserting the sample transit data and accounts.
-
-The Blueprint uses Render's free instance tier, which may spin down when idle
-and feel slow on the first request after inactivity. Upgrade the instance in
-Render if you need consistently responsive production access. Configure
-`GMAIL_USER` and `GMAIL_APP_PASSWORD` on a host/plan that permits outbound Gmail
-SMTP for administrator sign-in codes and password resets. Commuter signup does
-not send a verification email.
+Vercel Functions can scale independently and may go idle between requests.
+MongoDB connections are reused within a warm function instance. Email delivery
+also depends on the SMTP provider permitting outbound connections from Vercel
+and on staying within the provider's free-tier limits.
 
 ---
 
