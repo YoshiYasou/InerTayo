@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm ci && npm --prefix client ci --include=dev && npm run build",
+  "outputDirectory": "client/dist",
+  "rewrites": [
+    {
+      "source": "/:path((?!api(?:/|$)).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

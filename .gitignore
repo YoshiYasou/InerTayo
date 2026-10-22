@@ -8,3 +8,4 @@ database.sqlite
 *.sqlite-wal
 *.sqlite-shm
 coverage/
+.vercel

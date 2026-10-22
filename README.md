@@ -98,6 +98,39 @@ which can prevent verification and password emails from being sent.
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
 
+### Deploy to Vercel
+
+The Vercel configuration builds the Vite client as static files and runs the
+Express API through a serverless function. The frontend and `/api` stay on the
+same origin, so no separate frontend API URL is needed. Vercel deployments reuse
+the configured MongoDB database; they do not copy or migrate its data.
+
+1. Import this repository into Vercel and keep the repository root as the
+   project root. The included `vercel.json` supplies the build command and
+   static output directory.
+2. Add the required environment variables in the Vercel project settings for
+   each environment you intend to deploy:
+   - `MONGODB_URI` — the existing MongoDB connection string.
+   - `JWT_SECRET` — use the same value as Render if you want existing JWTs to
+     remain valid during the transition; otherwise set a new random secret,
+     which invalidates existing tokens.
+   - `GMAIL_USER` and `GMAIL_APP_PASSWORD` — optional; needed for admin
+     sign-in codes and password reset email.
+   - `ORS_API_KEY` — optional; enables external road/walking route services.
+   - `ORIGIN` — optional comma-separated list of additional allowed browser
+     origins, such as a custom domain. Vercel deployment URLs are allowed
+     automatically.
+3. In MongoDB Atlas, verify that its network-access rules allow connections
+   from Vercel. Vercel's outbound IPs can vary; prefer a supported static
+   egress/private networking option where available. If you must use a broad
+   Atlas IP rule, use a least-privilege database user and strong credentials.
+4. Deploy a preview and verify the frontend, API, database-backed pages, and
+   email flows before assigning a production domain or moving traffic. Keep the
+   Render service running until the Vercel deployment is validated.
+
+Vercel's serverless functions can scale independently and may go idle between
+requests. MongoDB connections are reused within a warm function instance.
+
 ### Deploy to Render
 
 The repository includes a Render Blueprint in `render.yaml`. In Render, create a
