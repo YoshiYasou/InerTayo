@@ -2,50 +2,68 @@
 
 const nodemailer = require('nodemailer');
 
-let smtpTransporter;
-let smtpTransporterConfig;
-
-function getSmtpTransporter(config) {
-    const configKey = JSON.stringify(config);
-    if (smtpTransporter && smtpTransporterConfig !== configKey) {
-        smtpTransporter.close();
-        smtpTransporter = null;
-    }
-    if (!smtpTransporter) {
-        smtpTransporter = nodemailer.createTransport({
-            ...config,
-            pool: true,
-            maxConnections: 2,
-            maxMessages: 100,
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 20000
-        });
-        smtpTransporterConfig = configKey;
-    }
-    return smtpTransporter;
-}
-
 async function sendEmail({ to, subject, text }) {
-    const user = process.env.GMAIL_USER?.trim();
-    const password = process.env.GMAIL_APP_PASSWORD;
-    if (!user || !password) {
-        throw new Error('Gmail delivery requires GMAIL_USER and GMAIL_APP_PASSWORD.');
+    const resendApiKey = process.env.RESEND_API_KEY?.trim();
+    const resendFrom = process.env.RESEND_FROM?.trim();
+
+    if (resendApiKey || resendFrom) {
+        if (!resendApiKey || !resendFrom) {
+            throw new Error('Resend requires both RESEND_API_KEY and RESEND_FROM.');
+        }
+
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${resendApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ from: resendFrom, to: [to], subject, text })
+        });
+
+        if (!response.ok) {
+            let providerError = {};
+            try {
+                providerError = await response.json();
+            } catch {
+                providerError = {};
+            }
+            const providerMessage = typeof providerError.message === 'string'
+                ? providerError.message.slice(0, 400)
+                : 'No error detail returned by provider.';
+            const providerCode = typeof providerError.name === 'string'
+                ? providerError.name.slice(0, 80)
+                : 'unknown_error';
+            const diagnostic = `HTTP ${response.status} (${providerCode}): ${providerMessage}`;
+            console.error(`[AUTH] Resend rejected email: ${diagnostic}`);
+            throw new Error(`Resend rejected the email: ${diagnostic}`);
+        }
+        return;
     }
 
-    const transporter = getSmtpTransporter({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true,
-        auth: { user, pass: password }
-    });
+    const hasGmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+    const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    if (!hasGmail && !hasSmtp) {
+        throw new Error('Email delivery is not configured.');
+    }
 
-    await transporter.sendMail({
-        from: `InerTayo <${user}>`,
-        to,
-        subject,
-        text
-    });
+    const transporter = hasGmail
+        ? nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
+        })
+        : nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: Number(process.env.SMTP_PORT) || 587,
+            secure: Number(process.env.SMTP_PORT) === 465,
+            auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+        });
+    const from = hasGmail
+        ? `InerTayo <${process.env.GMAIL_USER}>`
+        : (process.env.SMTP_FROM || `InerTayo <${process.env.SMTP_USER}>`);
+
+    await transporter.sendMail({ from, to, subject, text });
 }
 
 module.exports = { sendEmail };

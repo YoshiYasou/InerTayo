@@ -7,7 +7,6 @@ const path = require('path');
 const { connectDB, disconnectDB } = require('../db/connection');
 const Route = require('../models/Route');
 const Stop = require('../models/Stop');
-const { expandStopAssignments } = require('../utils/stopAssignments');
 const TransportMode = require('../models/TransportMode');
 const { auditRoadGeometry, getLineStringCoordinates } = require('../utils/routeGeometryAudit');
 const { pathLengthMeters } = require('../utils/geoUtils');
@@ -116,11 +115,11 @@ async function fixRoutes({ apply = false } = {}) {
     try {
         const [routes, stops, modes] = await Promise.all([
             Route.find().sort({ id: 1 }).lean(),
-            Stop.find().lean(),
+            Stop.find().sort({ route_id: 1, stop_order: 1 }).lean(),
             TransportMode.find().lean()
         ]);
         const stopsByRoute = new Map();
-        for (const stop of expandStopAssignments(stops).filter(item => item.route_id !== null)) {
+        for (const stop of stops) {
             if (!stopsByRoute.has(stop.route_id)) stopsByRoute.set(stop.route_id, []);
             stopsByRoute.get(stop.route_id).push(stop);
         }

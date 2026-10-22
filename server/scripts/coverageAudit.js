@@ -10,7 +10,6 @@
 
 const { connectDB } = require('../db/connection');
 const Stop = require('../models/Stop');
-const { expandStopAssignments } = require('../utils/stopAssignments');
 const Route = require('../models/Route');
 const TransportMode = require('../models/TransportMode');
 const School = require('../models/School');
@@ -52,10 +51,10 @@ async function main() {
     console.log('='.repeat(80));
 
     // Load all stops with lat/lng
-    const allStops = expandStopAssignments(await Stop.find({
+    const allStops = await Stop.find({
         latitude: { $ne: null },
         longitude: { $ne: null }
-    }).lean()).filter(stop => stop.route_id !== null);
+    }).lean();
 
     // Load all routes with geometry
     const [routes, modes, boatDetails] = await Promise.all([

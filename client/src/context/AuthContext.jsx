@@ -54,7 +54,9 @@ export function AuthProvider({ children }) {
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed.');
+    if (!res.ok) {
+      throw new Error(data.error || 'Login failed.');
+    }
     if (data.verificationRequired === 'admin') return data;
     localStorage.setItem('inertayo_token', data.token);
     setToken(data.token);

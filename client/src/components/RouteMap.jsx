@@ -15,6 +15,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Bike, Bus, CarFront, Ship } from 'lucide-react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -28,17 +30,6 @@ import markerIcon   from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
-
-const PHILIPPINES_ARCHIPELAGO_OUTLINE = [
-  [21.5, 121.3], [21.6, 122.5], [20.9, 123.6], [19.5, 124.5],
-  [18.5, 126.7], [17.2, 127.3], [15.2, 127.3], [13.2, 127.2],
-  [11.0, 127.1], [8.8, 127.0], [6.7, 126.7], [5.2, 126.0],
-  [4.3, 124.7], [4.3, 122.7], [4.7, 121.0], [5.5, 120.0],
-  [6.4, 119.6], [7.4, 118.3], [8.5, 116.7], [9.7, 116.5],
-  [10.8, 117.0], [11.8, 117.8], [12.6, 118.8], [13.4, 119.1],
-  [14.5, 119.2], [15.7, 119.1], [16.8, 118.9], [18.1, 118.9],
-  [19.2, 119.4], [20.2, 120.1], [21.0, 120.8],
-];
 
 // ─── Visual encoding constants (Step 5) ────────────────────────────────────
 const MODE_COLORS = {
@@ -152,18 +143,37 @@ const ZOOM_TIER3_MIN      = 16; // ≥16: stops unclustered + landmarks
 const CLUSTER_MAX_ZOOM    = 15; // clustering disabled above this zoom
 
 // ─── DivIcon factories ─────────────────────────────────────────────────────
-function stopDivIcon() {
+const STOP_MODE_ICONS = {
+  tricycle: renderToStaticMarkup(React.createElement(Bike, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  jeepney: renderToStaticMarkup(React.createElement(CarFront, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  bus: renderToStaticMarkup(React.createElement(Bus, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+  boat: renderToStaticMarkup(React.createElement(Ship, { size: 13, strokeWidth: 2.5, color: '#fff' })),
+};
+
+function stopDivIcon(color, mode, label, size = 24) {
+  const normalizedMode = String(mode || '').toLowerCase();
+  const modeKey = normalizedMode.includes('tricycle') ? 'tricycle'
+    : normalizedMode.includes('boat') ? 'boat'
+      : normalizedMode.includes('bus') || normalizedMode.includes('provincial') || normalizedMode.includes('modern') ? 'bus'
+        : 'jeepney';
+  const labelText = String(label ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+
   return L.divIcon({
     className: '',
-    html: `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">
-      <circle cx="18" cy="18" r="16" fill="#fff" stroke="#d1d5db" stroke-width="1"/>
-      <g transform="translate(6 4) scale(.67)">
-        <path d="M5 5h26v5H5zM8 12h20v14h4v3h-2v3a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2H12v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-3H4v-3h4z"
-          fill="#6b6b6b" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>
-        <circle cx="12" cy="20" r="3" fill="#fff"/><circle cx="24" cy="20" r="3" fill="#fff"/>
-      </g>
-    </svg>`,
-    iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -17],
+    html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;
+      background:${color};border:2.5px solid #fff;
+      box-shadow:0 1px 4px rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;">${STOP_MODE_ICONS[modeKey]}
+      <span style="position:absolute;right:-5px;bottom:-4px;min-width:10px;height:10px;
+        padding:0 2px;border:1px solid #fff;border-radius:6px;background:#0f172a;
+        color:#fff;font:700 7px/10px system-ui,sans-serif;text-align:center;">${labelText}</span></div>`,
+    iconSize: [size + 4, size + 4], iconAnchor: [(size + 4) / 2, (size + 4) / 2], popupAnchor: [0, -size / 2],
   });
 }
 
@@ -308,31 +318,12 @@ function routePopupHtml(props) {
 }
 
 function stopPopupHtml(props) {
-  const routes = (props.jeepneyRoutes || [])
-    .map(route => `<div style="font-size:11px;color:#334155">${escapeHtml(route.name)}</div>`)
-    .join('');
+  const tag = props.is_origin ? '(Start)' : props.is_terminus ? '(Terminus)' : props.is_transfer ? '(Transfer)' : `#${props.stop_order}`;
   return `<div style="font-family:sans-serif;min-width:160px">
-    <div style="font-size:10px;font-weight:bold;color:#64748b">JEEPNEY STOP</div>
-    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${escapeHtml(props.stop_name)}</div>
-    ${routes}
+    <div style="font-size:10px;font-weight:bold;color:${props.color}">${props.mode} STOP ${tag}</div>
+    <div style="font-size:12px;font-weight:bold;color:#0f172a;margin:2px 0">${props.stop_name}</div>
+    <div style="font-size:11px;color:#64748b">${props.route_name}</div>
   </div>`;
-}
-
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[character]);
-}
-
-function stopIdentity(feature) {
-  const id = feature.properties?.id;
-  if (id != null) return `id:${id}`;
-  const [lng, lat] = feature.geometry.coordinates;
-  return `location:${feature.properties?.stop_name || ''}:${lat}:${lng}`;
 }
 
 function schoolPopupHtml(props, onSelect) {
@@ -363,9 +354,6 @@ function LayerManager({
   selectedRouteId,
   setSelectedRouteId,
   routeOnly,
-  showRouteLines = true,
-  clipToPhilippines,
-  emphasizeFocusedRoute,
   focusedRouteSource,
   locations = [],
   focusedRouteFeature = null,
@@ -409,45 +397,6 @@ function LayerManager({
     return () => { clearTimeout(t1); clearTimeout(t2); if (ro) ro.disconnect(); };
   }, [map]);
 
-  useEffect(() => {
-    if (!clipToPhilippines) return undefined;
-
-    const container = map.getContainer();
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    const maskPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    svg.style.position = 'absolute';
-    svg.style.inset = '0';
-    svg.style.width = '100%';
-    svg.style.height = '100%';
-    svg.style.zIndex = '450';
-    svg.style.pointerEvents = 'none';
-    maskPath.setAttribute('fill', '#f1f5f9');
-    maskPath.setAttribute('fill-rule', 'evenodd');
-    svg.appendChild(maskPath);
-    container.appendChild(svg);
-
-    const updateMask = () => {
-      const size = map.getSize();
-      svg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
-      const firstPoint = map.latLngToContainerPoint(PHILIPPINES_ARCHIPELAGO_OUTLINE[0]);
-      const path = [`M${firstPoint.x} ${firstPoint.y}`];
-      PHILIPPINES_ARCHIPELAGO_OUTLINE.slice(1).forEach(([latitude, longitude]) => {
-        const point = map.latLngToContainerPoint([latitude, longitude]);
-        path.push(`L${point.x} ${point.y}`);
-      });
-      path.push('Z');
-      const outside = `M0 0H${size.x}V${size.y}H0Z`;
-      maskPath.setAttribute('d', `${outside}${path.join('')}`);
-    };
-
-    map.on('move zoomend resize viewreset', updateMask);
-    updateMask();
-    return () => {
-      map.off('move zoomend resize viewreset', updateMask);
-      svg.remove();
-    };
-  }, [clipToPhilippines, map]);
-
   // ── Fetch all GeoJSON data once ─────────────────────────────────────────
   useEffect(() => {
     const layers = ['jeepneys', 'buses', 'tricycles', 'boats', 'stops', 'schools', 'landmarks', 'flood-zones'];
@@ -466,7 +415,7 @@ function LayerManager({
   useEffect(() => {
     buildAllLayers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, showRouteLines, clipToPhilippines, emphasizeFocusedRoute, focusedRouteSource, geoDataLoaded]);
+  }, [activeFilter, showLandmarks, showLocations, showSchools, showAdvisories, locations, showStopClusterCounts, selectedRouteId, routeOnly, focusedRouteSource, geoDataLoaded]);
 
   // ── Zoom listener (LOD Step 3) ──────────────────────────────────────────
   useEffect(() => {
@@ -547,7 +496,6 @@ function LayerManager({
 
     // During an active journey, only show route lines of modes involved
     for (const key of modeKeys) {
-      if (!showRouteLines) continue;
       const data = geo[key];
       const focusedMode = String(focusedRouteFeature?.properties.mode_name || focusedRouteFeature?.properties.mode || '').toLowerCase();
       const features = routeOnly
@@ -614,32 +562,6 @@ function LayerManager({
       }).addTo(map);
 
       features.forEach((feature) => {
-        if (
-          emphasizeFocusedRoute &&
-          focusedRouteFeature &&
-          String(feature.properties.id) === String(focusedRouteFeature.properties.id)
-        ) {
-          const coordinates = feature.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]);
-          L.polyline(coordinates, {
-            renderer: L.canvas(),
-            color: '#ffffff',
-            weight: 12,
-            opacity: 0.95,
-            lineCap: 'round',
-            lineJoin: 'round',
-            interactive: false,
-          }).addTo(layerGroup);
-          L.polyline(coordinates, {
-            renderer: L.canvas(),
-            color: feature.properties.style?.color || modeColor(feature.properties.mode),
-            weight: 7,
-            opacity: 1,
-            lineCap: 'round',
-            lineJoin: 'round',
-            interactive: false,
-          }).addTo(layerGroup);
-        }
-
         (feature.properties.route_path_segments || []).forEach((segment) => {
           let segmentGeometry = segment.geometry;
           if (typeof segmentGeometry === 'string') {
@@ -807,7 +729,6 @@ function LayerManager({
       refs.routeEndpointGroup.remove();
       refs.routeEndpointGroup = null;
     }
-    if (!showRouteLines) return;
 
     let feature = focusedRouteFeature;
     if (!feature && selectedRouteId !== null) {
@@ -858,50 +779,30 @@ function LayerManager({
     if (!showAll) return; // don't even build below LOD threshold
     if (!geo.stops?.features?.length) return;
 
-    const visibleStops = new Map();
     geo.stops.features.forEach(f => {
       const props = f.properties;
       const [lng, lat] = f.geometry.coordinates;
 
-      if (forceRouteId && String(props.route_id) !== String(forceRouteId)) return;
+        if (forceRouteId && props.route_id !== forceRouteId) return;
 
       // Filter by active mode
       if (activeFilter !== 'ALL' && activeFilter !== 'FLOOD') {
         const keyword = activeFilter.toLowerCase().replace('jeepney', 'jeep').replace('bus', 'bus').replace('tricycle', 'tricycle').replace('boat', 'boat');
-        if (!String(props.mode || '').toLowerCase().includes(keyword)) return;
+        if (!props.mode.toLowerCase().includes(keyword)) return;
       }
 
-      const key = stopIdentity(f);
-      if (!visibleStops.has(key)) visibleStops.set(key, f);
-    });
-
-    visibleStops.forEach(f => {
-      const props = f.properties;
-      const [lng, lat] = f.geometry.coordinates;
-      const jeepneyRoutes = [...new Map(
-        geo.stops.features
-          .filter(feature =>
-            stopIdentity(feature) === stopIdentity(f) &&
-            /jeepney/i.test(feature.properties.mode || '')
-          )
-          .map(feature => [String(feature.properties.route_id), {
-            id: feature.properties.route_id,
-            name: feature.properties.route_name,
-          }])
-      ).values()];
+      const size = (props.is_origin || props.is_terminus) ? 24 : props.is_transfer ? 22 : 20;
+      const bg   = props.is_origin   ? '#059669'
+                 : props.is_terminus ? '#e11d48'
+                 : props.is_transfer ? '#0f172a'
+                 : props.color;
 
       const marker = L.marker([lat, lng], {
-        icon: stopDivIcon(),
+        icon: stopDivIcon(bg, props.vehicle_type || props.mode, props.label, size),
         zIndexOffset: 100,
       });
-      marker.bindPopup(stopPopupHtml({ ...props, jeepneyRoutes }));
-      marker.on('click', () => {
-        onSelect?.('stop', {
-          ...props,
-          routeName: props.route_name,
-          jeepneyRoutes,
-        });
-      });
+      marker.bindPopup(stopPopupHtml(props));
+      marker.on('click', () => onSelect?.('stop', { ...props, routeName: props.route_name }));
       cluster.addLayer(marker);
     });
 
@@ -1179,9 +1080,6 @@ export default function RouteMap({
   selectedJourney = null,
   selectedRouteId: controlledSelectedRouteId = null,
   routeOnly = false,
-  showRouteLines = true,
-  clipToPhilippines = false,
-  emphasizeFocusedRoute = false,
   locations     = [],
   showAdvisories = true,
   interactive   = true,
@@ -1237,9 +1135,6 @@ export default function RouteMap({
           showAdvisories={showAdvisories}
           selectedJourney={selectedJourney}
           routeOnly={routeOnly}
-          showRouteLines={showRouteLines}
-          clipToPhilippines={clipToPhilippines}
-          emphasizeFocusedRoute={emphasizeFocusedRoute}
           onSelect={onSelect}
           selectedRouteId={selectedRouteId}
           setSelectedRouteId={setSelectedRouteId}

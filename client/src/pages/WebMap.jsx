@@ -401,8 +401,6 @@ export default function WebMap() {
                 : selectedJourney}
               selectedRouteId={queryParams?.route || (selectedItem?.type === 'route' ? selectedItem.data.id : null)}
               routeOnly={Boolean(queryParams?.route)}
-              showRouteLines={Boolean(queryParams?.route)}
-              clipToPhilippines
               allowUnverifiedPreview={queryParams?.route ? Boolean(focusedRoute?.geometry_needs_review) : selectedItem?.type === 'route' && Boolean(selectedItem.data.geometry_needs_review)}
               locations={locations}
               showAdvisories={true}
@@ -425,7 +423,7 @@ export default function WebMap() {
           )}
 
           {/* Non-route map selections remain as compact map overlays. */}
-          {selectedItem && !['route', 'stop'].includes(selectedItem.type) && (
+          {selectedItem && selectedItem.type !== 'route' && (
             <div className="absolute bottom-16 lg:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-200/90 z-20 animate-in fade-in slide-in-from-bottom-4">
               <div className="flex min-h-11 items-center justify-between gap-3 mb-2">
                 <span className="text-[10px] font-bold uppercase leading-tight tracking-wider text-slate-400">
@@ -484,17 +482,10 @@ export default function WebMap() {
                     {selectedItem.data.stop_name}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">{selectedItem.data.description || 'Designated boarding and transfer point.'}</p>
-                  {selectedItem.data.jeepneyRoutes?.length > 0 ? (
+                  {selectedItem.routeName && (
                     <div className="mt-2 text-xs text-slate-600">
-                      <div className="font-medium text-slate-500">Jeepney routes:</div>
-                      <ul className="mt-1 space-y-0.5">
-                        {selectedItem.data.jeepneyRoutes.map(route => (
-                          <li key={route.id} className="font-semibold text-slate-800">{route.name}</li>
-                        ))}
-                      </ul>
+                      Route: <span className="font-semibold text-slate-800">{selectedItem.routeName}</span>
                     </div>
-                  ) : (
-                    <div className="mt-2 text-xs text-slate-500">No jeepney routes listed for this stop.</div>
                   )}
                 </div>
               )}

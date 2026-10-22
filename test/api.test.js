@@ -7,7 +7,6 @@ const app = require('../server/server');
 const { seed } = require('../server/db/seed');
 const { getCache } = require('../server/cache/mapLayerCache');
 const Route = require('../server/models/Route');
-const User = require('../server/models/User');
 const { auditRoadGeometry } = require('../server/utils/routeGeometryAudit');
 const { isTestOrSampleRoute } = require('../server/scripts/fixRoutes');
 
@@ -366,11 +365,10 @@ async function runTests() {
         assert(
             regRes.status === 201 && regRes.data.token && regRes.data.user?.role === 'COMMUTER' &&
                 !regRes.data.verificationRequired,
-            'New commuter registration creates an immediately usable account without email verification'
+            'New commuter registration creates an immediately usable account without an email code'
         );
         const removedSignupVerification = await makeRequest('POST', '/api/auth/verify-email', {
-            email: 'test@dagupan.ph',
-            code: '123456'
+            email: 'test@dagupan.ph'
         });
         const removedSignupResend = await makeRequest('POST', '/api/auth/resend-verification', {
             email: 'test@dagupan.ph'
@@ -379,7 +377,6 @@ async function runTests() {
             removedSignupVerification.status === 404 && removedSignupResend.status === 404,
             'Commuter email verification and resend endpoints are removed'
         );
-        await User.updateOne({ id: regRes.data.user.id }, { $set: { email_verified: false } });
         const immediateCommuterLogin = await makeRequest('POST', '/api/auth/login', {
             username: 'testcommuter',
             password: 'Password123!'
@@ -387,7 +384,7 @@ async function runTests() {
         assert(
             immediateCommuterLogin.status === 200 && immediateCommuterLogin.data.token &&
                 immediateCommuterLogin.data.user.role === 'COMMUTER',
-            'New and previously unverified commuters can sign in without an email code'
+            'New commuter can sign in without email verification'
         );
         const commuterToken = regRes.data.token;
 
@@ -663,10 +660,7 @@ async function runTests() {
             email: 'commuterb@dagupan.ph',
             password: 'CommuterB123!'
         });
-        assert(
-            regB.status === 201 && regB.data.token,
-            'Commuter B can register without email verification (BOLA test setup)'
-        );
+        assert(regB.status === 201 && regB.data.token, 'Commuter B can register without email verification (BOLA test setup)');
         const userB = regB.data.user;
 
         // Attack: Commuter A (defaultCommuterToken) requests Commuter B's saved routes
@@ -941,37 +935,19 @@ async function runTests() {
         assert(emptyAdminStops.status === 200 && emptyAdminStops.data.length === 0, 'Admin stop list starts empty after transit stops are cleared');
         await makeRequest('GET', '/api/map/layers/stops');
 
-        const invalidStopColor = await makeRequest('POST', '/api/admin/stops', {
-            route_id: 1,
-            stop_name: 'Invalid Color Test Stop',
-            stop_order: 1,
-            vehicle_type: 'tricycle',
-            stop_color: 'red',
-            latitude: 16.0435,
-            longitude: 120.334
-        }, adminAuthHeaders);
-        assert(invalidStopColor.status === 400, 'Stop marker colors must be valid 6-digit hex values');
-
         const createdStop = await makeRequest('POST', '/api/admin/stops', {
-            route_ids: [1],
+            route_id: 1,
             stop_name: 'Admin CRUD Test Stop',
+            stop_order: 1,
             description: 'Temporary API test stop.',
             vehicle_type: 'tricycle',
-            stop_color: '#7c3aed',
             is_transfer_point: 0,
             latitude: 16.0435,
             longitude: 120.334
-        }, adminAuthHeaders);
+        }, { 'Authorization': `Bearer ${adminToken}` });
         assert(
             createdStop.status === 201 && createdStop.data.stopId && getCache('layer:stops') === null,
             'Creating a route stop invalidates the cached client map layer'
-        );
-        const createdStopsOnRoute = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
-        const createdStopLayer = await makeRequest('GET', '/api/map/layers/stops');
-        assert(
-            createdStopsOnRoute.data[0]?.stop_color === '#7c3aed' &&
-                createdStopLayer.data.features.find(feature => feature.properties.id === createdStop.data.stopId)?.properties.stop_color === '#7c3aed',
-            'Custom stop marker color persists and is included in map features'
         );
 
         const updatedStop = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
@@ -980,7 +956,6 @@ async function runTests() {
             stop_order: 1,
             description: 'Updated temporary API test stop.',
             vehicle_type: 'boat',
-            stop_color: '#f59e0b',
             is_transfer_point: 1,
             latitude: 16.044,
             longitude: 120.337
@@ -992,36 +967,8 @@ async function runTests() {
             updatedStop.status === 200 && movedRouteStops.data.length === 1 &&
                 movedRouteStops.data[0].stop_name === 'Admin CRUD Test Stop Updated' &&
                 movedRouteStops.data[0].stop_order === 1 &&
-                movedRouteStops.data[0].vehicle_type === 'boat' &&
-                movedRouteStops.data[0].stop_color === '#f59e0b',
+                movedRouteStops.data[0].vehicle_type === 'boat',
             'Admin edits and reassigns route stops while preserving sequential order'
-        );
-
-        const sharedStopAssignment = await makeRequest('PUT', `/api/admin/stops/${createdStop.data.stopId}`, {
-            route_ids: [1, 2],
-            stop_name: 'Admin CRUD Test Stop Updated',
-            description: 'Updated temporary API test stop.',
-            vehicle_type: 'boat',
-            stop_color: '#f59e0b',
-            is_transfer_point: 1,
-            latitude: 16.044,
-            longitude: 120.337
-        }, adminAuthHeaders);
-        const sharedRouteOneStops = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
-        const sharedRouteTwoStops = await makeRequest('GET', '/api/admin/routes/2/stops', null, adminAuthHeaders);
-        assert(
-            sharedStopAssignment.status === 200 &&
-                sharedRouteOneStops.data.some(stop => stop.id === createdStop.data.stopId) &&
-                sharedRouteTwoStops.data.some(stop => stop.id === createdStop.data.stopId),
-            'A shared stop can be assigned to multiple routes without duplicating its catalog record'
-        );
-
-        const removedStopAssignment = await makeRequest('DELETE', `/api/admin/stops/${createdStop.data.stopId}?route_id=2`, null, adminAuthHeaders);
-        const remainingSharedRouteStops = await makeRequest('GET', '/api/admin/routes/1/stops', null, adminAuthHeaders);
-        assert(
-            removedStopAssignment.status === 200 &&
-                remainingSharedRouteStops.data.some(stop => stop.id === createdStop.data.stopId),
-            'Removing a shared stop from one route preserves its other route assignments'
         );
 
         const deletedStop = await makeRequest('DELETE', `/api/admin/stops/${createdStop.data.stopId}`, null, {

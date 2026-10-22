@@ -84,17 +84,7 @@ PORT=5000
 # Optional — CORS frontend origins (defaults to http://localhost:3000,http://localhost:5173)
 # The local server origin (PORT, default 5000) is also allowed.
 ORIGIN=http://localhost:3000
-
-# Email delivery is used for admin sign-in codes and password resets
-GMAIL_USER=your-address@gmail.com
-GMAIL_APP_PASSWORD=your-16-character-google-app-password
 ```
-
-For Gmail delivery, enable 2-Step Verification and create a Google App Password.
-The sender uses `GMAIL_USER` and `GMAIL_APP_PASSWORD` directly; no provider
-selector or separate SMTP settings are required. The host must allow outbound
-connections to Gmail SMTP on port 465. Render free services may restrict SMTP,
-which can prevent verification and password emails from being sent.
 
 > **Tip:** If you are using MongoDB Atlas, remember to replace `<username>` and `<password>` with your database user credentials, add your current IP address (or `0.0.0.0/0`) in Atlas **Network Access**, and specify the database name `/inertayo` in the connection path.
 
@@ -120,10 +110,9 @@ Before deploying:
 
 The Blueprint uses Render's free instance tier, which may spin down when idle
 and feel slow on the first request after inactivity. Upgrade the instance in
-Render if you need consistently responsive production access. Configure
-`GMAIL_USER` and `GMAIL_APP_PASSWORD` on a host/plan that permits outbound Gmail
-SMTP for administrator sign-in codes and password resets. Commuter signup does
-not send a verification email.
+Render if you need consistently responsive production access. Configure Gmail
+or SMTP environment variables in Render if the password-reset email feature is
+needed.
 
 ---
 

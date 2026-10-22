@@ -1,23 +1,22 @@
-import React, { lazy, Suspense } from 'react';
+import React from 'react';
 import { useRouter } from './context/RouterContext';
-import { useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import AuthModal from './components/AuthModal';
 
-const AuthModal = lazy(() => import('./components/AuthModal'));
-const Home = lazy(() => import('./pages/Home'));
-const RoutesDirectory = lazy(() => import('./pages/RoutesDirectory'));
-const RouteDetails = lazy(() => import('./pages/RouteDetails'));
-const FareCalculator = lazy(() => import('./pages/FareCalculator'));
-const About = lazy(() => import('./pages/About'));
-const WebMap = lazy(() => import('./pages/WebMap'));
-const Admin = lazy(() => import('./pages/Admin'));
-const SavedRoutes = lazy(() => import('./pages/SavedRoutes'));
-const Terms = lazy(() => import('./pages/Terms'));
+// Pages
+import Home from './pages/Home';
+import RoutesDirectory from './pages/RoutesDirectory';
+import RouteDetails from './pages/RouteDetails';
+import FareCalculator from './pages/FareCalculator';
+import About from './pages/About';
+import WebMap from './pages/WebMap';
+import Admin from './pages/Admin';
+import SavedRoutes from './pages/SavedRoutes';
+import Terms from './pages/Terms';
 
 export default function App() {
   const { currentPath, queryParams } = useRouter();
-  const { authModalOpen } = useAuth();
 
   // Simple client-side page router
   const renderPage = () => {
@@ -59,16 +58,10 @@ export default function App() {
     <div className="flex flex-col min-h-screen bg-white selection:bg-emerald-100 selection:text-emerald-900">
       {!isEmbeddedTerms && <Navbar />}
       <main className="flex-1 flex flex-col">
-        <Suspense fallback={<div className="min-h-[50vh] flex-1" aria-label="Loading page" />}>
-          {renderPage()}
-        </Suspense>
+        {renderPage()}
       </main>
       {!isMapPage && !isEmbeddedTerms && <Footer />}
-      {!isEmbeddedTerms && authModalOpen && (
-        <Suspense fallback={null}>
-          <AuthModal />
-        </Suspense>
-      )}
+      {!isEmbeddedTerms && <AuthModal />}
     </div>
   );
 }
